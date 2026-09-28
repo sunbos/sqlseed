@@ -118,6 +118,53 @@ test('required parameters and integral numeric fields reject incomplete drafts',
   assert.equal(ui.changes.at(-1).params.min_value, 2);
 });
 
+for (const [generator, low, high, type] of [['integer','min_value','max_value','integer'], ['float','min_value','max_value','number'], ['string','min_length','max_length','integer']]) {
+  test(`${generator} keeps reversed bounds as an invalid editable draft and permits an equal closed range`, async () => {
+    const rangeCatalog = {entries:[{id:generator,params:[parameter(low,type,0),parameter(high,type,100)]}]};
+    const ui = harness({catalog:rangeCatalog,rule:{generator,params:{[low]:1,[high]:10}}});
+    await ui.input(low,'20');
+    assert.equal(ui.changes.length,0); assert.match(ui.validity.at(-1),/不能大于/);
+    for(const name of [low,high]) {
+      assert.equal(ui.field(name).getAttribute('aria-invalid'),'true');
+      assert.match(ui.document.getElementById(ui.field(name).getAttribute('aria-describedby')).textContent,/不能大于/);
+    }
+    const draft=plain(ui.editor.getDraft());
+    assert.equal(draft.config.params[low],1);assert.equal(draft.current.params[low],20);
+    assert.equal(draft.invalidValues[low],'20');
+    const reopened=harness({catalog:rangeCatalog,draft});
+    assert.match(reopened.validity.at(-1),/不能大于/);assert.equal(reopened.field(low).value,'20');
+    await reopened.input(high,'20');
+    assert.equal(reopened.validity.at(-1),null);assert.equal(reopened.field(low).getAttribute('aria-invalid'),null);
+    assert.equal(reopened.field(high).getAttribute('aria-describedby'),null);
+    assert.equal(reopened.changes.at(-1).params[high],20);
+    assert.deepEqual(plain(reopened.editor.getDraft()).invalidValues,{});
+  });
+}
+
+test('range validation uses omitted metadata defaults, skips overridden native methods and clears after generator changes',async()=>{
+  const ui=harness({rule:{generator:'integer',params:{min_value:1000000}}});
+  assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.input('max_value','1000000');assert.equal(ui.validity.at(-1),null);
+  await ui.input('max_value','');assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.input('faker_method','random_int');assert.equal(ui.validity.at(-1),null);
+  await ui.input('faker_method','');assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.choose('generator','string');assert.equal(ui.validity.at(-1),null);
+  assert.equal(ui.changes.at(-1).generator,'string');
+});
+
+test('time bounds reject reverse windows only when active, while reversed dates keep the existing normalization contract',async()=>{
+  const dateCatalog={entries:[{id:'datetime',params:[parameter('start_date','string',null),parameter('end_date','string',null),
+    parameter('start_time','string',null),parameter('end_time','string',null),parameter('all_day','boolean',false)]}]};
+  const ui=harness({catalog:dateCatalog,rule:{generator:'datetime',params:{start_date:'2026-12-31',end_date:'2026-01-01',start_time:'20:00',end_time:'10:00'}}});
+  assert.match(ui.validity.at(-1),/不能大于/);
+  assert.equal(ui.field('start_date').getAttribute('aria-invalid'),null);
+  await ui.input('all_day',true,'change');assert.equal(ui.validity.at(-1),null);
+  assert.equal(ui.field('start_time').getAttribute('aria-invalid'),null);
+  await ui.input('all_day',false,'change');assert.match(ui.validity.at(-1),/不能大于/);
+  await ui.input('end_time','20:00:00');assert.equal(ui.validity.at(-1),null);
+  assert.equal(ui.changes.at(-1).params.start_time,'20:00');
+});
+
 test('NOT NULL and single-column uniqueness override drafts while composite PK does not imply unique', async () => {
   const ui = harness({
     column: {nullable: false, is_primary_key: true},
@@ -204,6 +251,31 @@ test('weekday metadata uses semantic controls and retains an explicit selection'
   assert.equal(ui.changes.at(-1).params.weekdays, 'workdays');
   await ui.choose('weekdays', '每天');
   assert.deepEqual(ui.changes.at(-1).params, {weekdays: 'all'});
+});
+
+test('empty custom weekdays expose an invalid group and recover through selection or a preset', async () => {
+  const ui = harness({rule: {generator: 'date', params: {weekdays: []}}});
+  const group = ui.editor.el.querySelector('.wb-weekday-options');
+  assert.equal(group.getAttribute('role'), 'group');
+  assert.equal(group.getAttribute('aria-label'), '可生成的星期');
+  assert.equal(group.getAttribute('aria-invalid'), 'true');
+  assert.match(ui.validity.at(-1), /至少选择一天/);
+  assert.equal(ui.changes.length, 0);
+
+  await ui.input('weekday-1', true, 'change');
+  assert.equal(group.getAttribute('aria-invalid'), null);
+  assert.equal(ui.validity.at(-1), null);
+  assert.deepEqual(ui.changes.at(-1).params.weekdays, [1]);
+  const count = ui.changes.length;
+  await ui.input('weekday-1', false, 'change');
+  assert.equal(group.getAttribute('aria-invalid'), 'true');
+  assert.equal(ui.changes.length, count);
+
+  await ui.choose('weekdays', '工作日');
+  assert.equal(group.hidden, true);
+  assert.equal(group.getAttribute('aria-invalid'), null);
+  assert.equal(ui.validity.at(-1), null);
+  assert.equal(ui.changes.at(-1).params.weekdays, 'workdays');
 });
 
 test('reset removes explicit override, restores baseline and cleans open dropdown listeners', async () => {

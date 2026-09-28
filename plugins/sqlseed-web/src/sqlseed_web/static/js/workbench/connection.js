@@ -2,10 +2,12 @@ import { cycleFocus } from "./focus.js";
 import { h, get, send, store, rememberConnId, setConnBadge, safeTargetLabel } from '../api.js';
 import { lockPageScroll } from './scroll-lock.js';
 let activeDialog = null;
+let dialogSequence = 0;
 
 /** The same target picker serves first use and connection switching. */
 export function openConnectionDialog({
-  onConnected
+  onConnected,
+  workbenchRequest = null
 } = {}) {
   function switchConnectionLabel(connection) {
     if (pendingOperation?.kind === 'switch' && pendingOperation.connId === connection.conn_id) {
@@ -34,9 +36,12 @@ export function openConnectionDialog({
   let pendingOperation = null;
   let connections = [];
   const fields = {};
+  const errorId = `connection-error-${++dialogSequence}`;
   const error = h('p', {
+    id: errorId,
     class: 'connection-error',
-    role: 'alert'
+    role: 'alert',
+    tabindex: '-1'
   });
   const notice = h('p', {
     class: 'connection-notice',
@@ -56,13 +61,8 @@ export function openConnectionDialog({
   });
   const subtitle = h('p', {
     class: 'muted'
-  }, '选择 SQLite 文件或连接 PostgreSQL，开始创建生成配置。');
-  const closeButton = h('button', {
-    class: 'close',
-    type: 'button',
-    'aria-label': '关闭连接窗口',
-    onclick: close
-  }, '×');
+  }, '选择已有的 SQLite 文件或连接 PostgreSQL，开始创建生成配置。');
+  const heading = h('h2', { tabindex: '-1' }, '连接数据库');
   const submit = h('button', {
     class: 'btn primary',
     type: 'button',
@@ -94,22 +94,24 @@ export function openConnectionDialog({
     }
   }, value === 'sqlite' ? 'SQLite' : 'PostgreSQL')));
   const overlay = h('div', {
-    class: 'overlay open connection-overlay',
+    class: 'overlay open wb-overlay connection-overlay',
     onclick: event => {
       if (event.target === overlay) {
         close();
       }
     }
   }, h('section', {
-    class: 'modal connection-modal',
+    class: 'modal wb-modal connection-modal',
     role: 'dialog',
     'aria-modal': 'true',
     'aria-label': '连接数据库'
   }, h('header', {
     class: 'modal-head'
-  }, h('h2', {}, '连接数据库'), closeButton), subtitle, existing, h('h3', {
+  }, heading), h('div', {
+    class: 'modal-body connection-body'
+  }, subtitle, existing, h('h3', {
     class: 'connection-add-title'
-  }, '添加连接'), choices, controls, browser, error, notice, h('footer', {
+  }, '添加连接'), choices, controls, browser, error, notice), h('footer', {
     class: 'modal-footer connection-footer'
   }, h('button', {
     class: 'btn',
@@ -149,7 +151,8 @@ export function openConnectionDialog({
       value,
       type,
       spellcheck: 'false',
-      autocomplete: type === 'password' ? 'current-password' : 'off'
+      autocomplete: type === 'password' ? 'current-password' : 'off',
+      oninput: () => clearFieldError(input)
     });
     fields[name] = input;
     return h('label', {
@@ -170,6 +173,7 @@ export function openConnectionDialog({
         }
       }, '选择文件'));
       fields.db_path.placeholder = '/path/to/database.sqlite3';
+      fields.db_path.classList.add('wb-code');
     } else {
       controls.replaceChildren(h('div', {
         class: 'connection-pair'
@@ -201,6 +205,16 @@ export function openConnectionDialog({
     }
     renderExisting();
   }
+  function finishOperation() {
+    setBusy();
+    // Disabling or replacing the submitting control can send browser focus to
+    // body. Recover only lost focus; do not interrupt a user on Cancel.
+    const focused = document.activeElement;
+    if (error.textContent && (!focused || focused === document.body ||
+      focused === document.documentElement || !focused.isConnected)) {
+      error.focus();
+    }
+  }
   function publish(connection) {
     store.connId = connection.conn_id;
     const target = connection.target_label || connection.target;
@@ -209,7 +223,9 @@ export function openConnectionDialog({
     rememberConnId(connection.conn_id);
     setConnBadge();
     close();
-    window.dispatchEvent(new Event('sqlseed:connection-changed'));
+    window.dispatchEvent(new CustomEvent('sqlseed:connection-changed', {
+      detail: {workbenchRequest}
+    }));
     onConnected?.({
       conn_id: store.connId,
       target_label: safeTargetLabel(store.target),
@@ -217,15 +233,17 @@ export function openConnectionDialog({
     });
   }
   function payload() {
+    Object.values(fields).forEach(clearFieldError);
     if (kind === 'sqlite') {
       const dbPath = fields.db_path.value.trim();
       if (!dbPath) {
-        throw new Error('请选择或输入数据库文件路径。');
+        invalidFields(['db_path'], '请选择或输入数据库文件路径。');
       }
       // A connection is an adapter target. Generator defaults belong to the
       // document; BaseProvider keeps connecting independent of optional extras.
       return {
         db_path: dbPath,
+        require_existing: true,
         provider: 'base'
       };
     }
@@ -234,16 +252,30 @@ export function openConnectionDialog({
       user = fields.user.value.trim();
     const port = fields.port.value.trim();
     if (!hostname || !database || !user) {
-      throw new Error('请填写主机、数据库名称和用户名。');
+      invalidFields(['host', 'database', 'user'].filter(name => !fields[name].value.trim()), '请填写主机、数据库名称和用户名。');
     }
     if (!/^\d+$/.test(port) || Number(port) < 1 || Number(port) > 65535) {
-      throw new Error('端口必须是 1 到 65535 之间的整数。');
+      invalidFields(['port'], '端口必须是 1 到 65535 之间的整数。');
     }
     const host = hostname.includes(':') && !hostname.startsWith('[') ? `[${hostname}]` : hostname;
     return {
       url: `postgresql://${encodeURIComponent(user)}:${encodeURIComponent(fields.password.value)}@${host}:${port}/${encodeURIComponent(database)}`,
       provider: 'base'
     };
+  }
+  function clearFieldError(input) {
+    if (input.getAttribute('aria-invalid') !== 'true') return;
+    input.removeAttribute('aria-invalid');
+    input.removeAttribute('aria-describedby');
+    if (!Object.values(fields).some(field => field.getAttribute('aria-invalid') === 'true')) error.textContent = '';
+  }
+  function invalidFields(names, message) {
+    for (const name of names) {
+      fields[name].setAttribute('aria-invalid', 'true');
+      fields[name].setAttribute('aria-describedby', errorId);
+    }
+    fields[names[0]].focus({preventScroll: true});
+    throw new Error(message);
   }
   async function connect() {
     if (closed || busy) {
@@ -272,7 +304,7 @@ export function openConnectionDialog({
     } finally {
       clearSecrets();
       if (!closed && expected === sequence) {
-        setBusy();
+        finishOperation();
       }
     }
   }
@@ -299,7 +331,7 @@ export function openConnectionDialog({
       if (!closed && expected === sequence) error.textContent = connectionError(error_.message);
     } finally {
       if (!closed && expected === sequence) {
-        setBusy();
+        finishOperation();
       }
     }
   }
@@ -336,7 +368,7 @@ export function openConnectionDialog({
       if (!closed && expected === sequence) error.textContent = connectionError(error_.message);
     } finally {
       if (!closed && expected === sequence) {
-        setBusy();
+        finishOperation();
       }
     }
   }
@@ -411,6 +443,7 @@ export function openConnectionDialog({
         return;
       }
       const pathInput = h('input', {
+        class: 'wb-code',
         value: response.path,
         'aria-label': '目录路径',
         spellcheck: 'false'
@@ -443,6 +476,7 @@ export function openConnectionDialog({
             browseFiles(entry.path);
           } else {
             fields.db_path.value = entry.path;
+            clearFieldError(fields.db_path);
             browser.hidden = true;
             fileSequence++;
             fields.db_path.focus();
@@ -476,7 +510,7 @@ export function openConnectionDialog({
   renderFields();
   document.body.append(overlay);
   document.addEventListener('keydown', keydown);
-  closeButton.focus();
+  heading.focus({ preventScroll: true });
   activeDialog = {
     close
   };

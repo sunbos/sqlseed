@@ -1,5 +1,7 @@
 # Release and Documentation Sync Implementation Plan
 
+Historical plan completed for the 0.2.4 release. Use the maintained installation and release guides for current work; this checklist does not describe the current PyPI version or authorize another release.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Align README, published documentation and package metadata with the five-package implementation, then prepare a reviewable PyPI release and public-index verification procedure.
@@ -27,7 +29,7 @@
 - [x] Correct Core-versus-CLI installation, release availability, SQLite/PostgreSQL feature boundaries, and actual configuration/API signatures.
 - [x] Match CLI options and all eight commands to `--help`; select Google explicitly in Google examples; separate the two offline MCP tools from the four AI MCP tools and their server commands.
 - [x] Update architecture and metadata models from current manifests and dataclasses. Preserve automatic marker ownership by running `python scripts/sync_docs.py` rather than editing generated values.
-- [x] Add `/candidate-validation.md` to `exclude_docs`; retain its source and the existing excluded audit/design directories. Verify its absence from the built search index.
+- [x] Keep audit/design material outside the published site and search index. The old candidate report was subsequently retired in the [2026-09-28 audit cleanup](../../code-review/history.md).
 
 ## Task 3: PyPI content and distribution metadata
 

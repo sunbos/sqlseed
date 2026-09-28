@@ -25,6 +25,23 @@ test('save/check/run bind one immutable revision to the captured connection',asy
   s.model.setCount('users','4');
   await assert.rejects(()=>s.run(),/保存/);
 });
+
+test('valid ten-row previews identify an invalid generation draft before making any request',async()=>{
+  const calls=[],s=create(async(url,body)=>{calls.push({url,body});return {ok:true,samples:{users:[]}};});
+  s.model.toggleTable('users',true);
+  s.model.setCount('users','1000000000000000');
+  s.model.setCount('users','10000000000000000');
+  for(const preview of [()=>s.previewTable('users',10),()=>s.check(true,10)]) {
+    await assert.rejects(preview,error=>error.code==='workbench_invalid_input' && error.issues[0].table==='users');
+  }
+  assert.equal(calls.length,0);
+  await assert.rejects(()=>s.previewTable('users',101),/预览数量.*1–100/);
+  assert.equal(calls.length,0);
+  s.model.setCount('users','1000000');
+  await s.previewTable('users',10);
+  assert.equal(calls.length,1);assert.equal(calls[0].body.count,10);
+  assert.equal(calls[0].body.document.tables[0].count,1000000);
+});
 test('a preview completing after edit cannot replace current samples or authorize execution',async()=>{
   let resolve;
   const s=create(()=>new Promise(r=>{resolve=r}));

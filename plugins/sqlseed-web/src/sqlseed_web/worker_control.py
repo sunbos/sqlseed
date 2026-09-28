@@ -9,8 +9,7 @@ import socket
 import threading
 from collections.abc import Callable
 from concurrent.futures import Future
-from multiprocessing.connection import Connection
-from typing import Any
+from typing import Any, Protocol
 
 from fastapi import HTTPException
 from sqlseed._utils.daemon_task import DaemonTask
@@ -19,6 +18,15 @@ _CONTROL_CLOSED = "服务控制通道已关闭。"
 
 MAX_MESSAGE_BYTES = 2_000_000
 Handler = Callable[[str, dict[str, Any]], dict[str, Any]]
+
+
+class ControlTransport(Protocol):
+    """Anonymous sockets on POSIX and overlapped named-pipe handles on Windows."""
+
+    def send_bytes(self, buf: bytes) -> None: ...
+    def recv_bytes(self, maxlength: int | None = None) -> bytes: ...
+    def fileno(self) -> int: ...
+    def close(self) -> None: ...
 
 
 class ControlMessageTooLarge(RuntimeError):
@@ -49,7 +57,7 @@ class ControlError(RuntimeError):
 class ControlChannel:
     """A duplex RPC endpoint whose reader never blocks on request execution."""
 
-    def __init__(self, connection: Connection) -> None:
+    def __init__(self, connection: ControlTransport) -> None:
         self.connection = connection
         self._send_lock = threading.Lock()
         self._lock = threading.Lock()

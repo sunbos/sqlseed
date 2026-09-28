@@ -1,0 +1,1727 @@
+{
+  "nodes": [
+    {
+      "id": "addresses",
+      "name": "addresses",
+      "readonly": false
+    },
+    {
+      "id": "carriers",
+      "name": "carriers",
+      "readonly": false
+    },
+    {
+      "id": "categories",
+      "name": "categories",
+      "readonly": false
+    },
+    {
+      "id": "customers",
+      "name": "customers",
+      "readonly": false
+    },
+    {
+      "id": "departments",
+      "name": "departments",
+      "readonly": false
+    },
+    {
+      "id": "employees",
+      "name": "employees",
+      "readonly": false
+    },
+    {
+      "id": "inventory",
+      "name": "inventory",
+      "readonly": false
+    },
+    {
+      "id": "order_items",
+      "name": "order_items",
+      "readonly": false
+    },
+    {
+      "id": "payments",
+      "name": "payments",
+      "readonly": false
+    },
+    {
+      "id": "product_variants",
+      "name": "product_variants",
+      "readonly": false
+    },
+    {
+      "id": "products",
+      "name": "products",
+      "readonly": false
+    },
+    {
+      "id": "purchase_items",
+      "name": "purchase_items",
+      "readonly": false
+    },
+    {
+      "id": "purchase_orders",
+      "name": "purchase_orders",
+      "readonly": false
+    },
+    {
+      "id": "receipt_items",
+      "name": "receipt_items",
+      "readonly": false
+    },
+    {
+      "id": "receipts",
+      "name": "receipts",
+      "readonly": false
+    },
+    {
+      "id": "refunds",
+      "name": "refunds",
+      "readonly": false
+    },
+    {
+      "id": "return_items",
+      "name": "return_items",
+      "readonly": false
+    },
+    {
+      "id": "returns",
+      "name": "returns",
+      "readonly": false
+    },
+    {
+      "id": "sales_orders",
+      "name": "sales_orders",
+      "readonly": false
+    },
+    {
+      "id": "shipment_items",
+      "name": "shipment_items",
+      "readonly": false
+    },
+    {
+      "id": "shipments",
+      "name": "shipments",
+      "readonly": false
+    },
+    {
+      "id": "stock_movements",
+      "name": "stock_movements",
+      "readonly": false
+    },
+    {
+      "id": "suppliers",
+      "name": "suppliers",
+      "readonly": false
+    },
+    {
+      "id": "tenants",
+      "name": "tenants",
+      "readonly": false
+    },
+    {
+      "id": "warehouse_bins",
+      "name": "warehouse_bins",
+      "readonly": false
+    },
+    {
+      "id": "warehouses",
+      "name": "warehouses",
+      "readonly": false
+    }
+  ],
+  "edges": [
+    {
+      "id": "fk_aafccb43df1a4c969fcc",
+      "source": "tenants",
+      "target": "addresses",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "tenant_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_fb6232913c54b7e2c723",
+      "source": "categories",
+      "target": "categories",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "parent_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_1929fa26ecdeb037df0e",
+      "source": "customers",
+      "target": "customers",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "referred_by"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_c3278a9a2e1623fdd3df",
+      "source": "addresses",
+      "target": "customers",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "shipping_address_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_01b75487d11cdf9f92d8",
+      "source": "addresses",
+      "target": "customers",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "billing_address_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_db7170413baada3be1fc",
+      "source": "employees",
+      "target": "departments",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "manager_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_58a658325a3df325727b",
+      "source": "departments",
+      "target": "departments",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "parent_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_640599616eaeb298c537",
+      "source": "tenants",
+      "target": "departments",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "tenant_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_b30f2d55bd4fbc7c15a9",
+      "source": "employees",
+      "target": "employees",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "manager_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_51a23af27d731797038b",
+      "source": "departments",
+      "target": "employees",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "department_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_848794109efe2a7619c1",
+      "source": "tenants",
+      "target": "employees",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "tenant_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_08272d5b873f270f1dfd",
+      "source": "warehouse_bins",
+      "target": "inventory",
+      "sourceColumns": [
+        "warehouse_id",
+        "code"
+      ],
+      "targetColumns": [
+        "warehouse_id",
+        "bin_code"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_deae4d54f6810792f6b9",
+      "source": "warehouses",
+      "target": "inventory",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "warehouse_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_256860212015afb0e90e",
+      "source": "product_variants",
+      "target": "inventory",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "variant_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_652c7a5254e5a80e41fe",
+      "source": "product_variants",
+      "target": "order_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "variant_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_a6070cf18ec0bcb26871",
+      "source": "sales_orders",
+      "target": "order_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "order_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_da940ad917071fdcfb39",
+      "source": "customers",
+      "target": "payments",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "customer_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_01de01ca99a0612a18eb",
+      "source": "sales_orders",
+      "target": "payments",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "order_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_e98687dc44d7af5b8eac",
+      "source": "products",
+      "target": "product_variants",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "product_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_ee11bcab5de28c4900cd",
+      "source": "suppliers",
+      "target": "products",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "supplier_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_aa7f3178915f23717f63",
+      "source": "categories",
+      "target": "products",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "category_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_6daadf7f9d042395c988",
+      "source": "product_variants",
+      "target": "purchase_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "variant_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_10743ab1d5130810b339",
+      "source": "purchase_orders",
+      "target": "purchase_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "purchase_order_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_0dac918bcb5408f68e40",
+      "source": "employees",
+      "target": "purchase_orders",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "approved_by"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_ae477abbaef7ae54dcc3",
+      "source": "employees",
+      "target": "purchase_orders",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "requested_by"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_b7aac352daeadd9bd08b",
+      "source": "warehouses",
+      "target": "purchase_orders",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "warehouse_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_1506e41b541a3f1f3996",
+      "source": "suppliers",
+      "target": "purchase_orders",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "supplier_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_a8c9987aa3702fd6ee16",
+      "source": "inventory",
+      "target": "receipt_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "inventory_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_3c2eaab2f01fa5e987ac",
+      "source": "purchase_items",
+      "target": "receipt_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "purchase_item_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_1123b33568df110f053c",
+      "source": "receipts",
+      "target": "receipt_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "receipt_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_626b23df3cdd46e1cd8e",
+      "source": "employees",
+      "target": "receipts",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "received_by"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_5ccd3d559480c376e165",
+      "source": "purchase_orders",
+      "target": "receipts",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "purchase_order_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_c49199ab4d240a82d52d",
+      "source": "payments",
+      "target": "refunds",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "payment_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_7b2a68f96472a973ddf1",
+      "source": "returns",
+      "target": "refunds",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "return_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_99f4b2dab4b23a93f83d",
+      "source": "order_items",
+      "target": "return_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "order_item_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_be85160893e72418b123",
+      "source": "returns",
+      "target": "return_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "return_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_4a527e2c2d601413e185",
+      "source": "sales_orders",
+      "target": "returns",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "order_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_5a586bf269549f6fd651",
+      "source": "employees",
+      "target": "sales_orders",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "owner_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_0cbf95d5a4f4c04488c4",
+      "source": "addresses",
+      "target": "sales_orders",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "shipping_address_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_4471a5f0fa9d238435c1",
+      "source": "addresses",
+      "target": "sales_orders",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "billing_address_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_835c5607eb07ac494041",
+      "source": "customers",
+      "target": "sales_orders",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "customer_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_2efef9b08d2a9404f4b3",
+      "source": "inventory",
+      "target": "shipment_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "inventory_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_816ea0c9694cd0469da3",
+      "source": "order_items",
+      "target": "shipment_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "order_item_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_9652c58b3a2248aee9c2",
+      "source": "shipments",
+      "target": "shipment_items",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "shipment_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_1cb7726467a893e1e795",
+      "source": "carriers",
+      "target": "shipments",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "carrier_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_c29eb9e94417175f7661",
+      "source": "warehouses",
+      "target": "shipments",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "warehouse_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_cbd0dc40eb40b77f3c57",
+      "source": "sales_orders",
+      "target": "shipments",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "order_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_ad40fc50de7f291d9876",
+      "source": "return_items",
+      "target": "stock_movements",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "return_item_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_bdcc12f51da0cd7dc9c0",
+      "source": "shipment_items",
+      "target": "stock_movements",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "shipment_item_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_67ed730178cc8ae39b55",
+      "source": "inventory",
+      "target": "stock_movements",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "inventory_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_4ec9ff19930d552c1bc4",
+      "source": "employees",
+      "target": "suppliers",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "contact_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_d2d7c2f76a56d97c1c39",
+      "source": "warehouse_bins",
+      "target": "warehouse_bins",
+      "sourceColumns": [
+        "warehouse_id",
+        "code"
+      ],
+      "targetColumns": [
+        "warehouse_id",
+        "parent_code"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_3bb747d06e83ff7761fb",
+      "source": "warehouses",
+      "target": "warehouse_bins",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "warehouse_id"
+      ],
+      "nullable": false
+    },
+    {
+      "id": "fk_94b963b0db3b46e725c5",
+      "source": "employees",
+      "target": "warehouses",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "manager_id"
+      ],
+      "nullable": true
+    },
+    {
+      "id": "fk_f03a0404b7d2d3102472",
+      "source": "addresses",
+      "target": "warehouses",
+      "sourceColumns": [
+        "id"
+      ],
+      "targetColumns": [
+        "address_id"
+      ],
+      "nullable": true
+    }
+  ],
+  "tables": [
+    {
+      "name": "addresses",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "tenant_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "city",
+          "type": "TEXT"
+        },
+        {
+          "name": "street",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "carriers",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "categories",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "parent_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "customers",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "billing_address_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "shipping_address_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "referred_by",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "departments",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "tenant_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "parent_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "manager_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "employees",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "tenant_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "department_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "manager_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "full_name",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "inventory",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "variant_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "warehouse_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "bin_code",
+          "type": "TEXT"
+        },
+        {
+          "name": "quantity",
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "name": "order_items",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "order_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "variant_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "quantity",
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "name": "payments",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "order_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "customer_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "amount",
+          "type": "NUMERIC"
+        }
+      ]
+    },
+    {
+      "name": "product_variants",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "product_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "sku",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "products",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "category_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "supplier_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "purchase_items",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "purchase_order_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "variant_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "quantity",
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "name": "purchase_orders",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "supplier_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "warehouse_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "requested_by",
+          "type": "INTEGER"
+        },
+        {
+          "name": "approved_by",
+          "type": "INTEGER"
+        },
+        {
+          "name": "created_at",
+          "type": "DATETIME"
+        }
+      ]
+    },
+    {
+      "name": "receipt_items",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "receipt_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "purchase_item_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "inventory_id",
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "name": "receipts",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "purchase_order_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "received_by",
+          "type": "INTEGER"
+        },
+        {
+          "name": "received_at",
+          "type": "DATETIME"
+        }
+      ]
+    },
+    {
+      "name": "refunds",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "return_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "payment_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "amount",
+          "type": "NUMERIC"
+        }
+      ]
+    },
+    {
+      "name": "return_items",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "return_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "order_item_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "quantity",
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "name": "returns",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "order_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "reason",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "sales_orders",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "customer_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "billing_address_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "shipping_address_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "owner_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "total",
+          "type": "NUMERIC"
+        }
+      ]
+    },
+    {
+      "name": "shipment_items",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "shipment_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "order_item_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "inventory_id",
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "name": "shipments",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "order_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "warehouse_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "carrier_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "tracking_code",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "stock_movements",
+      "row_count": 2,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "inventory_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "shipment_item_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "return_item_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "quantity",
+          "type": "INTEGER"
+        }
+      ]
+    },
+    {
+      "name": "suppliers",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "contact_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "tenants",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "warehouse_bins",
+      "row_count": 2,
+      "columns": [
+        {
+          "name": "warehouse_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "code",
+          "type": "TEXT"
+        },
+        {
+          "name": "parent_code",
+          "type": "TEXT"
+        }
+      ]
+    },
+    {
+      "name": "warehouses",
+      "row_count": 1,
+      "columns": [
+        {
+          "name": "id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "address_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "manager_id",
+          "type": "INTEGER"
+        },
+        {
+          "name": "name",
+          "type": "TEXT"
+        }
+      ]
+    }
+  ],
+  "checks": {
+    "fulfillment": {
+      "selected": [
+        "sales_orders",
+        "order_items",
+        "payments",
+        "shipments",
+        "shipment_items"
+      ],
+      "ok": true,
+      "issues": [],
+      "order": [
+        "sales_orders",
+        "order_items",
+        "payments",
+        "shipments",
+        "shipment_items"
+      ],
+      "sources": [
+        {
+          "table": "sales_orders",
+          "column": "owner_id",
+          "source_table": "employees",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": true
+        },
+        {
+          "table": "sales_orders",
+          "column": "shipping_address_id",
+          "source_table": "addresses",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": true
+        },
+        {
+          "table": "sales_orders",
+          "column": "billing_address_id",
+          "source_table": "addresses",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": true
+        },
+        {
+          "table": "sales_orders",
+          "column": "customer_id",
+          "source_table": "customers",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": false
+        },
+        {
+          "table": "order_items",
+          "column": "variant_id",
+          "source_table": "product_variants",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": false
+        },
+        {
+          "table": "order_items",
+          "column": "order_id",
+          "source_table": "sales_orders",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": false
+        },
+        {
+          "table": "payments",
+          "column": "customer_id",
+          "source_table": "customers",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": false
+        },
+        {
+          "table": "payments",
+          "column": "order_id",
+          "source_table": "sales_orders",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": false
+        },
+        {
+          "table": "shipments",
+          "column": "carrier_id",
+          "source_table": "carriers",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": true
+        },
+        {
+          "table": "shipments",
+          "column": "warehouse_id",
+          "source_table": "warehouses",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": false
+        },
+        {
+          "table": "shipments",
+          "column": "order_id",
+          "source_table": "sales_orders",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": false
+        },
+        {
+          "table": "shipment_items",
+          "column": "inventory_id",
+          "source_table": "inventory",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": false
+        },
+        {
+          "table": "shipment_items",
+          "column": "order_item_id",
+          "source_table": "order_items",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": false
+        },
+        {
+          "table": "shipment_items",
+          "column": "shipment_id",
+          "source_table": "shipments",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": false
+        }
+      ]
+    },
+    "cycles": {
+      "selected": [
+        "departments",
+        "employees",
+        "suppliers"
+      ],
+      "ok": false,
+      "issues": [
+        {
+          "severity": "error",
+          "code": "cross_table_cycle",
+          "message": "跨表循环需要通用 backfill；当前工作台不能安全执行该计划",
+          "tables": [
+            "departments",
+            "employees"
+          ],
+          "edge_ids": [
+            "fk_db7170413baada3be1fc",
+            "fk_51a23af27d731797038b"
+          ]
+        }
+      ],
+      "order": [],
+      "sources": [
+        {
+          "table": "departments",
+          "column": "manager_id",
+          "source_table": "employees",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": true
+        },
+        {
+          "table": "departments",
+          "column": "parent_id",
+          "source_table": "departments",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": true
+        },
+        {
+          "table": "departments",
+          "column": "tenant_id",
+          "source_table": "tenants",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": false
+        },
+        {
+          "table": "employees",
+          "column": "manager_id",
+          "source_table": "employees",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": true
+        },
+        {
+          "table": "employees",
+          "column": "department_id",
+          "source_table": "departments",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": true
+        },
+        {
+          "table": "employees",
+          "column": "tenant_id",
+          "source_table": "tenants",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": false
+        },
+        {
+          "table": "suppliers",
+          "column": "contact_id",
+          "source_table": "employees",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": true,
+          "nullable": true
+        }
+      ]
+    },
+    "composite": {
+      "selected": [
+        "inventory"
+      ],
+      "ok": true,
+      "issues": [],
+      "order": [
+        "inventory"
+      ],
+      "sources": [
+        {
+          "table": "inventory",
+          "column": "warehouse_id,bin_code",
+          "source_table": "warehouse_bins",
+          "source_columns": [
+            "warehouse_id",
+            "code"
+          ],
+          "has_values": true,
+          "row_count": 2,
+          "selected": false,
+          "nullable": false
+        },
+        {
+          "table": "inventory",
+          "column": "warehouse_id",
+          "source_table": "warehouses",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": false
+        },
+        {
+          "table": "inventory",
+          "column": "variant_id",
+          "source_table": "product_variants",
+          "source_columns": [
+            "id"
+          ],
+          "has_values": true,
+          "row_count": 1,
+          "selected": false,
+          "nullable": false
+        }
+      ]
+    }
+  }
+}

@@ -23,10 +23,11 @@ source-roots=
 # relative imports retain their scripts/examples namespace.
 init-hook=import sys; sys.path[:0] = ['src', 'plugins/sqlseed-cli/src', 'plugins/sqlseed-ai/src', 'plugins/mcp-server-sqlseed/src', 'plugins/sqlseed-web/src', '.', 'scripts/complex_validation', 'examples/scenario_lab', 'examples']
 
-# Only declared third-party imports and Windows' msvcrt may be unavailable.
+# Only declared third-party imports and Windows-only stdlib may be unavailable.
 # tests/test_codeflow_config.py checks manifest/CI-lock or platform-stdlib
 # provenance and rejects internal collisions; import-error remains enabled.
 ignored-modules=
+    _winapi,
     click,
     docker,
     faker,

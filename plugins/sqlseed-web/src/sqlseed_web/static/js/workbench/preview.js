@@ -8,6 +8,7 @@ const validCount = value => /^\d+$/.test(String(value)) && Number(value) >= 1 &&
 /** Readonly preview state stays local; the caller owns configuration and transport. */
 export function openDataPreview({
   tables,
+  relationships = null,
   currentTable,
   selectedTables,
   initialScope = 'current',
@@ -18,6 +19,7 @@ export function openDataPreview({
   onOptionsChange,
   onResult,
   onError,
+  onValidationIssue,
   onColumnAction,
   container = null,
   fixedScope = false,
@@ -46,6 +48,9 @@ export function openDataPreview({
   const id = `wb-preview-${++nextPreviewId}`;
   const schema = new Map(tables.map(table => [table.name, table]));
   const selected = [...new Set(selectedTables)];
+  const relationEdges = structuredClone(relationships?.edges || []);
+  const relationNodes = new Map((relationships?.nodes || []).map(node=>[node.id, node]));
+  const relationOpen = new Map(Object.entries(initialView?.relationOpen || {}));
   const tableScroll = new Map(Object.entries(initialView?.tableScroll || {}));
   let scope = initialScope === 'selected' ? 'selected' : 'current';
   let count;
@@ -100,6 +105,7 @@ export function openDataPreview({
     class: 'wb-preview-error',
     role: 'alert'
   });
+  const corrections = h('div', {class:'wb-preview-corrections'});
   const issues = h('div', {
     class: 'wb-preview-issues'
   });
@@ -108,6 +114,7 @@ export function openDataPreview({
     role: 'group',
     'aria-label': '切换预览表'
   });
+  const relations = h('section', {class:'wb-preview-relations', 'aria-label':'当前预览表的关联关系', hidden:true});
   const results = h('section', {
     class: 'wb-preview-results',
     'aria-label': '预览记录'
@@ -130,7 +137,7 @@ export function openDataPreview({
     value: String(count),
     'aria-label': '每表预览行数',
     'data-db-action': '',
-    'aria-describedby': `${id}-count-help ${id}-error`
+    'aria-describedby': `${id}-count-help`
   });
   const countField = h('label', {
     class: 'wb-preview-field'
@@ -171,10 +178,12 @@ export function openDataPreview({
   function countValid() {
     if (!validCount(countInput.value)) {
       countInput.setAttribute('aria-invalid', 'true');
+      countInput.setAttribute('aria-describedby', `${id}-count-help ${id}-error`);
       error.textContent = '每表预览行数必须是 1–100 之间的整数。';
       return false;
     }
     countInput.removeAttribute('aria-invalid');
+    countInput.setAttribute('aria-describedby', `${id}-count-help`);
     count = Number(countInput.value);
     return true;
   }
@@ -188,8 +197,10 @@ export function openDataPreview({
     stale = false;
     tableScroll.clear();
     error.textContent = '';
+    corrections.replaceChildren();
     results.replaceChildren();
     tabs.replaceChildren();
+    relations.replaceChildren();relations.hidden = true;
     issues.replaceChildren();
     status.textContent = '设置已改变，请重新预览。';
     if (countValid()) {
@@ -209,6 +220,7 @@ export function openDataPreview({
     for (const tab of tabs.querySelectorAll('button')) {
       tab.disabled = value;
     }
+    for (const link of relations.querySelectorAll('button')) link.disabled = value;
     for (const input of results.querySelectorAll('[data-preview-column]')) {
       input.disabled = value;
     }
@@ -288,10 +300,66 @@ export function openDataPreview({
       count,
       scope,
       tableScroll: Object.fromEntries(tableScroll),
+      relationOpen: Object.fromEntries(relationOpen),
       bodyScroll: bodyViewport(),
       result,
       stale
     };
+  }
+  function previewNames() {
+    return scope === 'current' ? [currentTable] : [...new Set([...(result?.order || []).filter(name=>selected.includes(name)), ...selected])];
+  }
+  function selectPreviewTable(name, focus = false) {
+    if (!live() || busy || !previewNames().includes(name)) return;
+    rememberTableScroll();
+    shownTable = name;
+    selectedColumn = null;
+    for (const item of tabs.querySelectorAll('button')) {
+      item.setAttribute('aria-pressed', String(item.dataset.previewTable === name));
+    }
+    renderRows();
+    if (focus) [...tabs.querySelectorAll('button')].find(item=>item.dataset.previewTable === name)?.focus({preventScroll:true});
+  }
+  function renderRelations() {
+    const incoming=relationEdges.filter(edge=>edge.target===shownTable && edge.source!==shownTable);
+    const outgoing=relationEdges.filter(edge=>edge.source===shownTable && edge.target!==shownTable);
+    const self=relationEdges.filter(edge=>edge.source===shownTable && edge.target===shownTable);
+    const total=incoming.length+outgoing.length+self.length;
+    relations.hidden=!total;
+    if (!total) {relations.replaceChildren();return;}
+    const name=shownTable;
+    const facts=[incoming.length ? `${incoming.length} 个来源` : '', outgoing.length ? `${outgoing.length} 个目标` : '', self.length ? `${self.length} 条自引用` : ''].filter(Boolean);
+    const details=h('details', {open:relationOpen.get(name)===true},
+      h('summary', {}, `${name} 的关联关系 · ${facts.join(' · ')}`));
+    details.addEventListener('toggle', ()=>relationOpen.set(name, details.open));
+    function endpoint(table, columns) {
+      return `${table} [${(columns || []).map(column=>JSON.stringify(column)).join(', ') || '字段未提供'}]`;
+    }
+    function relationRow(edge, direction) {
+      const other=direction==='incoming' ? edge.source : edge.target;
+      const readonly=relationNodes.get(other)?.readonly || !schema.has(other);
+      const generating=!readonly && selected.includes(other);
+      const hasSample=Array.isArray(result?.samples?.[other]) && result.samples[other].length>0;
+      const canNavigate=direction!=='self' && !readonly && scope==='selected' && selected.includes(other) && hasSample;
+      let state;
+      if (readonly) state='外部或不可用表 · 只读';
+      else if (generating) state='本次生成';
+      else state=direction==='incoming' ? '仅引用已有数据' : '未选，不在本次生成范围';
+      if (generating && !hasSample) state+=' · 尚无预览记录';
+      const info=h('div', {}, h('p', {class:'wb-preview-relation-state'}, `${other} · ${state}`),
+        h('code', {}, `${endpoint(edge.source, edge.sourceColumns)} → ${endpoint(edge.target, edge.targetColumns)}`));
+      const row=h('li', {class:'wb-preview-relation-row'}, info);
+      if (canNavigate) row.append(button(`查看 ${other} 预览`, ()=>selectPreviewTable(other, true), {
+        small:true, disabled:busy, 'data-preview-related':other
+      }));
+      return row;
+    }
+    for (const [title, edges, direction] of [['父表来源',incoming,'incoming'],['引用本表的子表',outgoing,'outgoing'],['本表自引用',self,'self']]) {
+      if (!edges.length) continue;
+      details.append(h('h4', {}, title), h('ul', {class:'wb-preview-relation-list'}, ...edges.map(edge=>relationRow(edge,direction))));
+    }
+    details.append(h('p', {class:'wb-preview-relation-note'}, '这里展示外键结构与生成范围，箭头由来源指向引用方。同组字段共同构成一条外键；各表样例不是逐行配对，不能据此推断 ID 对应。'));
+    relations.replaceChildren(details);
   }
   function columnHeader(table, column) {
     const metadata = [column.type];
@@ -362,6 +430,7 @@ export function openDataPreview({
       return;
     }
     const bodyScroll = bodyViewport();
+    renderRelations();
     const name = shownTable;
     const table = schema.get(name);
     const rows = Array.isArray(result.samples?.[name]) ? result.samples[name] : [];
@@ -411,24 +480,14 @@ export function openDataPreview({
   function renderResult() {
     const bodyScroll = bodyViewport();
     rememberTableScroll();
-    const names = scope === 'current' ? [currentTable] : [...new Set([...(result.order || []).filter(name => selected.includes(name)), ...selected])];
+    const names = previewNames();
     if (!names.includes(shownTable)) {
       shownTable = names[0];
     }
-    tabs.replaceChildren(...(scope === 'selected' ? names.map(name => button(name, () => {
-      if (closed || busy) {
-        return;
-      }
-      rememberTableScroll();
-      shownTable = name;
-      selectedColumn = null;
-      for (const item of tabs.querySelectorAll('button')) {
-        item.setAttribute('aria-pressed', String(item.textContent === name));
-      }
-      renderRows();
-    }, {
+    tabs.replaceChildren(...(scope === 'selected' ? names.map(name => button(name, () => selectPreviewTable(name), {
       small: true,
       class: 'wb-preview-table-button',
+      'data-preview-table':name,
       'aria-pressed': String(name === shownTable)
     })) : []));
     function previewIssueList() {
@@ -449,6 +508,7 @@ export function openDataPreview({
       return;
     }
     error.textContent = '';
+    corrections.replaceChildren();
     if (!live()) {
       error.textContent = '配置已变化，请重新打开预览。';
       return;
@@ -497,7 +557,18 @@ export function openDataPreview({
       finishPreviewRequest();
     }
     function showPreviewFailure(error_) {
-      error.textContent = error_?.message || String(error_);
+      const invalidConfiguration = error_?.code === 'workbench_invalid_input';
+      error.textContent = invalidConfiguration
+        ? `每表预览 ${count} 行符合 1–100 的范围；当前被正式生成配置中的无效输入阻止：${error_.message}。请先修正配置，再重新预览。`
+        : error_?.message || String(error_);
+      if (invalidConfiguration && onValidationIssue) {
+        corrections.replaceChildren(...(error_.issues || []).filter(issue => issue.kind === 'generation-count' && issue.table).map(issue =>
+          button(`修正 ${issue.table} 生成数量`, () => {
+            if (!stillCurrent() || busy) return;
+            dialog.close();
+            return onValidationIssue(issue);
+          }, {small:true})));
+      }
       if (result) {
         if (stale) {
           status.textContent = '更新失败；规则已改变，当前为旧样例，请重新预览。';
@@ -505,7 +576,7 @@ export function openDataPreview({
           status.textContent = '更新失败，当前为上次结果，可重新预览。';
         }
       } else {
-        status.textContent = '预览未完成，可重试。';
+        status.textContent = invalidConfiguration ? '请先修正正式生成配置；预览行数无需修改。' : '预览未完成，可重试。';
       }
       onError?.(error_);
     }
@@ -545,10 +616,7 @@ export function openDataPreview({
   dialog.body.append(help, controls, h('p', {
     id: `${id}-count-help`,
     class: 'wb-preview-help'
-  }, '每表最多预览 1–100 行，且不超过该表配置的生成数量；此设置不会修改正式生成行数。'), status, error, issues, tabs, results);
-  if (dialog.actions) {
-    dialog.actions.append(button('关闭', dialog.close));
-  }
+  }, '每表最多预览 1–100 行，且不超过该表配置的生成数量；此设置不会修改正式生成行数。'), status, error, corrections, issues, tabs, relations, results);
   if (initialResult) {
     result = initialResult;
     renderResult();

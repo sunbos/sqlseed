@@ -14,7 +14,12 @@ static frontend. It serves two purposes:
 
 from __future__ import annotations
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("sqlseed-web")
+except PackageNotFoundError:
+    __version__ = "0+unknown"
 
 
 def main() -> None:

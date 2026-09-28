@@ -45,7 +45,11 @@ def _restore_connection(item: Any) -> None:
         if target is not None and (target.kind != "sqlite" or not Path(target.value).is_file()):
             raise ValueError("The original file-backed database is unavailable")
         conn = state.add_connection(
-            item["target"], provider=item["provider"], locale=item["locale"], connection_id=item["conn_id"]
+            item["target"],
+            provider=item["provider"],
+            locale=item["locale"],
+            connection_id=item["conn_id"],
+            require_existing=True,
         )
         # Registry construction is lazy: exercise the actual opening path.
         conn.orchestrator.get_table_names()

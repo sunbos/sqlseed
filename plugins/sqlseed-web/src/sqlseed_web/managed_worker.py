@@ -2,18 +2,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import signal
 import socket
+import sys
 import threading
 import time
-from multiprocessing.connection import Connection
 from typing import TYPE_CHECKING, Any, Protocol
 
 from fastapi import HTTPException
 
 from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest
-from sqlseed_web.worker_control import ControlChannel, ControlError, ControlMessageTooLarge, validate_control_result
+from sqlseed_web.worker_control import (
+    ControlChannel,
+    ControlError,
+    ControlMessageTooLarge,
+    ControlTransport,
+    validate_control_result,
+)
 
 if TYPE_CHECKING:
     import uvicorn
@@ -115,9 +122,27 @@ def _drain_worker_runtime(mode: str, gate: RuntimeGate) -> None:
         close_session()
 
 
+def _serve_worker(server: uvicorn.Server, listener: socket.socket) -> None:
+    if sys.platform != "win32":
+        server.run(sockets=[listener])
+        return
+    # A duplicated listener cannot be attached to a new IOCP after a worker
+    # swap. Selector owns no IOCP association; package/IPC subprocesses remain
+    # in synchronous threads, so they do not need Proactor subprocess support.
+    loop = asyncio.SelectorEventLoop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(server.serve(sockets=[listener]))
+    finally:
+        loop.run_until_complete(loop.shutdown_asyncgens())
+        loop.run_until_complete(loop.shutdown_default_executor())
+        loop.close()
+        asyncio.set_event_loop(None)
+
+
 def run_worker(
     listener: socket.socket,
-    connection: Connection,
+    connection: ControlTransport,
     mode: str,
     session: dict[str, Any],
     token: str,
@@ -162,7 +187,7 @@ def run_worker(
         )
         server = uvicorn.Server(config)
         thread = threading.Thread(
-            target=server.run, kwargs={"sockets": [listener]}, daemon=False, name="sqlseed-http-worker"
+            target=_serve_worker, args=(server, listener), daemon=False, name="sqlseed-http-worker"
         )
         thread.start()
         while thread.is_alive() and not server.started:

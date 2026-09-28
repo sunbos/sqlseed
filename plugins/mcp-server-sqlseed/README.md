@@ -84,10 +84,14 @@ Its YAML tool is
 `sqlseed_ai_generate_yaml`; its executable is `mcp-server-sqlseed-ai`. The old
 `mcp-server-sqlseed[ai]` installation does not describe the current package layout.
 
-## Requirements
+## Current development requirements
+
+These requirements describe the current source checkout. The 0.2.4 commands above
+remain the published installation baseline; use local Core and plugins together
+when developing from source.
 
 - Python `>=3.10`
-- `sqlseed>=0.2.4.dev0,<0.3`
+- `sqlseed>=0.2.5.dev0,<0.3`
 - `mcp>=1.0,<2`
 
 See the [user guide](https://sunbos.github.io/sqlseed/guide/),

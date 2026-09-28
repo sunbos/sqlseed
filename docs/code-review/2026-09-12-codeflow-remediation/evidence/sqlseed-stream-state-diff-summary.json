@@ -1,7 +1,0 @@
-{
-  "scenarios": 320,
-  "checkpoints": 2312,
-  "delivered_rows": 2099,
-  "exceptions": 641,
-  "constructor_cases": 19
-}

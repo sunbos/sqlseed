@@ -130,3 +130,63 @@ test('AI patch groups apply atomically without selecting unselected tables',()=>
   m.applyPatches(patches);assert.equal(m.epoch,epoch+1);assert.equal(m.selected('orders'),false);
   assert.equal(m.view.tableDrafts.orders.columns[0].generator,'decimal');
 });
+
+test('generation count has no million-row business cap and rejects integers beyond browser precision without losing the draft',()=>{
+  const m=model();m.toggleTable('users',true);
+  for(const value of ['1000001','1000000000000000','9007199254740991']) {
+    assert.equal(m.setCount('users',value),true);
+    assert.equal(m.table('users').count,Number(value));
+  }
+  const raw='9007199254740993';
+  assert.equal(m.setCount('users',raw),false);
+  assert.equal(m.table('users').count,Number.MAX_SAFE_INTEGER,'The executable document keeps its last valid value');
+  assert.equal(m.view.invalidCounts.users,raw,'The exact invalid digits must not be rounded');
+  assert.equal(m.canRun(),false);
+  assert.throws(()=>m.payload('invalid'),error=>{
+    assert.equal(error.code,'workbench_invalid_input');
+    assert.match(error.message,/users.*可精确表示.*9,007,199,254,740,991/);
+    assert.deepEqual(plain(error.issues),[{key:'count:users',kind:'generation-count',table:'users',message:error.message,value:raw}]);
+    return true;
+  });
+  assert.equal(m.setCount('users','1000000'),true);
+  assert.equal(m.view.invalidCounts.users,undefined);assert.equal(m.errors.size,0);
+  assert.equal(m.payload('repaired').document.tables[0].count,1000000);
+});
+
+test('count syntax errors identify the table and retain raw text separately from other configuration errors',()=>{
+  const m=model();m.toggleTable('users',true);
+  for(const raw of ['','0','-1','1.5','1e6']) {
+    assert.equal(m.setCount('users',raw),false);
+    assert.equal(m.view.invalidCounts.users,raw);
+    assert.match(m.errors.get('count:users'),/users.*大于 0 的整数/);
+  }
+  m.setError('column:orders.amount','请修正金额参数');
+  assert.equal(m.inputIssues()[1].kind,'configuration');
+  assert.equal(m.inputIssues()[1].message,'请修正金额参数');
+});
+
+test('loaded unsafe counts and restored invalid drafts remain blocked while replacement clears obsolete draft text',()=>{
+  const m=model({tables:[{name:'users',count:1e21,columns:[]}]});
+  assert.match(m.errors.get('count:users'),/可精确表示/);
+  assert.equal(m.acceptCheck({ok:true},m.epoch),false);
+  assert.throws(()=>m.payload('unsafe'),/users/);
+  m.replaceDocument({tables:[{name:'users',count:8,columns:[]}]});
+  m.restoreView({invalidCounts:{users:'9007199254740993'}});
+  assert.equal(m.view.invalidCounts.users,'9007199254740993');
+  assert.throws(()=>m.payload('draft'),/users/);
+  m.replaceDocument({tables:[{name:'users',count:12,columns:[]}]});
+  assert.equal(m.view.invalidCounts,undefined);assert.equal(m.errors.size,0);
+  assert.equal(m.payload('replacement').document.tables[0].count,12);
+});
+
+test('restoring corrected count drafts on the same model rebuilds only count errors',()=>{
+  const m=model();
+  m.setError('column:users.name','姓名参数待修正');
+  m.restoreView({tableDrafts:{orders:{name:'orders',count:1e21,columns:[]}},invalidCounts:{users:'0'}});
+  assert.equal(m.errors.size,3);
+  m.restoreView({tableDrafts:{orders:{name:'orders',count:12,columns:[]}},invalidCounts:{}});
+  assert.deepEqual(plain([...m.errors]),[['column:users.name','姓名参数待修正']]);
+  m.setError('column:users.name',null);
+  assert.equal(m.payload('corrected').view_state.tableDrafts.orders.count,12);
+  assert.equal(m.selected('orders'),false);
+});

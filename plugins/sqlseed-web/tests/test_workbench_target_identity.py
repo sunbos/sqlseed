@@ -74,7 +74,12 @@ def test_real_file_aliases_share_configuration_group_and_write_admission(
         target = f"sqlite:///{file_uri}?uri=true&mode=rw"
     else:
         link = database.with_name("linked.db")
-        link.symlink_to(database)
+        try:
+            link.symlink_to(database)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 1314:
+                raise
+            pytest.skip("Windows has not granted permission to create this test symlink (WinError 1314)")
         target = str(link)
     one = registry.add_connection(str(database), provider="base")
     two = registry.add_connection(target, provider="base")
@@ -88,6 +93,27 @@ def test_real_file_aliases_share_configuration_group_and_write_admission(
     assert equivalent["target_key"] == original["target_key"]
     assert equivalent["target_label"] == str(database.resolve())
     _assert_shared_write_admission(registry, one, two)
+
+
+def test_percent_filename_and_decoded_filename_have_distinct_contents_and_write_admission(
+    registry: UIState, database: Path
+) -> None:
+    literal = database.rename(database.with_name("orders %41 %FF.db"))
+    decoded = literal.with_name("orders A \ufffd.db")
+    with sqlite_connection(decoded) as db:
+        db.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(99)")
+    one = registry.add_connection(str(literal), provider="base")
+    alias = registry.add_connection(f"sqlite:///{literal.as_uri()}?uri=true&mode=rw", provider="base")
+    other = registry.add_connection(str(decoded), provider="base")
+    assert one.orchestrator.query("SELECT value FROM items") == [{"value": 7}]
+    assert alias.orchestrator.query("SELECT value FROM items") == [{"value": 7}]
+    assert other.orchestrator.query("SELECT value FROM items") == [{"value": 99}]
+    assert inspect_connection(one)["target_key"] == inspect_connection(alias)["target_key"]
+    assert inspect_connection(other)["target_key"] != inspect_connection(one)["target_key"]
+    registry.create_job(one.conn_id, "workbench", "literal")
+    registry.create_job(other.conn_id, "workbench", "decoded")
+    with pytest.raises(ConnectionBusyError, match="此数据库"):
+        registry.create_job(alias.conn_id, "workbench", "same literal")
 
 
 @pytest.mark.parametrize("name", ["identity-shared", ":memory:"])

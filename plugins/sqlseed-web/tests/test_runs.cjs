@@ -75,6 +75,74 @@ test('mount renders actual run totals, table outcomes and immutable snapshot lin
   assert.equal(ui.root().querySelector('h1').textContent, '运行记录');
 });
 
+function trackFocus(ui) {
+  const create = ui.document.createElement;
+  ui.document.createElement = tag => {
+    const element = create(tag);
+    element.focus = options => {ui.document.activeElement = element; element.focusOptions = options;};
+    return element;
+  };
+}
+
+test('polling preserves the focused run card when records are inserted and its state is updated', async () => {
+  const runs = [record('A', 'running'), record('B')];
+  const ui = harness({runs}); trackFocus(ui); await ui.mount();
+  const card = ui.root().querySelector('[data-run-id="A"]');
+  card.focus();
+  runs[0].status = 'done';
+  runs.unshift(record('C', 'queued'));
+  await ui.fire();
+  assert.equal(ui.root().querySelector('[data-run-id="A"]'), card);
+  assert.equal(ui.document.activeElement, card);
+  assert.match(card.textContent, /生成成功/);
+  assert.equal(ui.root().querySelectorAll('.wb-run-card')[0].dataset.runId, 'C');
+  assert.equal(card.getAttribute('aria-pressed'), 'true');
+  assert.equal(ui.title(), 'Run A');
+  ui.leave();
+});
+
+test('polling keeps the current snapshot disclosure, code scroll and focused action', async () => {
+  const ui = harness(); trackFocus(ui); await ui.mount();
+  const snapshot = ui.root().querySelector('.run-snapshot');
+  snapshot.open = true;
+  snapshot.querySelector('pre').scrollTop = 160;
+  snapshot.querySelector('pre').scrollLeft = 55;
+  const previousSummary = snapshot.querySelector('summary');
+  previousSummary.focus();
+  await ui.fire();
+  const updated = ui.root().querySelector('.run-snapshot');
+  assert.equal(updated.open, true);
+  assert.equal(updated.querySelector('pre').scrollTop, 160);
+  assert.equal(updated.querySelector('pre').scrollLeft, 55);
+  assert.equal(ui.document.activeElement, updated.querySelector('summary'));
+  assert.notEqual(ui.document.activeElement, previousSummary);
+  assert.equal(ui.document.activeElement.focusOptions.preventScroll, true);
+  const exported = updated.querySelector('[data-run-focus="export-snapshot"]');
+  exported.focus(); await ui.fire();
+  assert.equal(ui.document.activeElement.getAttribute('data-run-focus'), 'export-snapshot');
+  assert.ok(ui.document.activeElement.isConnected);
+  ui.leave();
+});
+
+test('snapshot view state belongs to its run and polling does not steal focus from another panel', async () => {
+  const ui = harness(); trackFocus(ui); await ui.mount();
+  const aSnapshot = ui.root().querySelector('.run-snapshot');
+  aSnapshot.open = true; aSnapshot.querySelector('pre').scrollTop = 140;
+  ui.root().querySelector('[data-run-id="B"]').focus(); await ui.select('B');
+  assert.equal(Boolean(ui.root().querySelector('.run-snapshot').open), false);
+  assert.equal(ui.document.activeElement.dataset.runId, 'B');
+  await ui.select('A');
+  const restored = ui.root().querySelector('.run-snapshot');
+  assert.equal(restored.open, true);
+  assert.equal(restored.querySelector('pre').scrollTop, 140);
+  const outside = ui.document.createElement('button');
+  ui.document.body.append(outside); outside.focus();
+  await ui.fire();
+  assert.equal(ui.document.activeElement, outside);
+  assert.equal(ui.root().querySelector('.run-snapshot').open, true);
+  ui.leave();
+});
+
 test('incomplete counting is presented as confirmed minimum even without a server restart', async () => {
   const run = record('A', 'error', {count_complete: false, tables: [
     {name: 'users', status: 'error', requested_count: 10, rows_inserted: null, errors: ['connection lost']},
@@ -327,6 +395,41 @@ test('completed and partly failed runs open current data bound to their historic
   assert.match(ui.document.querySelector('.wb-table-data').textContent,/101/);
   assert.ok(ui.requests.includes(path));
   ui.leave();assert.equal(ui.document.querySelector('.wb-table-data'),null);
+});
+
+test('closing current data after polling restores the live action for the original run and table', async () => {
+  const ui=harness({hash:'#/runs?id=B'});trackFocus(ui);await ui.mount();
+  ui.routes.set('/api/workbench/runs/B/data-connections',()=>({target_key:'target',connections:[]}));
+  const trigger=ui.root().querySelector('[data-run-focus="table:users"]');
+  trigger.focus();await trigger.click();await flush();
+  const dialog=ui.document.querySelector('.wb-table-data');
+  const focused=ui.document.activeElement;
+  await ui.fire();
+  assert.equal(trigger.isConnected,false);
+  assert.equal(ui.document.activeElement,focused,'polling must not take focus out of the reader');
+  await dialog.querySelector('[aria-label="关闭"]').click();
+  const current=ui.root().querySelector('[data-run-focus="table:users"]');
+  assert.equal(ui.document.activeElement,current);
+  assert.equal(current.isConnected,true);assert.equal(current.focusOptions.preventScroll,true);
+  ui.leave();
+});
+
+test('closing a reader on run change or unmount never restores its old run action', async () => {
+  for (const leave of [false,true]) {
+    const ui=harness({hash:'#/runs?id=B'});trackFocus(ui);await ui.mount();
+    ui.routes.set('/api/workbench/runs/B/data-connections',()=>({target_key:'target',connections:[]}));
+    const trigger=ui.root().querySelector('[data-run-focus="table:users"]');
+    trigger.focus();await trigger.click();await flush();
+    let restored=0;trigger.focus=()=>{restored++;};
+    const destination=leave ? ui.document.createElement('button') : ui.root().querySelector('[data-run-id="A"]');
+    if (leave) ui.document.body.append(destination);
+    destination.focus();
+    if (leave) ui.leave();else await ui.select('A');
+    assert.equal(restored,0);
+    assert.equal(ui.document.activeElement,destination);
+    assert.equal(ui.document.querySelector('.wb-table-data'),null);
+    if (!leave) ui.leave();
+  }
 });
 
 test('switching run closes its data viewer and ignores its pending connection lookup',async()=>{

@@ -368,7 +368,12 @@ def test_sqlite_file_aliases_share_write_admission(tmp_path: Path, alias: str) -
         target = f"sqlite:///file:{quote(str(path))}?uri=true&mode=rw"
     else:
         link = tmp_path / "alias.db"
-        link.symlink_to(path)
+        try:
+            link.symlink_to(path)
+        except OSError as exc:
+            if getattr(exc, "winerror", None) != 1314:
+                raise
+            pytest.skip("Windows has not granted permission to create this test symlink (WinError 1314)")
         target = f"sqlite:///{link}"
     registry = UIState()
     one = registry.add_connection(str(path), provider="base")

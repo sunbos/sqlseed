@@ -9,7 +9,7 @@ test('render and mount use actual schema rows, and disconnected mount provides a
   assert.equal(root.querySelectorAll('.wb-field-name').length, 3);
   assert.match(root.textContent, /A\.db/);
   assert.equal(root.querySelector('.wb-table-name').textContent, 'users未加入生成');
-  assert.deepEqual(ui.requests.map(request => request.url), ['/api/workbench/connections/A/schema', '/api/workbench/generators', '/api/workbench/ai/config', '/api/meta/providers']);
+  assert.deepEqual(ui.requests.map(request => request.url), ['/api/workbench/connections/A/schema', '/api/workbench/generators', '/api/meta/providers']);
   const none = harness({connected: false}); await none.mount();
   assert.match(none.root().textContent, /先连接一个数据库/);
   assert.equal(none.requests.length, 0);
@@ -20,6 +20,26 @@ test('ordinary rule cells never render the text null from an absent icon', async
   const buttons = ui.root().querySelectorAll('.wb-rule-button');
   assert.ok(buttons.length);
   assert.ok(buttons.every(button => !button.childNodes.some(node => node.nodeType === 3 && node.textContent === 'null')));
+});
+
+test('a reversed float range keeps the real rule drawer open and never changes the executable configuration',async()=>{
+  const ui=harness(),data=schema();
+  data.tables[0].mapping.amount={generator_name:'float',params:{min_value:1,max_value:10}};
+  ui.routes.set('/api/workbench/connections/A/schema',()=>data);
+  ui.routes.set('/api/workbench/generators',()=>({names:['float'],entries:[{id:'float',params:[
+    {name:'min_value',type:'number',default:0},{name:'max_value',type:'number',default:100}]}]}));
+  await ui.mount();ui.modelState().toggleTable('users',true);
+  const before=plain(ui.modelState().document);await ui.openRule('amount');
+  await ui.edit('min_value','20');
+  const apply=ui.button('应用规则',ui.document);
+  assert.equal(apply.disabled,true);assert.match(ui.document.querySelector('.wb-editor-error').textContent,/不能大于/);
+  await apply.click();assert.ok(ui.document.querySelector('.drawer'));
+  assert.deepEqual(plain(ui.modelState().document),before);
+  assert.equal(ui.requests.some(request=>request.options.method==='POST'),false);
+  await ui.edit('max_value','20');assert.equal(apply.disabled,false);
+  await ui.applyRule();
+  assert.deepEqual(plain(ui.modelState().rule('users','amount').params),{min_value:20,max_value:20});
+  ui.leave();
 });
 
 test('table names open fields and right-side icons open complete dependency paths without selecting tables', async () => {
@@ -183,7 +203,7 @@ test('closing the config dialog while parsing prevents the stale import from rep
   const ui = harness(); await ui.mount(); await ui.button('编辑 YAML').click();
   const gate = deferred(); ui.routes.set('/api/workbench/parse', () => gate.promise);
   const pending = ui.button('应用配置', ui.document).click();
-  await ui.button('关闭', ui.document).click();
+  await ui.button('取消', ui.document).click();
   await ui.openRule('amount'); await ui.edit('max_value', '62'); await ui.applyRule();
   const before = plain(ui.modelState().payload('current'));
   gate.resolve({document: {provider: 'base', locale: 'en_US', tables: [{name: 'users', count: 800, columns: []}]}});

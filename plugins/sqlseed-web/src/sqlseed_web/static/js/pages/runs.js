@@ -20,6 +20,7 @@ let root,
   timer = null,
   selectedId = null;
 let dataViewer = null;
+const snapshotStates = new Map();
 const action = (label, handler, attrs = {}) => h('button', {
   type: 'button',
   class: 'btn',
@@ -28,6 +29,7 @@ const action = (label, handler, attrs = {}) => h('button', {
 }, label);
 export function render() {
   version++;
+  snapshotStates.clear();
   selectedId = new URLSearchParams(location.hash.split('?')[1] || '').get('id');
   notice = h('p', {
     class: 'run-notice wb-notice',
@@ -50,9 +52,7 @@ export function render() {
     class: 'page runs-page'
   }, h('header', {
     class: 'heading'
-  }, h('div', {}, h('div', {
-    class: 'crumb'
-  }, 'sqlseed'), h('h1', {}, '运行记录'), h('p', {
+  }, h('div', {}, h('h1', {}, '运行记录'), h('p', {
     class: 'subtitle'
   }, '查看已提交的配置版本与逐表结果。')), h('div', {
     class: 'heading-actions'
@@ -93,18 +93,9 @@ async function refresh(expected) {
       notice.textContent = '';
       return;
     }
-    workspace.replaceChildren(list, detail);
+    if (workspace.firstChild !== list) workspace.replaceChildren(list, detail);
     if (!selectedId && runs.length) selectedId = runs[0].id;
-    list.replaceChildren(...runs.map(run => action('', () => {
-      dataViewer?.close();
-      dataViewer = null;
-      selectedId = run.id;
-      refresh(version);
-    }, {
-      class: `run-card wb-run-card${run.id === selectedId ? ' active' : ''}`,
-      'aria-pressed': String(run.id === selectedId)
-    })));
-    [...list.querySelectorAll('.wb-run-card')].forEach((card, i) => card.append(h('strong', {}, runs[i].name || runs[i].id), status(runs[i].status), h('small', {}, runTime(runs[i].created_at ?? runs[i].started_at)), h('small', {}, runs[i].target_label)));
+    drawList(runs);
     if (selectedId) {
       const run = await get(`/api/workbench/runs/${encodeURIComponent(selectedId)}`);
       if (!current()) return;
@@ -117,6 +108,30 @@ async function refresh(expected) {
     notice.textContent = `暂时无法读取记录：${error.message}。这不代表任务已失败。`;
     timer = setTimeout(() => refresh(expected), 5000);
   }
+}
+function drawList(runs) {
+  const previousCards = new Map([...list.children].map(card => [card.dataset.runId, card]));
+  const focused = list.contains(document.activeElement) ? document.activeElement : null;
+  const cards = runs.map(run => {
+    const card = previousCards.get(String(run.id)) || action('', () => {
+      selectedId = run.id;
+      dataViewer?.close();
+      dataViewer = null;
+      refresh(version);
+    });
+    card.dataset.runId = run.id;
+    card.className = `run-card wb-run-card${run.id === selectedId ? ' active' : ''}`;
+    card.setAttribute('aria-pressed', String(run.id === selectedId));
+    card.replaceChildren(h('strong', {}, run.name || run.id), status(run.status), h('small', {}, runTime(run.created_at ?? run.started_at)), h('small', {}, run.target_label));
+    return card;
+  });
+  // 轮询更新状态而不是反复卸载整列；记录插入或重排也保留原有键盘位置。
+  cards.forEach((card, index) => {
+    if (list.children[index] !== card) list.insertBefore(card, list.children[index] || null);
+  });
+  const retained = new Set(cards);
+  for (const card of [...list.children]) if (!retained.has(card)) card.remove();
+  if (focused?.isConnected && document.activeElement !== focused) focused.focus({preventScroll: true});
 }
 function status(value) {
   return h('span', {
@@ -161,16 +176,29 @@ function tableResult(table) {
 function viewTable(run, table) {
   if (selectedId !== run.id || !root?.isConnected) return;
   const expected = version;
+  const current = () => version === expected && selectedId === run.id && Boolean(root?.isConnected);
   dataViewer?.close();
   dataViewer = openTableData({
     runId: run.id,
     table: table.name,
     targetKey: run.target_key,
     targetLabel: run.target_label,
-    isCurrent: () => version === expected && selectedId === run.id && Boolean(root?.isConnected)
+    isCurrent: current,
+    // Polling replaces the detail controls while this reader is open. Resolve
+    // the current action by identity only when its original page/run survives.
+    returnFocus: () => current() && detail.dataset.runId === String(run.id)
+      ? [...detail.querySelectorAll('[data-run-focus]')].find(element => element.getAttribute('data-run-focus') === `table:${table.name}`)
+      : null
   });
 }
 function drawRun(run) {
+  const previousSnapshot = detail.querySelector('.run-snapshot');
+  if (previousSnapshot && detail.dataset.runId) {
+    const code = previousSnapshot.querySelector('pre');
+    snapshotStates.set(detail.dataset.runId, {open: previousSnapshot.open, top: code.scrollTop, left: code.scrollLeft});
+  }
+  const active = document.activeElement;
+  const focusedKey = detail.dataset.runId === String(run.id) && detail.contains(active) ? active.getAttribute('data-run-focus') : null;
   const recovery = remainingRun(run);
   const count = run.rows_inserted;
   const replacement = run.execution?.mode === 'replace_selected';
@@ -214,6 +242,7 @@ function drawRun(run) {
         class: 'muted'
       }, '已完成的父表改为引用已有数据。剩余配置不保证延续上次随机序列，也不能自动修复业务关系。'), h('a', {
         href: `#/workbench?run=${encodeURIComponent(run.id)}&recover=remaining`,
+        'data-run-focus': 'remaining-config',
         class: 'btn primary'
       }, '修正并生成剩余数据')] : []));
     } else {
@@ -252,13 +281,14 @@ function drawRun(run) {
   }, h('table', {
     class: 'run-table'
   }, h('thead', {}, h('tr', {}, ...['表', '状态', '计划行数', '已提交', '结果'].map(text => h('th', {}, text)))), h('tbody', {}, ...tables.map(table => h('tr', {}, h('td', {
-    class: 'mono'
+    class: 'run-table-name'
   }, table.name), h('td', {}, status(table.status)), h('td', {}, plannedCount(table) ?? '未记录'), h('td', {}, tableCommittedCount(table)), h('td', {
     class: table.status === 'error' ? 'run-error' : ''
   }, h('div', {
     class: 'run-result-content'
   }, h('span', {}, tableResult(table)), action('查看当前数据', () => viewTable(run, table), {
     class: 'btn run-view-data',
+    'data-run-focus': `table:${table.name}`,
     disabled: ['queued', 'running'].includes(run.status),
     title: ['queued', 'running'].includes(run.status) ? '运行结束后可查看数据库当前数据' : '查看数据库当前记录，包含已有数据'
   })))))))), errors.length ? h('div', {
@@ -266,7 +296,7 @@ function drawRun(run) {
     role: 'alert'
   }, ...errors.map(error => h('p', {}, error))) : null, runRecoveryCard(), h('details', {
     class: 'run-snapshot'
-  }, h('summary', {}, '本次配置快照'), h('p', {
+  }, h('summary', {'data-run-focus': 'snapshot'}, '本次配置快照'), h('p', {
     class: 'muted'
   }, '这是提交时的固定版本，后续编辑不会改变本次运行。'), h('pre', {}, JSON.stringify(run.document, null, 2)), action('导出快照 JSON', () => download(`sqlseed-run-${run.id}.json`, JSON.stringify({
     target_key: run.target_key,
@@ -277,10 +307,11 @@ function drawRun(run) {
       reset_identity: false
     },
     plan_hash: run.plan_hash
-  }, null, 2)))), h('div', {
+  }, null, 2)), {'data-run-focus': 'export-snapshot'})), h('div', {
     class: 'run-actions'
   }, h('a', {
     href: `#/workbench?run=${encodeURIComponent(run.id)}`,
+    'data-run-focus': 'new-config',
     class: 'btn'
   }, '从此快照新建配置')), run.status === 'error' ? h('p', {
     class: 'muted'
@@ -289,5 +320,18 @@ function drawRun(run) {
   }, '从快照新建只复用生成规则，默认追加；清空需在生成前重新选择并确认。') : null, ['queued', 'running'].includes(run.status) ? h('p', {
     class: 'muted'
   }, '任务由服务端执行，离开此页面不影响生成。') : null];
+  const snapshot = content.find(element => element?.classList.contains('run-snapshot'));
+  const saved = snapshotStates.get(String(run.id));
+  if (saved) snapshot.open = saved.open;
   detail.replaceChildren(...content.filter(element => element !== null));
+  detail.dataset.runId = run.id;
+  if (saved) {
+    const code = snapshot.querySelector('pre');
+    code.scrollTop = saved.top;
+    code.scrollLeft = saved.left;
+  }
+  if (focusedKey) {
+    const target = [...detail.querySelectorAll('[data-run-focus]')].find(element => element.getAttribute('data-run-focus') === focusedKey);
+    if (target && !target.disabled) target.focus({preventScroll: true});
+  }
 }

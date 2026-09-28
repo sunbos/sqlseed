@@ -43,8 +43,8 @@ function schema(target = 'A') {
   };
 }
 
-function harness({connected = true, timers = {}} = {}) {
-  const document = createDom();
+function harness({connected = true, timers = {}, generationDefaults = null} = {}) {
+  const document = createDom(), window = new Element('window');
   const create = tag => {
     const node = new Element(tag);
     node.clientWidth = 800; node.clientHeight = 420;
@@ -72,7 +72,7 @@ function harness({connected = true, timers = {}} = {}) {
     throw new Error(`Unexpected network request: ${url}`);
   };
   const bindings = {
-    document, store, location, URLSearchParams, TextDecoder, AbortController, ...timers,
+    document, window, store, location, URLSearchParams, TextDecoder, AbortController, ...timers,
     ResizeObserver: class {observe() {} disconnect() {}},
     restoreConnection: async () => {},
     fetch: async (url, options = {}) => {
@@ -84,6 +84,7 @@ function harness({connected = true, timers = {}} = {}) {
     },
   };
   const load = (name, extra = {}) => loadFrontend(name, {...bindings, ...extra});
+  const connection = load('workbench/connection.js');
   const model = load('workbench/model.js');
   const session = load('workbench/session.js', {WorkbenchDocument: vm.runInContext('WorkbenchDocument', model)});
   const labels = load('labels.js');
@@ -105,16 +106,22 @@ function harness({connected = true, timers = {}} = {}) {
   const tableData=load('workbench/table-data.js',{...vm.runInContext('({button,modal,valueText})',ui)});
   const eligibility=load('workbench/ai-eligibility.js'),guide=load('workbench/provider-guide.js');
   const guidance=load('workbench/guidance.js');
+  const clearRecovery=load('workbench/clear-recovery.js');
+  const defaults=load('generation-defaults.js', {window:{localStorage:{getItem:()=>generationDefaults && JSON.stringify(generationDefaults)}}});
   const recovery=load('workbench/recovery.js');
   const fieldAIEligibility=vm.runInContext('fieldAIEligibility',eligibility),providerGuide=vm.runInContext('providerGuide',guide);
   const aiHandoff=load('workbench/ai-handoff.js');
   const handoff=vm.runInContext('({rememberAIHandoff,consumeAIHandoff,clearAIHandoff,peekAIHandoff,requestAIReturn,leaveAISettings})',aiHandoff);
   const aiStream=load('workbench/ai-stream.js');
-  const ai = load('workbench/ai.js', {requestAISuggestions:vm.runInContext('requestAISuggestions',aiStream),fieldAIEligibility,createDropdown:vm.runInContext('createDropdown',dropdown),genLabel:vm.runInContext('genLabel',labels),...vm.runInContext('({button,modal})',ui),AbortController});
+  const adjustment=load('workbench/ai-adjustment.js',{createRuleEditor:vm.runInContext('createRuleEditor',editor),...vm.runInContext('({button})',ui)});
+  const ai = load('workbench/ai.js', {openSuggestionAdjustment:adjustment.openSuggestionAdjustment,requestAISuggestions:vm.runInContext('requestAISuggestions',aiStream),fieldAIEligibility,createDropdown:vm.runInContext('createDropdown',dropdown),genLabel:vm.runInContext('genLabel',labels),...vm.runInContext('({button,modal})',ui),AbortController});
   const context = load('pages/workbench.js', {
+    openConnectionDialog: connection.openConnectionDialog,
+    readGenerationDefaults:vm.runInContext('readGenerationDefaults',defaults),
     ...handoff,
     openTableData:vm.runInContext('openTableData',tableData),
     ...vm.runInContext('({nextStep,guideAIState})',guidance),
+    ...vm.runInContext('({clearRecoveryState,clearScopeCandidate})',clearRecovery),
     ...vm.runInContext('({remainingRun})',recovery),
     fieldAIEligibility,providerGuide,openDataPreview:vm.runInContext('openDataPreview',preview),
     openAIAssistant:vm.runInContext('openAIAssistant',ai),
@@ -156,19 +163,19 @@ function harness({connected = true, timers = {}} = {}) {
     return drawer;
   };
   const applyRule = async () => {
-    const apply = button('应用规则', document);
+    const apply = button('应用规则', document) || button('应用并返回预览', document);
     assert.ok(apply, 'Missing Apply rule action');
     assert.equal(apply.disabled, false, 'Invalid rule must not be applied');
     await apply.click();
-    assert.equal(document.querySelector('.drawer'), null);
+    assert.equal(document.querySelector('#field-rule'), null);
   };
   const cancelRule = async () => {
-    const cancel = button('取消', document);
+    const cancel = button('取消', document) || button('返回预览', document);
     assert.ok(cancel, 'Missing Cancel rule action');
     await cancel.click();
-    assert.equal(document.querySelector('.drawer'), null);
+    assert.equal(document.querySelector('#field-rule'), null);
   };
-  return {document, store, location, requests, routes, context, mount, leave, button, modelState, handoff,
+  return {document, window, store, location, requests, routes, context, mount, leave, button, modelState, handoff,
     field, edit, selectColumn, openRule, applyRule, cancelRule, root: () => root};
 }
 

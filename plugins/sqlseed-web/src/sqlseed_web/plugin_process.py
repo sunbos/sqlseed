@@ -6,14 +6,45 @@ import os
 import re
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 from collections.abc import Callable, Iterator
-from typing import IO
+from contextlib import ExitStack
+from typing import IO, Any, Protocol
 
 from sqlseed._utils.daemon_task import DaemonTask
 
+
+class InstallerLifetime(Protocol):
+    arguments: list[str]
+    startupinfo: Any
+
+    def spawned(self) -> None: ...
+    def stop(self, process: subprocess.Popen[bytes]) -> None: ...
+    def close(self) -> None: ...
+
+
 OUTPUT_LIMIT = 24_000
+
+
+class InstallerCleanupPending(RuntimeError):
+    """Keep process/job ownership until cleanup can be positively confirmed."""
+
+    def __init__(self, stop: Callable[[], None], resources: ExitStack) -> None:
+        super().__init__("安装进程清理尚未确认，业务恢复已暂停。")
+        self._stop = stop
+        self._resources = resources
+        self._stopped = False
+
+    def hold(self, resources: ExitStack) -> None:
+        self._resources.callback(resources.close)
+
+    def retry(self) -> None:
+        if not self._stopped:
+            self._stop()
+            self._stopped = True
+        self._resources.close()
 
 
 def _sanitized(text: str) -> str:
@@ -75,22 +106,32 @@ def run_installer(
         if not name.startswith(("PIP_", "UV_", "PYTHON")) and name != "VIRTUAL_ENV"
     }
     environment.update({"PIP_CONFIG_FILE": os.devnull, "PYTHONNOUSERSITE": "1", "NO_COLOR": "1"})
-    with (
-        tempfile.TemporaryDirectory(prefix="sqlseed-plugin-process-") as directory,
-        subprocess.Popen(
-            arguments,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            cwd=directory,
-            env=environment,
-            start_new_session=os.name != "nt",
-            # Children retain the environment lock until they have exited.
-            pass_fds=(lock_descriptor,) if os.name != "nt" and lock_descriptor is not None else (),
-        ) as process,
-    ):
+    with ExitStack() as cleanup:
+        directory = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="sqlseed-plugin-process-"))
+        windows: InstallerLifetime | None = None
+        if sys.platform == "win32":
+            from sqlseed_web._windows_process import WindowsInstaller
+
+            windows = WindowsInstaller(arguments, lock_descriptor)
+            cleanup.callback(windows.close)
+        process = cleanup.enter_context(
+            subprocess.Popen(
+                windows.arguments if windows is not None else arguments,
+                stdin=subprocess.PIPE if windows is not None else subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                cwd=directory,
+                env=environment,
+                start_new_session=os.name != "nt",
+                startupinfo=windows.startupinfo if windows is not None else None,
+                creationflags=0x08000000 if windows is not None else 0,  # CREATE_NO_WINDOW
+                # Children retain the environment lock until they have exited.
+                pass_fds=(lock_descriptor,) if os.name != "nt" and lock_descriptor is not None else (),
+            )
+        )
+        if windows is not None:
+            windows.spawned()
         reader: DaemonTask[None] | None = None
-        stopped = False
         try:
             if (stream := process.stdout) is None:
                 raise RuntimeError("无法读取安装工具输出。")
@@ -101,9 +142,7 @@ def run_installer(
                 if not reader.wait(max(0, deadline - time.monotonic())):
                     raise subprocess.TimeoutExpired(arguments, timeout)
             except subprocess.TimeoutExpired:
-                _stop_installer(process)
-                stopped = True
-                output("安装工具运行超时，子进程已停止；请检查环境并重启 Web。")
+                output("安装工具运行超时，正在停止安装进程；请检查环境后重试。")
                 return -1
             if (error := reader.exception()) is not None:
                 raise RuntimeError("无法读取安装工具输出。") from error
@@ -113,14 +152,24 @@ def run_installer(
             # Terminate before Popen.__exit__ waits, including inherited pipes.
             # The process group can outlive its leader while holding pipes
             # and the environment lock, including after a successful exit.
-            if not stopped:
-                _stop_installer(process)
-            if reader is not None:
-                reader.wait(2)
+            def stop() -> None:
+                _stop_installer(process, windows)
+                if reader is not None:
+                    reader.wait(2)
+
+            try:
+                stop()
+            except (OSError, subprocess.SubprocessError) as error:
+                # Closing the job only requests termination; it does not prove
+                # the descendants have finished pending environment writes.
+                raise InstallerCleanupPending(stop, cleanup.pop_all()) from error
 
 
-def _stop_installer(process: subprocess.Popen[bytes]) -> None:
-    if os.name == "nt":
+def _stop_installer(process: subprocess.Popen[bytes], windows: InstallerLifetime | None = None) -> None:
+    if windows is not None:
+        windows.stop(process)
+        return
+    if sys.platform == "win32":
         if process.poll() is None:
             process.kill()
     else:

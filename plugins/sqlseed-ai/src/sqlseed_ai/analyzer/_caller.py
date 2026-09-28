@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from sqlseed_ai._client import APIConnectionError, APIError, APITimeoutError, get_openai_client
+from sqlseed_ai._json_utils import JSONResponseError, parse_json_response
 from sqlseed_ai._model_selector import _normalize_model_id, select_next_gemma_model
 from sqlseed_ai.config import AIBackend, AIConfig
 from sqlseed_ai.exceptions import ContextOverflowError, ModelFallbackError, classify_api_error
@@ -221,6 +222,7 @@ class LLMCallerMixin(_InteractionLoggingMixin):
         *,
         stage: str = "",
         table_name: str = "",
+        strict_json: bool = False,
     ) -> dict[str, Any]:
         """Send messages to the LLM (non-streaming) and return the parsed JSON.
 
@@ -228,13 +230,17 @@ class LLMCallerMixin(_InteractionLoggingMixin):
             messages: Chat messages built by :meth:`build_initial_messages`.
             stage: Pipeline stage identifier for LLM interaction log attribution.
             table_name: Table being analyzed; populates the JSON log field.
+            strict_json: Raise content-free response errors instead of returning an
+                empty dict on invalid JSON, empty output or output-budget exhaustion.
 
         Returns:
             Parsed JSON dict from the model response.
         """
         self._ensure_config()
         return self._call_with_fallback(
-            lambda model: self._call_llm_once(messages, model=model, stage=stage, table_name=table_name)
+            lambda model: self._call_llm_once(
+                messages, model=model, stage=stage, table_name=table_name, strict_json=strict_json
+            )
         )
 
     @staticmethod
@@ -354,6 +360,7 @@ class LLMCallerMixin(_InteractionLoggingMixin):
         model: str | None = None,
         stage: str = "",
         table_name: str = "",
+        strict_json: bool = False,
     ) -> dict[str, Any]:
         """Execute a single non-streaming LLM call (no fallback).
 
@@ -391,11 +398,15 @@ class LLMCallerMixin(_InteractionLoggingMixin):
             self._handle_llm_api_exception(e, model, streaming=False)
 
         if not response.choices:
+            if strict_json:
+                raise JSONResponseError("empty_response")
             raise RuntimeError(
                 f"LLM returned no choices (model={model or self._config.model}). The API key or model may be invalid."
             )
         message = response.choices[0].message
         content = message.content
+        if strict_json and response.choices[0].finish_reason == "length":
+            raise JSONResponseError("truncated_response")
 
         actual_model = model or self._config.model
         if hasattr(message, "reasoning_content") and message.reasoning_content:
@@ -406,6 +417,8 @@ class LLMCallerMixin(_InteractionLoggingMixin):
             )
 
         if content is None:
+            if strict_json:
+                raise JSONResponseError("empty_response")
             self._log_llm_interaction(
                 messages=messages,
                 response="(empty response)",
@@ -433,4 +446,4 @@ class LLMCallerMixin(_InteractionLoggingMixin):
             model=actual_model,
         )
 
-        return self._parse_json_response(content)
+        return parse_json_response(content, strict=True) if strict_json else self._parse_json_response(content)

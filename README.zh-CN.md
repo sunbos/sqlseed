@@ -1,6 +1,12 @@
 <div align="center">
 
-# 🌱 sqlseed
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/sunbos/sqlseed/main/docs/assets/brand/sqlseed-wordmark-dark.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/sunbos/sqlseed/main/docs/assets/brand/sqlseed-wordmark-light.svg">
+    <img src="https://raw.githubusercontent.com/sunbos/sqlseed/main/docs/assets/brand/sqlseed-wordmark-light.svg" width="256" height="80" alt="sqlseed">
+  </picture>
+</h1>
 
 **从已有表结构出发，为 SQLite 和 PostgreSQL 生成测试数据。**
 

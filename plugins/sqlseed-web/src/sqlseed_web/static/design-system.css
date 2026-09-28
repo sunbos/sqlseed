@@ -1,0 +1,47 @@
+/* 仅安排样板页面的布局；材质、字体、状态与控件均来自正式 style.css。 */
+.ds-header { gap: 24px; }
+.ds-brand { text-decoration: none; }
+.ds-page { max-width: 1280px; }
+.ds-intro { max-width: 800px; }
+.ds-nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 24px 0; }
+.ds-section { margin: 0 0 24px; padding: 24px; scroll-margin-top: 16px; }
+.ds-section-heading { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+.ds-section-heading h2 { margin: 0; }
+.ds-section > p { margin-top: 8px; }
+.ds-grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
+.ds-grid-three { grid-template-columns: repeat(3,minmax(0,1fr)); }
+.ds-grid > * { min-width: 0; }
+.ds-stack { display: grid; align-content: start; gap: 14px; }
+.ds-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.ds-row-wide { gap: 18px; }
+.ds-surface { padding: 18px; margin: 0; min-height: 138px; }
+.ds-grid .ds-surface { display: block; margin-bottom: 0; }
+.ds-surface h3 { margin: 0 0 8px; }
+.ds-surface p { margin-bottom: 0; }
+.ds-fonts { padding: 20px 0 2px; display: flex; flex-wrap: wrap; gap: 16px 28px; align-items: baseline; }
+.ds-fonts h2 { margin: 0; }
+.ds-font-inputs { margin-top: 20px; }
+.ds-notes { margin-top: 20px; }
+.ds-notes ul { padding-left: 22px; }
+.ds-notes li { margin: 6px 0; }
+.ds-control { min-width: 0; }
+.ds-control > input { width: 100%; }
+.ds-choice { display: inline-flex; align-items: center; gap: 9px; min-height: 34px; }
+.ds-choice > input { margin: 0; }
+.ds-status { min-height: 24px; margin: 12px 0 0; overflow-wrap: anywhere; }
+.ds-loading { min-width: 136px; }
+.ds-full { width: 100%; }
+.ds-reading-table { overflow: auto; margin-top: 20px; }
+.ds-reading-table table { width: 100%; min-width: 380px; }
+.ds-reading-table th,.ds-reading-table td { text-align: left; }
+.ds-source-list { display: grid; gap: 12px; padding-left: 20px; }
+.ds-source-list p { margin: 3px 0 0; }
+.ds-code-sample { min-height: 240px; }
+.ds-end { margin: 24px 0 0; }
+@media(max-width:760px) {
+  .ds-header { gap: 12px; flex-wrap: wrap; height: auto; min-height: 68px; padding-block: 12px; }
+  .ds-header .top-end { margin-left: 0; }
+  .ds-grid,.ds-grid-three { grid-template-columns: minmax(0,1fr); gap: 18px; }
+  .ds-section { padding: 18px 14px; }
+  .ds-surface { min-height: 0; }
+}

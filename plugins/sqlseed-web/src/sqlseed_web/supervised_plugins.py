@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import secrets
+import subprocess
 import threading
 from typing import Any, Protocol
 
@@ -59,9 +60,7 @@ class SupervisedPluginManager(PluginManager):
         with self._lock:
             result = super().plan(body)
             warnings = [
-                "安装固定当前环境与已有组件版本；没有兼容版本或 wheel 时会失败。"
-                if body.action == "install"
-                else "仅卸载选中的组件，不自动卸载其依赖。重新安装需要软件源提供兼容版本；开发版或本地安装的组件可能无法恢复。",
+                *result["warnings"][:-1],
                 "操作期间会短暂暂停工作台；完成后自动恢复服务与可恢复的连接，无需手动重启。",
             ]
             result["warnings"] = warnings
@@ -106,7 +105,8 @@ class SupervisedPluginManager(PluginManager):
         self._package_message = "组件操作未完成，业务服务已恢复；请检查服务日志后重试。"
         try:
             self.controller.enter_maintenance()
-            self._stage("installing", "正在安装组件。" if operation_plan["action"] == "install" else "正在卸载组件。")
+            action_label = {"install": "安装", "uninstall": "卸载", "update": "更新"}[operation_plan["action"]]
+            self._stage("installing", f"正在{action_label}组件。")
             if plugin_environment.installed_packages(self.environment.prefix) != before:
                 raise RuntimeError("environment changed before installation")
             super()._run(operation_plan, before)
@@ -125,18 +125,26 @@ class SupervisedPluginManager(PluginManager):
         finally:
             self._restore()
 
-    def _recovery_failed(self) -> None:
+    def _recovery_failed(self, message: str = "业务服务未恢复，请点击重试恢复；不会重复安装或卸载。") -> None:
         with self._lock:
             self.phase = "recovery_failed"
             self.restart_required = False
             if self._task is not None:
                 self._task.update(
                     status="failed",
-                    message="业务服务未恢复，请点击重试恢复；不会重复安装或卸载。",
+                    message=message,
                     service_ready=False,
                 )
 
-    def _restore(self) -> None:
+    def _restore(self, *, retry_cleanup: bool = False) -> None:
+        if self._installer_cleanup is not None:
+            try:
+                if not retry_cleanup:
+                    raise RuntimeError("cleanup must be retried explicitly")
+                self._finish_installer_cleanup()
+            except (OSError, RuntimeError, subprocess.SubprocessError):
+                self._recovery_failed("安装进程清理尚未确认，环境保持锁定；请点击重试恢复，不会重复安装或卸载。")
+                return
         self._stage("restoring", "正在恢复业务服务与连接。")
         restored = None
         try:
@@ -164,7 +172,9 @@ class SupervisedPluginManager(PluginManager):
             if self.phase != "recovery_failed":
                 raise HTTPException(409, detail={"code": "recovery_not_needed", "message": "当前服务无需恢复。"})
             self._stage("restoring", "正在重试恢复业务服务。")
-            self._worker = threading.Thread(target=self._restore, daemon=False, name="sqlseed-service-recover")
+            self._worker = threading.Thread(
+                target=self._restore, kwargs={"retry_cleanup": True}, daemon=False, name="sqlseed-service-recover"
+            )
             try:
                 self._worker.start()
             except RuntimeError as exc:

@@ -26,12 +26,112 @@ function assertNoWriteRequests(ui) {
   assert.equal(ui.requests.some(item=>item.url==='/api/workbench/runs' || /\/fill$/.test(item.url)),false);
 }
 
+async function adjustAmount(ui, min = 25, max = 40) {
+  await ui.document.querySelector('[data-ai-adjust="0"]').click(); await tick();
+  const adjustment=ui.document.querySelector('.wb-ai-adjustment'); assert.ok(adjustment);
+  for(const [name,value] of [['min_value',min],['max_value',max]]) {
+    const input=adjustment.querySelector(`[data-field="${name}"]`); assert.ok(input);
+    input.value=String(value); await input.dispatchEvent('input');
+  }
+  return adjustment;
+}
+
+test('manual AI adjustments stay in the review copy until selected and checked for application',async()=>{
+  const ui=harness(); await ready(ui); const model=ui.modelState(), before=plain(model.document), drafts=plain(model.view.tableDrafts);
+  await openAI(ui); await ui.button('开始分析',ui.document).click(); await select(ui);
+  await adjustAmount(ui);
+  assert.equal(ui.button('应用所选建议',ui.document).disabled,true);
+  assert.deepEqual(plain(model.document),before);
+  assert.deepEqual(plain(model.view.tableDrafts),drafts);
+  await ui.button('保存调整',ui.document).click();
+  assert.equal(ui.document.querySelector('.wb-ai-adjustment'),null);
+  assert.equal(ui.document.querySelector('[data-ai-suggestion="0"]').checked,false);
+  assert.equal(ui.button('应用所选建议',ui.document).disabled,true);
+  assert.deepEqual(suggestion.after.params,{min_value:5,max_value:50},'the received AI response is immutable');
+  assert.deepEqual(plain(model.document),before);
+  assert.equal(ui.requests.some(item=>item.url==='/api/workbench/check'),false);
+  await select(ui); await ui.button('应用所选建议',ui.document).click();
+  const check=JSON.parse(ui.requests.find(item=>item.url==='/api/workbench/check').options.body);
+  assert.deepEqual(check.document.tables.find(table=>table.name==='users').columns.find(column=>column.name==='amount').params,{min_value:25,max_value:40});
+  assert.deepEqual(plain(model.rule('users','amount').params),{min_value:25,max_value:40});
+  assert.deepEqual(plain(model.document.tables),before.tables,'unselected table remains a draft');
+  assertNoWriteRequests(ui); ui.context.unmount();
+});
+
+test('invalid and cancelled AI adjustments preserve the original suggestion and document',async()=>{
+  const ui=harness(); await ready(ui); const model=ui.modelState(), before=plain(model.document);
+  await openAI(ui); await ui.button('开始分析',ui.document).click();
+  const adjustment=await adjustAmount(ui);
+  const input=adjustment.querySelector('[data-field="min_value"]'); input.value='not-a-number'; await input.dispatchEvent('input');
+  assert.equal(ui.button('保存调整',ui.document).disabled,true);
+  await ui.button('保存调整',ui.document).click();
+  assert.ok(ui.document.querySelector('.wb-ai-adjustment'));
+  input.value='50'; await input.dispatchEvent('input');
+  assert.equal(ui.button('保存调整',ui.document).disabled,true);
+  assert.match(adjustment.textContent,/最小值不能大于最大值/);
+  assert.equal(ui.requests.some(item=>item.url==='/api/workbench/check'),false);
+  await ui.button('取消调整',ui.document).click();
+  assert.deepEqual(plain(model.document),before);
+  await select(ui); await ui.button('应用所选建议',ui.document).click();
+  assert.deepEqual(plain(model.rule('users','amount').params),{min_value:5,max_value:50});
+  assert.equal(ui.requests.some(item=>item.url==='/api/workbench/check'),false);
+  assertNoWriteRequests(ui); ui.context.unmount();
+});
+
+test('failed candidate checks keep adjusted suggestions editable and never apply their rules',async()=>{
+  const ui=harness(); await ready(ui); const model=ui.modelState(), before=plain(model.document);
+  ui.routes.set('/api/workbench/check',()=>({ok:false,issues:[{severity:'error',message:'取值不满足数据库 CHECK 约束'}]}));
+  await openAI(ui); await ui.button('开始分析',ui.document).click();
+  await adjustAmount(ui,25,40); await ui.button('保存调整',ui.document).click(); await select(ui);
+  await ui.button('应用所选建议',ui.document).click();
+  assert.match(ui.document.textContent,/调整后的规则未通过检查.*取值不满足数据库 CHECK 约束/);
+  assert.deepEqual(plain(model.document),before);
+  assert.equal(model.rule('users','amount').params.min_value,1);
+  assert.equal(ui.document.querySelector('[data-ai-adjust="0"]').disabled,false);
+  assertNoWriteRequests(ui); ui.context.unmount();
+});
+
+for(const change of ['close','document']) test(`late adjusted-rule checks cannot apply after ${change}`,async()=>{
+  const ui=harness(); await ready(ui); const model=ui.modelState(); const pending=deferred();
+  ui.routes.set('/api/workbench/check',()=>pending.promise);
+  await openAI(ui); await ui.button('开始分析',ui.document).click(); await adjustAmount(ui);
+  await ui.button('保存调整',ui.document).click(); await select(ui);
+  const request=ui.button('应用所选建议',ui.document).click(); await tick();
+  if(change==='close') await ui.button('取消',ui.document).click(); else model.touch();
+  const before=plain(model.document), drafts=plain(model.view.tableDrafts);
+  pending.resolve({ok:true,issues:[]}); await request;
+  assert.deepEqual(plain(model.document),before); assert.deepEqual(plain(model.view.tableDrafts),drafts);
+  assertNoWriteRequests(ui); ui.context.unmount();
+});
+
+test('adjusting one member keeps relationship group atomic and invalidates its old evidence',async()=>{
+  const ui=harness(); await ready(ui); const model=ui.modelState(), epoch=model.epoch;
+  const grouped={schema_hash:'schema-v1',suggestions:[{...plain(suggestion),group_id:'relation-1'},
+    {table:'users',column:'metadata',group_id:'relation-1',after:{name:'metadata',derive_from:'amount',expression:'value'},
+      relation:{template:'copy',sources:['amount']},evidence:{message:'旧样例',rows:[{amount:7,metadata:7}]}}]};
+  ui.routes.set('/api/workbench/ai/suggest',()=>grouped);
+  await openAI(ui); await ui.button('开始分析',ui.document).click();
+  assert.equal(ui.document.querySelectorAll('[data-ai-suggestion]').length,1);
+  assert.ok(ui.document.querySelector('.wb-ai-evidence'));
+  await adjustAmount(ui); await ui.button('保存调整',ui.document).click();
+  assert.equal(ui.document.querySelector('.wb-ai-evidence'),null);
+  assert.equal(ui.document.querySelector('.wb-ai-relation'),null);
+  assert.equal(model.epoch,epoch);
+  await select(ui); await ui.button('应用所选建议',ui.document).click();
+  assert.equal(model.rule('users','amount').params.min_value,25);
+  assert.equal(model.rule('users','metadata').derive_from,'amount');
+  assert.equal(model.epoch,epoch+1,'related members apply in a single model revision');
+  assertNoWriteRequests(ui); ui.context.unmount();
+});
+
 test('header AI review applies a column to an unselected table draft while preserving scope and invalidating check',async()=>{
   const ui=harness();await ready(ui);
   const model=ui.modelState();model.toggleTable('audit',true);
   model.acceptCheck({ok:true,config_hash:'checked',samples:{audit:[{event:'old'}]},issues:[],order:['audit'],layers:[['audit']]},model.epoch);
   const before=plain(model.document);
-  await openAI(ui);await ui.button('开始分析',ui.document).click();
+  await openAI(ui);
+  const currentScope=ui.document.querySelector('input[value="current"]'); currentScope.checked=true; await currentScope.dispatchEvent('change');
+  await ui.button('开始分析',ui.document).click();
   const request=JSON.parse(ui.requests.find(item=>item.url==='/api/workbench/ai/suggest').options.body);
   assert.equal(request.conn_id,'A');assert.equal(request.schema_hash,'schema-v1');assert.deepEqual(request.tables,['users']);
   assert.deepEqual(request.document.tables.map(item=>item.name),['audit']);

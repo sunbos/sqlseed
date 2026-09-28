@@ -126,6 +126,7 @@ def defect_b() -> bool:
 
 
 def main() -> int:
+    """Run both historical defect probes and report whether they reproduce."""
     print("[A] coerce_float_to_int -> random_int / silent COMPATIBLE gaps")
     a = defect_a()
     print("\n[B] nullable UNIQUE column -> silent all-NULL fill")

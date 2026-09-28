@@ -1,6 +1,7 @@
 import './graph-layout.js';
 import './dependency-view.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
+const GRAPH_MODES = ['plan', 'all', 'paths', 'issues'];
 let graphSequence = 0;
 function html(tag, attributes = {}, text = '') {
   const el = document.createElement(tag);
@@ -75,15 +76,16 @@ export function createSchemaGraph({
   pathMode = 'complete',
   initialView,
   issues = [],
+  checked = false,
   onSelect = () => true,
   onEdge = () => {},
   onExpand = () => {},
   onViewChange = () => {}
 }) {
-  function visibleGraph(visible) {
+  function visibleGraph(visible, graph = data) {
     return {
-      nodes: data.nodes.filter(node => visible.has(node.id)),
-      edges: data.edges.filter(edge => visible.has(edge.source) && visible.has(edge.target))
+      nodes: graph.nodes.filter(node => visible.has(node.id)),
+      edges: graph.edges.filter(edge => visible.has(edge.source) && visible.has(edge.target))
     };
   }
 
@@ -124,6 +126,7 @@ export function createSchemaGraph({
     stage = null,
     destroyed = false;
   let pendingViewport = initialViewport();
+  let measuredCanvas = null;
   const initialSearch = typeof restored.search === 'string' ? restored.search : '';
   let searchText = initialSearch.trim(),
     composing = false;
@@ -132,9 +135,9 @@ export function createSchemaGraph({
   const markerId = `wb-schema-arrow-${++graphSequence}`;
   const listeners = [],
     drawingListeners = [];
-  const listen = (el, type, callback, drawing = false) => {
-    el.addEventListener(type, callback);
-    (drawing ? drawingListeners : listeners).push(() => el.removeEventListener(type, callback));
+  const listen = (el, type, callback, drawing = false, options) => {
+    el.addEventListener(type, callback, options);
+    (drawing ? drawingListeners : listeners).push(() => el.removeEventListener(type, callback, options));
   };
   const activate = (el, callback) => {
     listen(el, 'click', callback, true);
@@ -160,6 +163,12 @@ export function createSchemaGraph({
       role: 'group',
       'aria-label': '关系图范围'
     });
+  const scopeIndicator = html('span', {
+    class: 'graph-filter-indicator',
+    'aria-hidden': 'true'
+  });
+  scopes.append(scopeIndicator);
+  let scopeGeometry = null;
   const pathScopes = html('div', {
     class: 'path-modes graph-path-filters sg-modes',
     role: 'group',
@@ -176,16 +185,16 @@ export function createSchemaGraph({
     controls.set(action, button);
     return button;
   };
-  for (const [value, title] of [['all', '整库'], ['paths', '依赖路径'], ['issues', '待处理']]) {
+  for (const [value, title] of [['plan', '本次生成'], ['all', '整库'], ['paths', '依赖路径'], ['issues', issues.length ? `检查问题 · ${issues.length}` : '检查问题']]) {
     control(scopes, value, title, () => {
       currentMode = value;
       if (value === 'paths') {
         pathFocus = currentFocus;
       }
-      draw();
+      draw(false, true);
     });
   }
-  controls.get('issues').disabled = !issues.length;
+  controls.get('issues').setAttribute('title', '查看当前生成来源与规则检查中的错误和提醒，不代表清空范围检查');
   for (const [value, title] of [['complete', '完整路径'], ['upstream', '全部上游'], ['downstream', '全部下游'], ['neighbors', '仅相邻']]) {
     control(pathScopes, value, title, () => {
       currentMode = 'paths';
@@ -346,13 +355,14 @@ export function createSchemaGraph({
     class: 'graph-canvas sg-canvas',
     'data-graph-canvas': '',
     tabindex: '0',
-    'aria-label': '数据库关系画布，可用方向键平移'
+    'aria-label': '数据库关系画布，可用方向键平移',
+    'aria-describedby': `${markerId}-help`
   });
   canvas.classList.toggle('expanded', expanded);
   const footer = html('div', {
     class: 'graph-footer sg-footer'
   });
-  footer.append(html('span', {}, `父表 → 子表 · 粗线突出当前表的关联路径，浅线为其他关系。${issues.length ? '橙色表示待处理项。' : ''}拖动画布平移，点连线查看列映射。`));
+  footer.append(html('span', {id: `${markerId}-help`}, `父表 → 子表 · 粗线突出当前表的关联路径，浅线为其他关系。${issues.length ? '橙色表示检查问题。' : ''}拖动画布平移，Ctrl／⌘＋滚轮以鼠标位置缩放，普通滚轮滚动画布；点连线查看列映射。`));
   const labelControl = html('label'),
     labelToggle = html('input', {
       type: 'checkbox',
@@ -368,8 +378,21 @@ export function createSchemaGraph({
   });
   toolbar.append(toolbarRow, pathScope, readingGuide, searchResults);
   el.append(tools, legend, canvas, footer);
-  const problemTables = new Set(issues.map(issue => issue.table).filter(Boolean));
-  const problemEdges = new Set(data.edges.filter(edge => issues.some(issue => issue.edge_id === edge.id || issue.table === edge.target && (!issue.column || edge.targetColumns?.includes(issue.column)))).map(edge => edge.id));
+  const problemTables = new Set(issues.flatMap(issue => [issue.table, ...(Array.isArray(issue.tables) ? issue.tables : [])]).filter(id => nodeIds.has(id)));
+  function matchesIssue(edge, issue) {
+    if (issue.edge_id === edge.id || Array.isArray(issue.edge_ids) && issue.edge_ids.includes(edge.id)) return true;
+    if (issue.table !== edge.target || issue.source_table && issue.source_table !== edge.source) return false;
+    // Structured column groups preserve identifiers containing commas. Older
+    // responses joined a composite FK with commas; compare the complete set.
+    const columns = Array.isArray(issue.columns) ? issue.columns
+      : issue.column ? String(issue.column).split(',').map(column => column.trim()) : null;
+    if (!columns) return true;
+    const expected = new Set(columns), actual = new Set(edge.targetColumns || []);
+    return expected.size === actual.size && [...expected].every(column => actual.has(column));
+  }
+  const problemEdges = new Set(data.edges.filter(edge => issues.some(issue => matchesIssue(edge, issue))).map(edge => edge.id));
+  const unlocatedIssues = issues.filter(issue => ![issue.table, ...(Array.isArray(issue.tables) ? issue.tables : [])].some(id => nodeIds.has(id))
+    && !data.edges.some(edge => matchesIssue(edge, issue)));
   function getView() {
     return {
       mode: currentMode,
@@ -403,27 +426,39 @@ export function createSchemaGraph({
       return [];
     }
     const query = searchText.toLocaleLowerCase();
-    return data.nodes.filter(node => [node.id, node.name, node.label, ...(tableByName.get(node.id)?.columns || []).map(column => column.name)].some(value => typeof value === 'string' && value.toLocaleLowerCase().includes(query)));
+    return searchData().nodes.filter(node => [node.id, node.name, node.label, ...(tableByName.get(node.id)?.columns || []).map(column => column.name)].some(value => typeof value === 'string' && value.toLocaleLowerCase().includes(query)));
+  }
+  function searchData() {
+    return currentMode === 'plan' ? globalThis.SqlseedDependencyView.selectPlanGraph(data) : data;
   }
   function projection() {
     if (searchText) {
       const matches = searchMatches();
+      const source = searchData();
       const visible = new Set();
       for (const match of matches) {
-        const paths = globalThis.SqlseedDependencyView.selectGraph(data, match.id, 'paths');
+        const paths = globalThis.SqlseedDependencyView.selectGraph(source, match.id, 'paths');
         for (const node of paths.nodes) {
           visible.add(node.id);
         }
       }
-      return visibleGraph(visible);
+      return visibleGraph(visible, source);
     }
     if (currentMode === 'all') {
       return data;
+    }
+    if (currentMode === 'plan') {
+      return globalThis.SqlseedDependencyView.selectPlanGraph(data);
     }
     if (currentMode === 'paths') {
       return globalThis.SqlseedDependencyView.selectGraph(data, pathFocus, currentPath === 'complete' ? 'paths' : currentPath);
     }
     const visible = new Set(problemTables);
+    // Global configuration errors need the selected context, not an empty graph
+    // that could be mistaken for a successful check. Do not mark every FK bad.
+    if (unlocatedIssues.length) {
+      for (const node of globalThis.SqlseedDependencyView.selectPlanGraph(data).nodes) visible.add(node.id);
+    }
     for (const edge of data.edges) {
       if (problemEdges.has(edge.id)) {
         visible.add(edge.source);
@@ -483,17 +518,28 @@ export function createSchemaGraph({
       neighbors: '仅显示直接相邻关系，不代表完整依赖路径。'
     };
     if (searchText) {
-      scopeNote.textContent = `搜索“${searchText}”匹配的表及完整依赖路径。选择结果可聚焦阅读。`;
+      scopeNote.textContent = currentMode === 'plan'
+        ? `仅在本次生成及引用来源中搜索“${searchText}”。选择结果可阅读完整结构依赖。`
+        : `搜索“${searchText}”匹配的表及完整依赖路径。选择结果可聚焦阅读。`;
+    } else if (currentMode === 'plan') {
+      scopeNote.textContent = '本次生成 · 仅显示已勾选的表及本次引用来源；查看完整结构请切换整库。';
     } else if (currentMode === 'paths') {
       scopeNote.textContent = `${pathFocus || '未选择表'} · ${notes[currentPath]}`;
     } else if (currentMode === 'issues') {
-      scopeNote.textContent = '显示检查结果涉及的表及引用关系。';
+      scopeNote.textContent = !issues.length ? emptyIssuesHint() : unlocatedIssues.length
+        ? '部分问题属于整个生成计划；显示所选上下文，请结合依赖检查详情处理。'
+        : '显示当前生成来源与规则检查中的错误和提醒，以及涉及的表和引用关系；清空范围另行检查。';
     } else {
       scopeNote.textContent = '整库总览 · 总览用于看关系分布，阅读字段或路径请聚焦表。';
     }
     const read = controls.get('focus-readable');
     read.disabled = !nodeIds.has(currentFocus);
     read.setAttribute('aria-label', `以 100% 阅读 ${currentFocus || '当前表'} 的完整依赖`);
+  }
+  function emptyIssuesHint() {
+    return checked
+      ? '当前检查没有发现问题。这里只展示生成来源与规则检查结果，清空范围须在生成计划中另行核对。'
+      : '运行依赖检查后，这里会显示生成来源与规则的错误和提醒。查看结构可切换整库；此处不会自动执行检查。';
   }
   function renderSearchResults() {
     searchResults.hidden = !searchText;
@@ -559,16 +605,46 @@ export function createSchemaGraph({
     }
     publishView();
   }
-  function draw(preserveViewport = false) {
+  function positionScopeIndicator(animate = false, resized = false) {
+    if (destroyed) return;
+    const selected = controls.get(currentMode);
+    const group = scopes.getBoundingClientRect();
+    const target = selected.getBoundingClientRect();
+    if (!scopes.isConnected || !Number.isFinite(target.width) || !Number.isFinite(target.height)
+      || target.width <= 0 || target.height <= 0) {
+      scopes.removeAttribute('data-indicator-ready');
+      scopeGeometry = null;
+      return;
+    }
+    const next = {
+      mode: currentMode,
+      x: target.left - group.left - (scopes.clientLeft || 0) + (scopes.scrollLeft || 0),
+      y: target.top - group.top - (scopes.clientTop || 0) + (scopes.scrollTop || 0),
+      width: target.width,
+      height: target.height
+    };
+    if (!resized && scopeGeometry && Object.keys(next).every(key => next[key] === scopeGeometry[key])) return;
+    // 只有用户切换已显示的范围时滑动；初载、字体变化与容器缩放直接对齐。
+    scopes.setAttribute('data-indicator-slide', String(Boolean(animate && scopeGeometry && next.mode !== scopeGeometry.mode)));
+    Object.assign(scopeIndicator.style, {
+      transform: `translate(${next.x}px, ${next.y}px)`,
+      width: `${next.width}px`,
+      height: `${next.height}px`
+    });
+    scopes.setAttribute('data-indicator-ready', '');
+    scopeGeometry = next;
+  }
+  function draw(preserveViewport = false, animateScope = false) {
     if (destroyed) {
       return;
     }
     const previousFrame = preserveViewport ? frame : null;
     drawingListeners.splice(0).forEach(remove => remove());
     const visible = projection();
-    for (const value of ['all', 'paths', 'issues']) {
+    for (const value of GRAPH_MODES) {
       controls.get(value).setAttribute('aria-pressed', String(currentMode === value));
     }
+    positionScopeIndicator(animateScope);
     pathScope.hidden = currentMode !== 'paths' || Boolean(searchText);
     for (const value of ['complete', 'upstream', 'downstream', 'neighbors']) {
       controls.get(value).setAttribute('aria-pressed', String(currentPath === value));
@@ -592,13 +668,29 @@ export function createSchemaGraph({
           return '没有匹配的表或字段，可清空搜索或换一个关键词。';
         } else if (currentMode === 'all') {
           return '当前数据库没有可展示的表。';
+        } else if (currentMode === 'plan') {
+          return '尚未选择生成表。请在左侧勾选，或切换整库浏览结构。';
+        } else if (currentMode === 'issues') {
+          return issues.length
+            ? '检查发现问题，但当前结构中没有可定位的表。请查看依赖检查详情。'
+            : emptyIssuesHint();
         } else {
           return '当前范围没有匹配的表，可切换整库查看。';
         }
       };
-      canvas.append(html('div', {
+      const empty = html('div', {
         class: 'graph-empty sg-empty'
-      }, emptyGraphHint()));
+      }, emptyGraphHint());
+      if (currentMode === 'plan' && !searchText) {
+        const showAll = html('button', {type: 'button', class: 'wb-button graph-empty-action'}, '查看整库');
+        listen(showAll, 'click', () => {
+          currentMode = 'all';
+          draw(false, true);
+          controls.get('all').focus({preventScroll: true});
+        }, true);
+        empty.append(showAll);
+      }
+      canvas.append(empty);
       pendingViewport = null;
       publishView();
       return;
@@ -618,14 +710,16 @@ export function createSchemaGraph({
       'aria-label': '当前范围内的表与外键关系'
     });
     const defs = svgElement('defs');
-    for (const [state, color] of [['normal', '#71978a'], ['related', '#477f6a'], ['focused', '#2573a4'], ['problem', '#ad641c']]) {
+    for (const [state, color] of [['normal', 'var(--graph-edge-default, var(--graph-chosen-edge))'], ['related', 'var(--teal)'], ['focused', 'var(--graph-inspect)'], ['problem', 'var(--warning)']]) {
       const marker = svgElement('marker', {
         id: `${markerId}-${state}`,
         viewBox: '0 0 10 10',
-        refX: 9,
+        refX: 10,
         refY: 5,
-        markerWidth: 6,
-        markerHeight: 6,
+        // A selected/thicker route must not also magnify its arrowhead.
+        markerUnits: 'userSpaceOnUse',
+        markerWidth: 8,
+        markerHeight: 8,
         orient: 'auto'
       });
       marker.append(svgElement('path', {
@@ -647,7 +741,8 @@ export function createSchemaGraph({
     highlightFocus();
     if (previousFrame) {
       frame = previousFrame;
-      const fitted = graphViewport(layout, canvas.clientWidth || 800, canvas.clientHeight || 420);
+      const size = canvasSize();
+      const fitted = graphViewport(layout, size.width, size.height);
       zoom = previousFrame.scale / fitted.fitScale;
       actualSize = false;
       applyViewport();
@@ -676,6 +771,7 @@ export function createSchemaGraph({
       group.setAttribute('aria-label', `查看 ${title} 的字段与关系；${state}`);
       group.append(svgElement('title', {}, title), svgElement('rect', {
         class: 'graph-node-body',
+        'pointer-events': 'fill',
         x: node.x,
         y: node.y,
         width: node.width,
@@ -691,10 +787,12 @@ export function createSchemaGraph({
         'aria-hidden': 'true'
       }), svgElement('text', {
         class: 'graph-table-name graph-node-title sg-node-title',
+        'pointer-events': 'none',
         x: node.x + 16,
         y: node.y + 29
       }, titleText), svgElement('text', {
         class: 'graph-table-state graph-node-meta sg-node-meta',
+        'pointer-events': 'none',
         x: node.x + 16,
         y: node.y + 53
       }, metadata));
@@ -734,9 +832,12 @@ export function createSchemaGraph({
         });
         group.append(svgElement('title', {}, relationText(edge)), svgElement('path', {
           class: 'edge-hit sg-hit',
+          'vector-effect': 'non-scaling-stroke',
           d: edge.path
         }), svgElement('path', {
           class: 'edge-line sg-route',
+          'vector-effect': 'non-scaling-stroke',
+          'pointer-events': 'none',
           d: edge.path
         }));
         activate(group, () => highlightEdge(edge.id));
@@ -765,13 +866,14 @@ export function createSchemaGraph({
         'aria-label': label.text
       });
       group.append(svgElement('title', {}, label.text), svgElement('rect', {
+        'pointer-events': 'fill',
         x: label.x,
         y: label.y,
         width: label.width,
         height: label.height,
         rx: 4
       }));
-      const text = svgElement('text');
+      const text = svgElement('text', {'pointer-events':'none'});
       label.lines.forEach((line, index) => text.append(svgElement('tspan', {
         x: label.textX,
         y: label.textY + index * label.lineHeight
@@ -781,12 +883,17 @@ export function createSchemaGraph({
       svg.append(group);
     }
   }
-  function applyViewport(reset = false) {
+  function canvasSize() {
+    return measuredCanvas || {
+      width: canvas.clientWidth || 800,
+      height: canvas.clientHeight || 420
+    };
+  }
+  function applyViewport(reset = false, anchor = null) {
     if (destroyed || !layout || !svg || !stage) {
       return;
     }
-    const width = canvas.clientWidth || 800,
-      height = canvas.clientHeight || 420;
+    const {width, height} = canvasSize();
     const old = frame;
     const centerX = old ? ((canvas.scrollLeft || 0) + old.viewportWidth / 2 - old.left) / old.scale : layout.width / 2;
     const centerY = old ? ((canvas.scrollTop || 0) + old.viewportHeight / 2 - old.top) / old.scale : layout.height / 2;
@@ -799,6 +906,13 @@ export function createSchemaGraph({
     }
     frame = graphViewport(layout, width, height, zoom, actualSize);
     zoom = frame.zoom;
+    // Scale naturally when fitting a large graph, but cap arrowheads at 10 CSS
+    // pixels while zooming in. Marker size is independent of route emphasis.
+    const arrowSize = Math.min(8, 10 / frame.scale);
+    for (const marker of svg.querySelectorAll('marker')) {
+      marker.setAttribute('markerWidth', arrowSize);
+      marker.setAttribute('markerHeight', arrowSize);
+    }
     Object.assign(stage.style, {
       width: frame.stageWidth + 'px',
       height: frame.stageHeight + 'px'
@@ -822,6 +936,8 @@ export function createSchemaGraph({
       canvas.scrollLeft = pendingViewport.scrollLeft;
     } else if (reset) {
       canvas.scrollLeft = 0;
+    } else if (anchor) {
+      canvas.scrollLeft = Math.max(0, Math.min(frame.stageWidth - width, frame.left + anchor.x * frame.scale - anchor.viewportX));
     } else {
       canvas.scrollLeft = Math.max(0, frame.left + centerX * frame.scale - width / 2);
     }
@@ -829,6 +945,8 @@ export function createSchemaGraph({
       canvas.scrollTop = pendingViewport.scrollTop;
     } else if (reset) {
       canvas.scrollTop = 0;
+    } else if (anchor) {
+      canvas.scrollTop = Math.max(0, Math.min(frame.stageHeight - height, frame.top + anchor.y * frame.scale - anchor.viewportY));
     } else {
       canvas.scrollTop = Math.max(0, frame.top + centerY * frame.scale - height / 2);
     } // A new graph may be built before its host is attached. Restore again on
@@ -847,11 +965,32 @@ export function createSchemaGraph({
     canvas.scrollTop = Math.max(0, frame.top + (node.y + node.height / 2) * frame.scale - frame.viewportHeight / 2);
     publishView();
   }
-  function changeZoom(value) {
+  function changeZoom(value, anchor = null) {
     zoom = Math.min(Math.max(8, 2 / (frame?.fitScale || 1)), Math.max(.25, value));
     actualSize = false;
-    applyViewport();
+    applyViewport(false, anchor);
   }
+  listen(canvas, 'wheel', event => {
+    if (!event.ctrlKey && !event.metaKey) return;
+    // Cancel browser page zoom only on this canvas, including at zoom limits.
+    // An ordinary wheel remains native scrolling and does not alter the view.
+    event.preventDefault();
+    if (!frame || drag || !Number.isFinite(event.deltaY) || !event.deltaY
+      || !Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return;
+    const bounds = canvas.getBoundingClientRect();
+    const viewportX = event.clientX - bounds.left - (canvas.clientLeft || 0);
+    const viewportY = event.clientY - bounds.top - (canvas.clientTop || 0);
+    const anchor = {
+      x: (canvas.scrollLeft + viewportX - frame.left) / frame.scale,
+      y: (canvas.scrollTop + viewportY - frame.top) / frame.scale,
+      viewportX,
+      viewportY
+    };
+    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? frame.viewportHeight : 1;
+    const delta = Math.max(-100, Math.min(100, event.deltaY * unit));
+    pendingViewport = null;
+    changeZoom(zoom * Math.exp(-delta * .002), anchor);
+  }, false, {passive: false});
   listen(canvas, 'pointerdown', event => {
     if (event.button !== 0 || event.target.closest('[data-graph-node],[data-graph-edge],[data-graph-label]')) {
       return;
@@ -900,8 +1039,20 @@ export function createSchemaGraph({
     onExpand(true);
   }
   draw();
-  const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => applyViewport());
+  const resizeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(entries => {
+    if (destroyed) return;
+    const bounds = entries.find(entry => entry.target === canvas)?.contentRect;
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+    if (measuredCanvas?.width === bounds.width && measuredCanvas?.height === bounds.height) return;
+    // clientWidth/clientHeight 会取整；缩放后的不足 1px 溢出可能让两个滚动条
+    // 交替出现。使用实际内容区尺寸，并在后续缩放/重绘中沿用同一精度。
+    measuredCanvas = {width: bounds.width, height: bounds.height};
+    applyViewport();
+  });
   resizeObserver?.observe(canvas);
+  const scopeObserver = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => positionScopeIndicator(false, true));
+  scopeObserver?.observe(scopes);
+  for (const mode of GRAPH_MODES) scopeObserver?.observe(controls.get(mode));
   function focusTable(id) {
     if (destroyed || !nodeIds.has(id)) {
       return false;
@@ -938,15 +1089,16 @@ export function createSchemaGraph({
     destroy() {
       destroyed = true;
       resizeObserver?.disconnect();
+      scopeObserver?.disconnect();
       drawingListeners.splice(0).forEach(remove => remove());
       listeners.splice(0).forEach(remove => remove());
     }
   };
   function restoredMode() {
     let currentMode;
-    if (['all', 'paths', 'issues'].includes(restored.mode)) {
+    if (GRAPH_MODES.includes(restored.mode)) {
       currentMode = restored.mode;
-    } else if (['all', 'paths', 'issues'].includes(mode)) {
+    } else if (GRAPH_MODES.includes(mode)) {
       currentMode = mode;
     } else {
       currentMode = 'all';
