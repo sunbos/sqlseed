@@ -33,13 +33,17 @@ from sqlalchemy import (
     cast,
     create_engine,
     event,
+    func,
     inspect,
     literal,
+    literal_column,
     select,
-    text,
+)
+from sqlalchemy import (
+    table as table_clause,
 )
 from sqlalchemy.exc import ArgumentError, NoSuchModuleError, NoSuchTableError, SQLAlchemyError
-from sqlalchemy.sql.elements import Null
+from sqlalchemy.sql.elements import Null, quoted_name
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.redaction import redact_url_credentials
@@ -62,6 +66,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.engine import Connection, Engine
     from sqlalchemy.engine.reflection import Inspector
+    from sqlalchemy.sql.elements import ColumnElement
     from typing_extensions import Self
 
 logger = get_logger(__name__)
@@ -723,9 +728,9 @@ class SQLAlchemyAdapter:
         inspector = self._get_inspector()
         if not inspector.has_table(table_name):
             return 0
-        safe_table = self.dialect.quote_identifier(table_name)
+        statement = select(func.count()).select_from(table_clause(quoted_name(table_name, quote=True)))
         with self._connection() as conn:
-            result = conn.execute(text(f"SELECT COUNT(*) FROM {safe_table}"))
+            result = conn.execute(statement)
             row = result.fetchone()
             return int(row[0]) if row else 0
 
@@ -746,12 +751,11 @@ class SQLAlchemyAdapter:
         inspector = self._get_inspector()
         if not inspector.has_table(table_name):
             return []
-        dialect = self.dialect
-        safe_table = dialect.quote_identifier(table_name)
-        safe_column = self._sample_column_sql(self._get_table(table_name), column_name)
-        sql = f"SELECT {safe_column} FROM {safe_table} LIMIT :limit"
+        table = self._get_table(table_name)
+        sample_column: ColumnElement[Any] = literal_column(self._sample_column_sql(table, column_name))
+        statement = select(sample_column).select_from(table).limit(limit)
         with self._connection() as conn:
-            result = conn.execute(text(sql), {"limit": limit})
+            result = conn.execute(statement)
             return [row[0] for row in result.fetchall()]
 
     def get_index_info(self, table_name: str) -> list[IndexInfo]:
@@ -954,7 +958,6 @@ class SQLAlchemyAdapter:
         """
         table_name = self._resolve_table_name(table_name)
 
-        dialect = self.dialect
         # Return an empty list when the table does not exist or has no columns (consistent with RawSQLiteAdapter)
         if not (all_columns := self.get_column_info(table_name)):
             return []
@@ -965,13 +968,15 @@ class SQLAlchemyAdapter:
         else:
             selected = all_columns
         table = self._get_table(table_name)
-        col_names = [self._sample_column_sql(table, column.name) for column in selected]
-        safe_table = dialect.quote_identifier(table_name)
-        cols_sql = ", ".join(col_names)
-        sql = f"SELECT {cols_sql} FROM {safe_table} LIMIT :limit"
+        # Already-quoted identifiers must not pass through text()'s :bind parser.
+        # Untyped projections retain DBAPI values; JSON keeps the existing text cast.
+        sample_columns: list[ColumnElement[Any]] = [
+            literal_column(self._sample_column_sql(table, column.name)) for column in selected
+        ]
+        statement = select(*sample_columns).select_from(table).limit(limit)
 
         with self._connection() as conn:
-            result = conn.execute(text(sql), {"limit": limit})
+            result = conn.execute(statement)
             col_name_list = [c.name for c in selected]
             return [dict(zip(col_name_list, row, strict=True)) for row in result.fetchall()]
 

@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject missing or columnless AI refinement targets before reading cached suggestions or calling a model, preserving valid empty tables and SQLite identifier resolution.
+- Keep AI-refined suggestions and cached configurations bound to the requested table; retry wrong-target model responses and ignore mismatched caches without silently renaming them.
+- Preserve quoted colon identifiers in database sampling, column-value and row-count queries without treating them as SQL parameters or changing sampled JSON/date values.
 - Refresh the installer snapshot when reviewing a new component operation plan, so temporary pip/uv detection changes do not permanently block installation; environment and dependency changes are still checked before execution.
 - Preserve SQLite file URL identity across encoded and special-character paths; opening an existing file or restoring a session cannot create a missing replacement database.
 - Report invalid generator bounds before applying rules; recover empty schemas after a refresh and restore keyboard focus after failed connections or background run polling.

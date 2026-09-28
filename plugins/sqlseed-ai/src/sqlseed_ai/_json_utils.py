@@ -42,14 +42,19 @@ class JSONResponseError(ValueError):
         super().__init__(code)
 
 
-def parse_json_response(content: str, *, strict: bool = False) -> dict[str, Any]:
-    """Parse JSON; strict mode diagnoses failures without inventing missing values."""
+def parse_json_response(content: str, *, strict: bool = False, preserve_names: bool = False) -> dict[str, Any]:
+    """Parse JSON, optionally preserving identifiers for schema-aware validation.
+
+    Strict mode diagnoses failures without inventing missing values. Name
+    preservation leaves leading punctuation untouched; it does not relax JSON
+    parsing or the caller's responsibility to validate the returned document.
+    """
     cleaned = _strip_channel_prefix(content.strip())
 
     if strict and not cleaned:
         raise JSONResponseError("empty_response")
     for parser in (_try_direct_parse, _try_markdown_fence_parse, _try_raw_decode):
-        result = parser(cleaned)
+        result = parser(cleaned, preserve_names=preserve_names)
         if result is not None:
             return result
     if strict:
@@ -68,19 +73,20 @@ def _strip_channel_prefix(content: str) -> str:
     return content[idx + len(_CHANNEL_END_MARKER) :].strip()
 
 
-def _try_direct_parse(content: str) -> dict[str, Any] | None:
+def _try_direct_parse(content: str, *, preserve_names: bool = False) -> dict[str, Any] | None:
     """Strategy 1: Direct parse (ideal case — model outputs raw JSON)."""
     try:
         result = json.loads(content)
         if isinstance(result, dict):
-            _sanitize_names(result)
+            if not preserve_names:
+                _sanitize_names(result)
             return result
     except json.JSONDecodeError:
         pass
     return None
 
 
-def _try_markdown_fence_parse(content: str) -> dict[str, Any] | None:
+def _try_markdown_fence_parse(content: str, *, preserve_names: bool = False) -> dict[str, Any] | None:
     """Strategy 2: Strip markdown code fences (```json\n{...}\n```)."""
     if (open_idx := content.find("```")) < 0:
         return None
@@ -91,10 +97,10 @@ def _try_markdown_fence_parse(content: str) -> dict[str, Any] | None:
     if (close_idx := after_open.find("```", content_start)) < 0:
         return None
     fence_content = after_open[content_start:close_idx].strip()
-    return _try_raw_decode(fence_content)
+    return _try_raw_decode(fence_content, preserve_names=preserve_names)
 
 
-def _try_raw_decode(content: str) -> dict[str, Any] | None:
+def _try_raw_decode(content: str, *, preserve_names: bool = False) -> dict[str, Any] | None:
     """Strategy 3: Find first '{' and use json.JSONDecoder.raw_decode().
 
     Handles explanatory text before/after JSON without code fences.
@@ -112,7 +118,8 @@ def _try_raw_decode(content: str) -> dict[str, Any] | None:
     try:
         result, _ = decoder.raw_decode(content, idx=first_brace)
         if isinstance(result, dict):
-            _sanitize_names(result)
+            if not preserve_names:
+                _sanitize_names(result)
             return result
     except json.JSONDecodeError:
         pass
@@ -120,7 +127,7 @@ def _try_raw_decode(content: str) -> dict[str, Any] | None:
     candidate = content[first_brace:].strip()
     closers = _missing_closers(candidate)
     if closers:
-        return _try_direct_parse(candidate + closers)
+        return _try_direct_parse(candidate + closers, preserve_names=preserve_names)
     return None
 
 

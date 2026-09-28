@@ -409,6 +409,13 @@ sqlseed ai-suggest app.db --table projects --output projects.yaml --no-cache
 Select the backend through `SQLSEED_AI_BACKEND` or a recognized base URL.
 The AI CLI commands do not accept a `--backend` option.
 
+The target table must exist before a model is contacted. Suggestions and cached
+results must refer to that same table; SQLite's ASCII case aliases are accepted,
+but a different table is rejected. Export preserves real table and column names,
+including leading `.` or `:` characters. These identity checks also apply to
+`--no-verify` and `--max-retries 0`: those options skip generation validation,
+not target protection. Rejected suggestions do not replace an existing output file.
+
 ### `ai-analyze`
 
 Analyze a database or selected tables and write YAML rules. This command uses

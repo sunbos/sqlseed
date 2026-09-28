@@ -127,14 +127,15 @@ class JsonParserMixin:
         values = result.get("values", [])
         return values if isinstance(values, list) else []
 
-    def _parse_json_response(self, content: str) -> dict[str, Any]:
+    def _parse_json_response(self, content: str, *, preserve_names: bool = False) -> dict[str, Any]:
         """Parse a JSON object out of an LLM response string.
 
         Args:
             content: Raw text returned by the model (may include prose
                 or markdown fences around the JSON payload).
+            preserve_names: Keep identifiers intact for schema-aware callers.
 
         Returns:
             Parsed JSON dict.
         """
-        return parse_json_response(content)
+        return parse_json_response(content, preserve_names=preserve_names)

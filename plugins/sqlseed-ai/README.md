@@ -68,6 +68,16 @@ names fail before output is written. `--merge` requires `--output`; it replaces
 selected tables, retains existing dependency and unrelated tables plus root settings,
 and appends missing generated tables.
 
+Single-table `ai-suggest` checks that the target exists before contacting the
+model. Suggestions and cached results must name that same table, including when
+using `--no-verify` or `--max-retries 0`. SQLite case aliases remain supported;
+export preserves real table and column names, including leading punctuation.
+Rejected suggestions leave existing output files unchanged.
+
+Direct Python callers can pass `preserve_names=True` to
+`SchemaAnalyzer.call_llm()` or `call_llm_streaming()` before validating against
+their schema. The default retains the existing leading-punctuation cleanup.
+
 `auto-heal --config` reads that document. An explicit `--db` or `--url` selects the
 output connection. Invalid YAML, configuration structure, or unknown input tables
 fail without replacing the output file. Candidate repairs are checked for config
