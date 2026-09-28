@@ -76,6 +76,18 @@
       "放大关系图",
       "Zoom in"
     ],
+    "zoomInput": [
+      "图形缩放百分比",
+      "Graph scale percentage"
+    ],
+    "zoomEntryHint": [
+      "输入 {min}–{max}（%）；Enter 或移开焦点应用，Esc 取消。100% 为自然尺寸。",
+      "Enter {min}–{max} (%). Press Enter or leave the field to apply, or Esc to cancel. 100% is natural size."
+    ],
+    "zoomInvalid": [
+      "请输入 {min}–{max} 之间的数字；当前缩放未改变。",
+      "Enter a number from {min} to {max}. The current scale is unchanged."
+    ],
     "scaleHint": [
       "相对图中节点原始尺寸的实际比例；100% 为自然阅读尺寸",
       "Actual scale relative to the original node size; 100% is the natural reading size"
@@ -120,6 +132,38 @@
       "当前查看",
       "Currently viewing"
     ],
+    "otherRelations": [
+      "其他关系",
+      "Other relationships"
+    ],
+    "directRelations": [
+      "当前表关系",
+      "Current table relationships"
+    ],
+    "relatedPaths": [
+      "关联路径",
+      "Related paths"
+    ],
+    "selectedRelation": [
+      "选中关系",
+      "Selected relationship"
+    ],
+    "problemRelation": [
+      "问题关系",
+      "Relationship with issues"
+    ],
+    "problemTable": [
+      "检查标记的表",
+      "Table flagged by a check"
+    ],
+    "problemTableHint": [
+      "此表被生成来源或规则检查标记，需查看检查详情；不表示数据库中的数据已损坏。",
+      "A generation-source or rule check flagged this table. Review the check details; this does not indicate damaged database data."
+    ],
+    "problemRelationHint": [
+      "此引用关系被生成来源或规则检查标记，需查看检查详情。",
+      "A generation-source or rule check flagged this reference relationship. Review the check details."
+    ],
     "canvas": [
       "数据库关系画布，可用方向键平移",
       "Database relationship canvas; use arrow keys to pan"
@@ -129,12 +173,16 @@
       "Show field names"
     ],
     "issueColor": [
-      "橙色表示检查问题。",
-      "Orange indicates check issues. "
+      "橙色框表示检查标记的表，橙色线表示检查标记的引用关系；请查看检查详情，不表示现有数据已损坏。",
+      "Orange boxes mark tables flagged by a check; orange lines mark flagged references. Review the check details; this does not indicate damaged existing data. "
     ],
     "help": [
       "父表 → 子表 · 粗线突出当前表的关联路径，浅线为其他关系。{issueHint}拖动画布平移，Ctrl／⌘＋滚轮以鼠标位置缩放，普通滚轮滚动画布；点连线查看列映射。",
       "Parent → child · Bold lines highlight paths related to the current table; faint lines show other relationships. {issueHint}Drag to pan, Ctrl/⌘ + wheel to zoom at the pointer, or scroll normally to pan. Click an edge to view column mappings."
+    ],
+    "helpAll": [
+      "父表 → 子表 · 突出当前表直接相连的关系，浅线为其他关系。{issueHint}拖动画布平移，Ctrl／⌘＋滚轮以鼠标位置缩放，普通滚轮滚动画布；点连线查看列映射。",
+      "Parent → child · Highlights direct relationships of the current table; faint lines show other relationships. {issueHint}Drag to pan, Ctrl/⌘ + wheel to zoom at the pointer, or scroll normally to pan. Click an edge to view column mappings."
     ],
     "pathTitle": [
       "{table} 的依赖路径",
@@ -185,8 +233,8 @@
       "Shows errors and warnings from generation-source and rule checks, with the affected tables and references. Clearing scope is checked separately."
     ],
     "allNote": [
-      "整库总览 · 总览用于看关系分布，阅读字段或路径请聚焦表。",
-      "Entire database · Explore relationship distribution here; focus on a table to read fields or paths."
+      "整库总览 · 突出当前表直接相连的关系；完整依赖请切换依赖路径。",
+      "Entire database · Highlights direct relationships of the current table. Switch to Dependency paths for complete dependencies."
     ],
     "readLabel": [
       "以 100% 阅读 {table} 的完整依赖",

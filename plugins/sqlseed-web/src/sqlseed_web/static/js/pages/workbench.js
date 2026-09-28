@@ -4,6 +4,7 @@ import { h, api, get, store, restoreConnection } from '../api.js';
 import { genLabel, paramLabel } from '../labels.js';
 import { createDropdown } from '../dropdown.js';
 import { readGenerationDefaults } from '../generation-defaults.js';
+import { createSegmentIndicator } from '../segment-motion.js';
 import { WorkbenchSession } from '../workbench/session.js';
 import { openConnectionDialog } from '../workbench/connection.js';
 import { openAIAssistant } from '../workbench/ai.js';
@@ -46,6 +47,7 @@ let graphOwner = null,
   modalIntent = 0;
 let tablePreview = null;
 let guidanceCollapsed = false;
+let guidanceIndicator = null;
 let providerMetadata = null,
   providerRequest = 0;
 try {
@@ -313,6 +315,7 @@ function updateStatus() {
     const execution = executionChecks.get(m);
     const currentExecution = execution?.epoch === m.epoch && execution.lifecycle === m.lifecycleVersion ? execution : null;
     const dependencyActionLabel = () => {
+      if (generationLimitations(m.check).length) return tr('workbench.unsupported.title');
       if (execution) return clearRecoveryState(m, execution).status;
       if (errors.length) {
         return tr("workbench.dependency.blockingStatus", {count: errors.length});
@@ -345,6 +348,8 @@ function referencedTables() {
 }
 const databaseLabel = () => model().schema.target_label.split(/[\\/]/).findLast(Boolean) || model().schema.target_label;
 export function render() {
+  guidanceIndicator?.destroy();
+  guidanceIndicator = null;
   active++;
   providerMetadata = null;
   root = h('div', {
@@ -523,6 +528,8 @@ function restorePreviewReturn(previewOrigin) {
   }
 }
 export function unmount() {
+  guidanceIndicator?.destroy();
+  guidanceIndicator = null;
   active++;
   closeComponents();
   openedModal?.close();
@@ -531,6 +538,8 @@ export function unmount() {
   if (session) executionChecks.delete(session.model);
 }
 function draw(options = {}) {
+  guidanceIndicator?.destroy();
+  guidanceIndicator = null;
   closeComponents();
   status = h('span', {
     class: 'draft-tag wb-state'
@@ -694,7 +703,7 @@ function updateProviderWarning() {
     small: true
   }));
 }
-function updateGuidance() {
+function updateGuidance({animateStage = false} = {}) {
   if (!root?.isConnected) {
     return;
   }
@@ -704,7 +713,17 @@ function updateGuidance() {
   }
   const m = model(), recommended = nextStep(m, previewResults.get(m));
   const clearContext = executionChecks.get(m);
+  if (generationLimitations(m.check).length) {
+    guidanceIndicator?.destroy(); guidanceIndicator = null;
+    host.hidden = false;
+    const globalPlan = root.querySelector('[data-plan-entry]');
+    if (globalPlan) globalPlan.hidden = true;
+    replaceContent(host, generationUnsupportedCard(m.check));
+    return;
+  }
   if (clearContext) {
+    guidanceIndicator?.destroy();
+    guidanceIndicator = null;
     host.hidden = false;
     const globalPlan = root.querySelector('[data-plan-entry]');
     if (globalPlan) globalPlan.hidden = true;
@@ -792,7 +811,7 @@ function updateGuidance() {
   }));
   const navigateStage = async index => {
     m.view.guideStage = index; m.view.guideEpoch = m.epoch;
-    updateGuidance();
+    updateGuidance({animateStage: true});
     const blocked = !m.document.tables.length || m.errors.size || m.check?.issues?.some(issue => issue.severity === 'error');
     if (blocked) {
       if (!m.document.tables.length) locateGenerationSelection();
@@ -811,26 +830,50 @@ function updateGuidance() {
     [tr("workbench.guide.preview"), tr("workbench.guide.previewDescription"), tr("workbench.guide.previewLabel")],
     [tr("workbench.guide.confirm"), tr("workbench.guide.confirmDescription"), tr("workbench.guide.confirmLabel")]
   ];
-  const body = h('div', {
-    id: 'wb-next-step-body',
-    class: 'wb-next-step-body',
-    hidden: guidanceCollapsed
-  }, h('div', {
-    class: 'wb-next-step-main'
-  }, h('ol', { class: 'wb-guide-stages', 'aria-label': tr("workbench.guide.flow") },
-    ...stages.map(([label, description, title], index) => h('li', {}, h('button', {
-      type:'button', onclick:() => navigateStage(index + 1),
-      'data-guide-action':`stage-${index + 1}`,
-      ...(index + 1 === stage ? {'aria-current':'step'} : {}),
-      ...(index ? {'data-db-action':''} : {}),
-      title
-    }, h('span', {'aria-hidden':'true', class:'wb-guide-number'}, String(index + 1)), h('span', {class:'wb-guide-label'}, h('strong', {}, label), h('small', {}, description)))))),
-  h('div', {class:'wb-guide-description', 'aria-live':'polite'}, h('h3', {}, step.title), h('p', {}, step.body)), actions));
-  replaceContent(host, h('div', {
-    class: 'wb-next-step-heading'
-  }, h('span', { class: 'wb-guide-heading' }, h('strong', {}, tr("workbench.guide.flow")), step.scope), toggle), body);
+  const previousBody = host.querySelector('#wb-next-step-body');
+  let stageList = previousBody?.querySelector('.wb-guide-stages');
+  if (!stageList) {
+    stageList = h('ol', { class: 'wb-guide-stages', 'aria-label': tr("workbench.guide.flow") },
+      ...stages.map(([label, description], index) => h('li', {}, h('button', {
+        type:'button',
+        'data-guide-action':`stage-${index + 1}`,
+        ...(index ? {'data-db-action':''} : {})
+      }, h('span', {'aria-hidden':'true', class:'wb-guide-number'}, String(index + 1)), h('span', {class:'wb-guide-label'}, h('strong', {}, label), h('small', {}, description))))));
+  }
+  // Preserve the buttons and their decorative plate across guidance updates.
+  // Callbacks use this render's model/handlers; selection itself commits now.
+  [...stageList.querySelectorAll('button')].forEach((control, index) => {
+    control.onclick = () => navigateStage(index + 1);
+    setAttr(control, 'title', stages[index][2]);
+    if (index + 1 === stage) control.setAttribute('aria-current', 'step');
+    else control.removeAttribute('aria-current');
+  });
+  const description = h('div', {class:'wb-guide-description', 'aria-live':'polite'}, h('h3', {}, step.title), h('p', {}, step.body));
+  const heading = h('div', {class:'wb-next-step-heading'},
+    h('span', { class: 'wb-guide-heading' }, h('strong', {}, tr("workbench.guide.flow")), step.scope), toggle);
+  if (previousBody) {
+    previousBody.hidden = guidanceCollapsed;
+    if (guidanceCollapsed) previousBody.setAttribute('hidden', '');
+    else previousBody.removeAttribute('hidden');
+    host.querySelector('.wb-next-step-heading').replaceWith(heading);
+    previousBody.querySelector('.wb-guide-description').replaceWith(description);
+    previousBody.querySelector('.wb-next-step-actions').replaceWith(actions);
+  } else {
+    const body = h('div', {
+      id: 'wb-next-step-body',
+      class: 'wb-next-step-body',
+      hidden: guidanceCollapsed
+    }, h('div', {
+      class: 'wb-next-step-main'
+    }, stageList, description, actions));
+    replaceContent(host, heading, body);
+    guidanceIndicator?.destroy();
+    guidanceIndicator = createSegmentIndicator(stageList);
+  }
+  guidanceIndicator?.update({animate: animateStage});
   if (focused) {
-    host.querySelector(`[data-guide-action="${focused}"]`)?.focus();
+    const target = host.querySelector(`[data-guide-action="${focused}"]`);
+    if (target !== document.activeElement) target?.focus({preventScroll: true});
   }
 }
 function needsAIDefaultPreflight(m) {
@@ -1207,17 +1250,18 @@ function connectionInfo() {
     document.getElementById('connection-button')?.click();
   }));
 }
-function viewCurrentData() {
+function viewCurrentData(tableName = null) {
   const current = modalTicket(),
     owner = session,
     m = model(),
-    table = m.view.table;
+    table = typeof tableName === 'string' ? tableName : m.view.table;
   const viewer = openTableData({
     connId: owner.connId,
     table,
     targetKey: m.schema.target_key,
     targetLabel: m.schema.target_label,
-    isCurrent: () => current() && session === owner && model() === m && m.view.table === table
+    isCurrent: () => current() && session === owner && model() === m &&
+      (typeof tableName === 'string' || m.view.table === table) && m.schema.tables.some(item => item.name === table)
   });
   openedModal = viewer.dialog;
 }
@@ -1570,9 +1614,16 @@ function drawFields(table, viewbar) {
     scope: 'col'
   }, text)))), rows)));
   function drawRows() {
-    replaceContent(previewNote, ...(m.previewIssues || []).map(issue => h('p', {
-      class: issue.severity === 'error' ? 'wb-error' : 'muted'
-    }, joinText([`${issue.table || ''}${issue.column ? "." + issue.column : ''}`, serverText(issue)], ': '))));
+    const issueTables = issue => [issue.table, ...(Array.isArray(issue.tables) ? issue.tables : [])].filter(Boolean);
+    replaceContent(previewNote, ...(m.previewIssues || []).filter(issue => {
+      const names = issueTables(issue);
+      return !names.length || names.includes(table.name);
+    }).map(issue => {
+      const target = issue.table ? [issue.table, issue.column].filter(Boolean).join('.') : issueTables(issue).join('、');
+      return h('p', {
+        class: issue.severity === 'error' ? 'wb-error' : 'muted'
+      }, joinText([target ? `${target}: ` : '', serverText(issue)]));
+    }));
     replaceContent(rows, ...table.columns.filter(c => c.name.toLowerCase().includes(fieldQuery.toLowerCase())).map(column => {
       const info = ruleDescription(table, column);
       const ruleButton = h('button', {
@@ -1892,9 +1943,16 @@ function drawGraph(table, previousSection = null) {
       inspect();
     },
     onViewChange: view => {
+      const changedMode = m.view.graphMode !== view.mode;
+      const wasIssues = m.view.graphMode === 'issues';
       graphViews.set(m, view);
       m.view.graphMode = view.mode;
       m.view.pathMode = view.pathMode;
+      if (changedMode && panel.isConnected && (view.mode === 'issues' || wasIssues)) {
+        if (view.mode === 'issues') inspectorMode = 'dependencies';
+        selectedEdge = null;
+        inspect();
+      }
     },
     onExpand: expanded => area.classList.toggle('expanded', expanded)
   });
@@ -1909,7 +1967,9 @@ function drawGraph(table, previousSection = null) {
   appendContent(section, area);
   if (previousSection?.isConnected) previousSection.replaceWith(section);
   else appendContent(content, section);
+  if (m.view.graphMode === 'issues' && !selectedEdge) inspectorMode = 'dependencies';
   function inspect() {
+    const checkingIssues = m.view.graphMode === 'issues' && inspectorMode === 'dependencies';
     replaceContent(panel, h('div', {
       class: 'inspector-tabs'
     }, button(tr("workbench.tab.rules"), () => {
@@ -1927,7 +1987,7 @@ function drawGraph(table, previousSection = null) {
       plain: true,
       class: inspectorMode === 'dependencies' ? 'active' : ''
     })), h('div', {
-      class: 'inspector-actions'
+      class: 'inspector-actions', hidden: checkingIssues
     }, h('div', {
       class: 'inspector-table-title'
     }, h('strong', {
@@ -1968,7 +2028,7 @@ function drawGraph(table, previousSection = null) {
         sidebar.querySelector('.wb-table-entry.active')?.scrollIntoView({
           block: 'nearest'
         });
-      }, table.name);
+      }, checkingIssues ? null : table.name);
     } else {
       replaceContent(inspectorBody, h('p', {
         class: 'muted'
@@ -2034,12 +2094,83 @@ function syncTableHeading(table) {
   const tabButtons = content.querySelector('.tabs').querySelectorAll('button');
   tabButtons[0].onclick = () => chooseTable(table.name);
 }
+function generationLimitations(result) {
+  if (result?.epoch != null && result.epoch !== model().epoch) return [];
+  return (result?.issues || []).filter(issue => issue.severity === 'error' && issue.code === 'cross_table_cycle');
+}
+function generationUnsupportedCard(result) {
+  const current = ticket();
+  const issues = generationLimitations(result);
+  const tables = [...new Set(issues.flatMap(issue => issue.tables || []))];
+  return h('section', {class: 'wb-clear-recovery wb-generation-unsupported', role: 'status'},
+    h('h3', {}, tr('workbench.unsupported.title')),
+    h('p', {}, tr('workbench.unsupported.body', {tables: tables.join('、')})),
+    button(tr('workbench.unsupported.reason'), () => {if (current()) showCapabilityReasons(result);}, {small: true}));
+}
+function showCapabilityReasons(result = model().check) {
+  const dialog = openedModal = modal(tr('workbench.unsupported.reason'), {wide: true});
+  renderDependencies(dialog.body, name => {
+    dialog.close(); inspectorMode = 'dependencies'; chooseTable(name, 'graph');
+  }, null, null, result);
+}
+function cycleIssueDetails(issue, locate, document = model().document) {
+  const m = model(), current = ticket();
+  const tables = new Map(m.schema.tables.map(table => [table.name, table]));
+  const edges = [...m.schema.edges];
+  for (const association of document.associations || []) {
+    for (const target of association.target_tables || []) edges.push({source: association.source_table, target});
+  }
+  const members = (issue.tables || []).filter(name => tables.has(name));
+  const retained = new Set(members);
+  // A retained child still references its parents after clearing. Preserve the
+  // entire upstream scope in the explanation, never just the cycle members.
+  for (const name of retained) for (const edge of edges) {
+    if (edge.target === name && tables.has(edge.source)) retained.add(edge.source);
+  }
+  const references = Array.isArray(issue.references) ? issue.references : edges
+    .filter(edge => (issue.edge_ids || []).includes(edge.id))
+    .map(edge => ({table: edge.target, columns: edge.targetColumns, source_table: edge.source, source_columns: edge.sourceColumns}));
+  const detail = h('section', {class: 'wb-cycle-help'});
+  if (references.length) appendContent(detail, h('h4', {}, tr('workbench.cycle.references')),
+    h('ul', {class: 'wb-cycle-references'}, ...references.map(reference => {
+      const target = `${reference.table}.${(reference.columns || []).join(' + ')}`;
+      const source = `${reference.source_table}.${(reference.source_columns || []).join(' + ')}`;
+      const table = tables.get(reference.table);
+      const column = table?.columns.find(item => item.name === reference.columns?.[0]);
+      return h('li', {}, h('p', {class: 'mono'}, tr('workbench.cycle.reference', {target, source})),
+        ...(column ? [button(tr('workbench.cycle.inspect', {target}), () => {
+          if (!current() || !validNavigation()) return;
+          locate(table.name);
+          openRule(table, column, 'information');
+        }, {small: true})] : []));
+    })));
+  appendContent(detail, h('h4', {}, tr('workbench.cycle.rebuildTitle')),
+    h('p', {}, tr('workbench.cycle.rebuildHelp')));
+  const alternatives = h('details', {}, h('summary', {}, tr('workbench.unsupported.otherScope')));
+  appendContent(alternatives, h('h4', {}, tr('workbench.cycle.keepTitle')),
+    h('p', {}, tr('workbench.cycle.keepHelp', {tables: [...retained].join('、')})),
+    h('p', {}, tr(m.schema.dialect === 'sqlite' ? 'workbench.cycle.keepSQLite'
+      : m.schema.dialect === 'postgresql' ? 'workbench.cycle.keepPostgres' : 'workbench.cycle.keepCapabilities')),
+    h('p', {class: 'muted'}, tr('workbench.cycle.keepLimit')));
+  const firstSelected = members.find(name => m.selected(name)) || members[0];
+  if (firstSelected) appendContent(alternatives, button(tr('workbench.cycle.locateScope'), () => {
+    if (!current() || !validNavigation()) return;
+    const sidebarView = sidebarViews.get(m);
+    if (sidebarView) sidebarView.query = '';
+    locate(firstSelected);
+    const input = [...sidebar.querySelectorAll('.wb-table-entry')]
+      .find(row => row.dataset.table === firstSelected)?.querySelector('input[type="checkbox"]');
+    input?.focus(); input?.scrollIntoView({block: 'nearest'});
+  }, {small: true, primary: true}));
+  appendContent(detail, alternatives);
+  return detail;
+}
 function renderDependencies(out, locate = name => {
   inspectorMode = 'dependencies';
   chooseTable(name, 'graph');
-}, focus = null, onUpdate = null) {
+}, focus = null, onUpdate = null, resultOverride = null) {
   const m = model(),
-    result = m.check;
+    result = resultOverride || m.check;
   const edges = [...m.schema.edges];
   for (const association of m.document.associations || []) {
     for (const target of association.target_tables || []) {
@@ -2120,7 +2251,10 @@ function renderDependencies(out, locate = name => {
   }
   const blockers = relevantIssues.filter(issue => issue.severity === 'error'),
     reminders = relevantIssues.filter(issue => issue.severity !== 'error');
+  const blockingTitle = blockers.length && blockers.every(issue => issue.code === 'cross_table_cycle')
+    ? tr('workbench.unsupported.reasonTitle') : tr('workbench.dependency.blockingTitle');
   function dependencySummary() {
+    if (generationLimitations({issues: relevantIssues}).length) return tr('workbench.unsupported.title');
     if (blockers.length) {
       return tr("workbench.dependency.issues");
     } else if (result.ok) {
@@ -2135,7 +2269,7 @@ function renderDependencies(out, locate = name => {
   }, h('strong', {}, dependencySummary()), h('p', {}, tr("workbench.dependency.counts", {blockers: blockers.length, warnings: reminders.length}))));
   const issueCard = issue => h('article', {
     class: `dependency-card ${issue.severity}`
-  }, h('strong', {}, issueTables(issue).join('、') || tr("workbench.config.title")), h('p', {}, serverText(issue)), ...(issue.code === 'missing_parent_source' && issue.source_table && m.schema.tables.some(t => t.name === issue.source_table) && !m.selected(issue.source_table) ? [button(tr("workbench.dependency.addSource", {table: issue.source_table, count: m.table(issue.source_table).count}), action(async () => {
+  }, h('strong', {}, issueTables(issue).join('、') || tr("workbench.config.title")), h('p', {}, serverText(issue)), ...(issue.code === 'cross_table_cycle' ? [cycleIssueDetails(issue, locate)] : []), ...(issue.code === 'missing_parent_source' && issue.source_table && m.schema.tables.some(t => t.name === issue.source_table) && !m.selected(issue.source_table) ? [button(tr("workbench.dependency.addSource", {table: issue.source_table, count: m.table(issue.source_table).count}), action(async () => {
     m.toggleTable(issue.source_table, true);
     const stillCurrent = ticket();
     if (await check(false)) {
@@ -2163,8 +2297,8 @@ function renderDependencies(out, locate = name => {
   if (blockers.length) {
     appendContent(out, h('section', {
       class: 'wb-dependency-issues',
-      'aria-label': tr("workbench.dependency.blockingTitle")
-    }, h('h4', {}, tr("workbench.dependency.blockingTitle")), ...blockers.map(issueCard)));
+      'aria-label': blockingTitle
+    }, h('h4', {}, blockingTitle), ...blockers.map(issueCard)));
   }
   if (reminders.length) {
     appendContent(out, h('section', {
@@ -2184,6 +2318,7 @@ function renderDependencies(out, locate = name => {
     }
   }
   function dependencyOrderHint() {
+    if (generationLimitations(result).length) return tr('workbench.unsupported.partialOrder');
     if (!result.ok) {
       return tr("workbench.dependency.incompletePlan");
     } else if (focus) {
@@ -2194,10 +2329,10 @@ function renderDependencies(out, locate = name => {
   }
   appendContent(out, h('div', {
     class: 'execution-heading'
-  }, h('h3', {}, dependencyOrderTitle()), button(tr("workbench.dependency.fullPlan"), action(showPlan), {
+  }, h('h3', {}, dependencyOrderTitle()), ...(generationLimitations(result).length ? [] : [button(tr("workbench.dependency.fullPlan"), action(showPlan), {
     plain: true,
     class: 'text-button'
-  })), h('ol', {
+  })])), h('ol', {
     class: 'execution-sequence'
   }, ...layers.map((names, i) => h('li', {}, h('span', {
     class: 'execution-step'
@@ -2205,9 +2340,12 @@ function renderDependencies(out, locate = name => {
     class: 'execution-group'
   }, h('small', {}, tr("workbench.dependency.group", {number: i + 1, count: names.length})), h('div', {
     class: 'execution-tables'
-  }, ...names.map(name => button(name, () => locate(name), {
-    plain: true,
-    class: 'mono execution-table'
+  }, ...names.map(name => button(h('span', {class:'execution-table-caption'}, name), () => locate(name), {
+    small: true,
+    glyph: 'table',
+    class: 'execution-table',
+    'aria-label': tr("workbench.action.locate", {target:name}),
+    title: tr("workbench.action.locate", {target:name})
   }))))))), h('p', {
     class: 'muted'
   }, dependencyOrderHint()));
@@ -2316,7 +2454,11 @@ function drawTablePreview(table) {
   const returned = previewReturns.get(m);
   previewReturns.delete(m);
   const resume = returned?.table === table.name ? returned.view : null;
-  const initialResult = resume?.result || (cached?.epoch === m.epoch && cached.count === (m.view.previewCount ?? 10) ? cached.result : null);
+  // A selected-scope cycle does not establish that this table and its own
+  // prerequisites are unsupported. Keep useful group samples, but require a
+  // table-preview result before caching a capability block for this entry.
+  const applicableCache = cached?.origin === 'table' || !generationLimitations(cached?.result).length;
+  const initialResult = resume?.result || (applicableCache && cached?.epoch === m.epoch && cached.count === (m.view.previewCount ?? 10) ? cached.result : null);
   const component = openDataPreview({
     container,
     fixedScope: true,
@@ -2330,8 +2472,11 @@ function drawTablePreview(table) {
     initialStale: Boolean(resume?.stale),
     onColumnAction: (action, context) => editPreviewColumn(owner, m, 'current', action, context),
     onValidationIssue: issue => {if (owner === session && m === model()) locateInputIssue(issue);},
+    onUnsupported: result => {if (current()) showCapabilityReasons(result);},
+    onCurrentData: name => {if (current()) viewCurrentData(name);},
     isCurrent: () => current() && m.view.page === 'preview' && m.view.table === table.name,
     guard: task => action(task, tr("workbench.preview.current")),
+    setControlDisabled: setActionDisabled,
     generate: async ({
       count
     }) => {
@@ -2357,6 +2502,7 @@ function drawTablePreview(table) {
       if (current()) {
         cachePreview(m, [table.name], count, result);
         updateStatus();
+        if (generationLimitations(result).length) notify(previewMessage(result), true);
       }
     },
     onError: error => {
@@ -2368,13 +2514,14 @@ function drawTablePreview(table) {
   tablePreview = component;
   tablePreview.cached = Boolean(initialResult);
 }
-function cachePreview(m, names, count, result) {
+function cachePreview(m, names, count, result, origin = 'table') {
   const cache = previewResults.get(m) || new Map();
   previewResults.set(m, cache);
   for (const name of names) {
     cache.set(name, {
       epoch: m.epoch,
       count,
+      origin,
       result
     });
   }
@@ -2440,6 +2587,7 @@ async function refreshSamples(resume = null) {
     epoch = m.epoch,
     lifecycle = m.lifecycleVersion;
   const names = m.document.tables.map(item => item.name);
+  const knownLimitation = generationLimitations(m.check).length ? m.check : null;
   const preview = openDataPreview({
     tables: previewTables(m),
     relationships: {edges:m.schema.edges, nodes:m.schema.nodes},
@@ -2449,18 +2597,21 @@ async function refreshSamples(resume = null) {
     fixedScope: true,
     initialCount: m.view.previewCount ?? 10,
     isCurrent: current,
-    initialResult: resume?.result,
+    initialResult: resume?.result || knownLimitation,
     initialView: resume,
     initialStale: Boolean(resume?.stale),
     onColumnAction: (action, context) => editPreviewColumn(owner, m, 'selected', action, context),
     onValidationIssue: issue => {if (owner === session && m === model()) locateInputIssue(issue);},
+    onUnsupported: result => {if (current()) showCapabilityReasons(result);},
+    onCurrentData: name => {if (current()) viewCurrentData(name);},
     guard: task => action(task, tr("workbench.preview.selected")),
+    setControlDisabled: setActionDisabled,
     generate: async ({
       count
     }) => {
       const result = await owner.check(true, count);
       if (result && owner.model === m && m.epoch === epoch && m.lifecycleVersion === lifecycle) {
-        cachePreview(m, names, count, result);
+        cachePreview(m, names, count, result, 'selected');
         if (!preview.dialog.el.isConnected && root?.isConnected && session === owner && model() === m && tablePreview && m.view.page === 'preview' && names.includes(m.view.table)) {
           drawBody();
         }
@@ -2476,7 +2627,7 @@ async function refreshSamples(resume = null) {
       count
     }) => {
       if (current()) {
-        cachePreview(m, m.document.tables.map(item => item.name), count, result);
+        cachePreview(m, m.document.tables.map(item => item.name), count, result, 'selected');
         drawBody();
         notify(previewMessage(result, tr("workbench.preview.selectedScope")), !result.ok);
       }
@@ -2494,9 +2645,14 @@ async function refreshSamples(resume = null) {
     });
     return;
   }
+  if (knownLimitation) {
+    notify(previewMessage(knownLimitation), true);
+    return;
+  }
   await preview.refresh();
 }
 function previewMessage(result, scope) {
+  if (generationLimitations(result).length) return tr('workbench.unsupported.preview');
   if (!result.ok) {
     return tr("workbench.preview.issues");
   }
@@ -3096,6 +3252,7 @@ function drawImportedStructure(schema) {
 }
 function clearRecoveryCard(m, {inspect, review, append, adjust, locate, reset}) {
   const context = executionChecks.get(m), state = clearRecoveryState(m, context);
+  if (state.unsupported.length) return generationUnsupportedCard({issues: state.unsupported});
   const card = h('section', {class:'wb-clear-recovery', 'aria-label':tr("workbench.clear.recoveryTitle")});
   appendContent(card, h('p', {class:'wb-clear-recovery-status', role:'status'}, state.status));
   const needsScope = state.current && state.state === 'blocked' && state.externalTables.length > 0;
@@ -3165,10 +3322,14 @@ async function reviewClearScope() {
       let prefix = '';
       if (issue.tables?.length) prefix = issue.tables.join(', ') + ': ';
       else if (issue.table) prefix = issue.table + ': ';
-      return h('p', {}, joinText([prefix, serverText(issue)]));
+      const detail = h('div', {}, h('p', {}, joinText([prefix, serverText(issue)])));
+      if (issue.code === 'cross_table_cycle') appendContent(detail, cycleIssueDetails(issue, name => {
+        dialog.close(); inspectorMode = 'dependencies'; chooseTable(name, 'graph');
+      }, candidate.document));
+      return detail;
     });
-    replaceContent(feedback, h('p', {}, passed ? tr("workbench.clear.candidatePassed") : tr("workbench.clear.candidateFailed")), ...issueDetails);
-    if (!passed) {
+    replaceContent(feedback, h('p', {}, passed ? tr("workbench.clear.candidatePassed") : generationLimitations(result).length ? tr('workbench.unsupported.title') : tr("workbench.clear.candidateFailed")), ...issueDetails);
+    if (!passed && !generationLimitations(result).length) {
       const tables = [...new Set(errors.flatMap(issue=>issue.tables || (issue.table ? [issue.table] : [])))].filter(name=>m.schema.tables.some(table=>table.name===name));
       appendContent(feedback, h('div', {class:'wb-clear-recovery-actions'}, ...tables.map(name=>button(tr("workbench.action.locate", {target: name}), ()=>{dialog.close();inspectorMode='dependencies';chooseTable(name,'graph');}, {small:true})), button(tr("workbench.clear.adjust"), adjust, {small:true})));
     }
@@ -3189,7 +3350,7 @@ async function summary() {
   if (!stillCurrent()) {
     return;
   }
-  const result = await check(false);
+  const result = generationLimitations(model().check).length ? model().check : await check(false);
   if (!result || !stillCurrent()) {
     return;
   }
@@ -3234,16 +3395,19 @@ async function summary() {
     checked: false,
     disabled: true,
     'aria-label': tr("workbench.execution.reset"),
+    'aria-describedby': 'wb-reset-reason',
     onchange: () => {
-      if (planning || busy) {
+      if (planning || busy || reset.disabled) {
         return;
       }
       execution.reset_identity = reset.checked;
       return inspectExecution();
     }
   });
+  const resetReason = h('small', {id: 'wb-reset-reason', class: 'wb-reset-reason'});
+  const unsupported = generationLimitations(result).length > 0;
   function selectAppend() {
-    if (busy) return;
+    if (busy || unsupported) return;
     execution = {mode:'append', reset_identity:false};
     append.checked = true;
     replace.checked = false;
@@ -3267,11 +3431,10 @@ async function summary() {
     disabled: m.schema.dialect !== 'sqlite',
     'aria-label': tr("workbench.execution.replace"),
     onchange: () => {
-      if (planning || busy) {
+      if (planning || busy || unsupported || m.schema.dialect !== 'sqlite') {
         return;
       }
       execution.mode = 'replace_selected';
-      reset.disabled = false;
       return inspectExecution();
     }
   });
@@ -3302,18 +3465,18 @@ async function summary() {
     class: 'muted'
   }, tr("workbench.execution.postgresAppend"))] : []), h('label', {
     class: 'wb-reset-identity'
-  }, reset, h('span', {}, tr("workbench.execution.reset"), h('small', {}, tr("workbench.execution.resetHelp"))))), h('div', {
+  }, reset, h('span', {}, tr("workbench.execution.reset"), resetReason))), h('div', {
     class: 'wb-summary-total'
-  }, h('strong', {}, formatNumber(totalRows)), tr("workbench.execution.totalRows", {count: totalRows}), ' / ', tr("workbench.execution.totalTables", {count: m.document.tables.length, tables: formatNumber(m.document.tables.length)})), h('ol', {
+  }, h('strong', {}, formatNumber(totalRows)), tr("workbench.execution.totalRows", {count: totalRows}), ' / ', tr("workbench.execution.totalTables", {count: m.document.tables.length, tables: formatNumber(m.document.tables.length)})), ...(unsupported ? [h('p', {class: 'wb-muted'}, tr('workbench.unsupported.scope'))] : []), h(unsupported ? 'ul' : 'ol', {
     class: 'wb-summary-plan'
-  }, ...(result.order || []).map(name => h('li', {}, button(name, () => {
+  }, ...(unsupported ? m.document.tables.map(table => table.name) : result.order || []).map(name => h('li', {}, button(name, () => {
     dialog.close();
     inspectorMode = 'dependencies';
     chooseTable(name, 'graph');
   }, {
     plain: true,
     class: 'mono execution-table'
-  }), h('span', {}, tr("workbench.count.rows", {count: m.table(name).count}))))), ...(result.issues || []).map(issue => h('p', {
+  }), h('span', {}, tr("workbench.count.rows", {count: m.table(name).count}))))), ...(result.issues || []).filter(issue => !unsupported || issue.code !== 'cross_table_cycle').map(issue => h('p', {
     class: issue.severity === 'error' ? 'wb-error' : 'wb-muted'
   }, joinText([issue.table || '', serverText(issue)], ' '))));
   const submit = button(tr("workbench.execution.write"), async () => {
@@ -3350,7 +3513,7 @@ async function summary() {
     primary: true,
     disabled: !m.canRun()
   });
-  appendContent(dialog.actions, button(tr("workbench.execution.return"), dialog.close), submit);
+  appendContent(dialog.actions, button(unsupported ? tr('workbench.unsupported.close') : tr("workbench.execution.return"), dialog.close), submit);
   function appendPlan() {
     executionChecks.delete(m);
     notify(m.check?.ok ? tr("workbench.dependency.appendValid") : tr("workbench.execution.appendUnchecked"), !m.check?.ok);
@@ -3360,9 +3523,21 @@ async function summary() {
     }, tr("workbench.execution.appendPlanHelp")));
   }
   function setStrategyBusy(value) {
-    append.disabled = busy;
-    replace.disabled = value || m.schema.dialect !== 'sqlite';
-    reset.disabled = value || execution.mode !== 'replace_selected' || !plan?.reset_identity_supported;
+    append.disabled = busy || unsupported;
+    replace.disabled = value || unsupported || m.schema.dialect !== 'sqlite';
+    reset.disabled = value || execution.mode !== 'replace_selected' || !result.ok || !plan?.ok || !plan?.atomic || !plan?.reset_identity_supported;
+    const hasSequence = m.document.tables.some(item => m.schema.tables.find(table => table.name === item.name)?.columns.some(column => column.is_autoincrement));
+    let reason;
+    if (m.schema.dialect !== 'sqlite') reason = tr('workbench.execution.resetDialect', {dialect: databaseDialectLabel()});
+    else if (!hasSequence) reason = joinText([tr('workbench.execution.resetUnneeded'),
+      !result.ok || plan?.ok === false ? tr('workbench.execution.resetBlocked') : ''], ' ');
+    else if (!result.ok || plan?.ok === false) reason = tr('workbench.execution.resetBlocked');
+    else if (execution.mode !== 'replace_selected') reason = tr('workbench.execution.resetAppend');
+    else if (value) reason = tr('workbench.execution.resetChecking');
+    else if (!plan) reason = tr('workbench.execution.resetNoPlan');
+    else if (!plan.reset_identity_supported) reason = tr('workbench.execution.resetNotSupported');
+    else reason = tr('workbench.execution.resetHelp');
+    setText(resetReason, reason);
     setAttr(planInfo, 'aria-busy', String(value));
   }
   function recoveryActions() {
@@ -3381,6 +3556,13 @@ async function summary() {
     const request = ++sequence;
     plan = null;
     submit.disabled = true;
+    if (unsupported) {
+      if (execution.mode === 'replace_selected') executionChecks.set(m, {epoch, lifecycle, issues:structuredClone(result.issues), state:'blocked'});
+      replaceContent(planInfo, generationUnsupportedCard(result));
+      setText(submit, tr('workbench.unsupported.cannotGenerate'));
+      setStrategyBusy(false); updateStatus();
+      return;
+    }
     if (execution.mode === 'append') {
       appendPlan();
       setText(submit, tr("workbench.execution.write"));

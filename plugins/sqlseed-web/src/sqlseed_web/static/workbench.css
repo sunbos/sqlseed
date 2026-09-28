@@ -46,9 +46,13 @@
 .wb-page .inspector-field .sample { font-size:11px; color:var(--muted); }
 .wb-page .inspector-field .sample:not(.null) { font-family:var(--font-ui); font-variant-numeric:tabular-nums; }
 .wb-page .inspector-field { width:100%; text-align:left; }
-.wb-page .inspector-table-title { display:flex; align-items:center; justify-content:space-between; }
-.wb-page .inspector-table-title small { font-size:11px; color:var(--muted); }
-.wb-page .inspector-actions>.btn { width:100%; margin-top:10px; }
+.wb-page .inspector-table-title { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 12px; min-width:0; }
+.wb-page .inspector-table-title strong { min-width:0; overflow-wrap:anywhere; }
+.wb-page .inspector-table-title small { flex-shrink:0; font-size:var(--text-meta); color:var(--muted); }
+.wb-page .inspector-actions>.btn { width:100%; margin-top:0; }
+.wb-page .graph-workspace.expanded .inspector-actions { flex-wrap:wrap; gap:12px; }
+.wb-page .graph-workspace.expanded .inspector-table-title { flex:1 1 180px; justify-content:flex-start; }
+.wb-page .graph-workspace.expanded .inspector-actions>.btn { flex:0 0 auto; width:auto; }
 .wb-page .inspector-tabs { display:flex; gap:18px; padding:0 13px; border-bottom:1px solid var(--line); background:var(--surface-inset); }
 .wb-page .inspector-tabs button { font-size:12px; padding:12px 0; border-bottom:2px solid transparent; color:var(--muted); }
 .wb-page .inspector-tabs button.active { border-color:var(--teal); color:var(--teal); font-weight:var(--font-weight-emphasis); }
@@ -103,7 +107,7 @@
 .rule-editor .control textarea,
 .rule-editor .control .dropdown { width: 100%; min-width: 0; margin-top: 8px; }
 .rule-editor .control input[type=checkbox] {
-  display: inline-block; width: 14px; height: 14px; min-width: 14px;
+  display: inline-grid; width: 14px; height: 14px; min-width: 14px;
   padding: 0; margin: 8px 0 0; accent-color: var(--teal);
 }
 .rule-editor .control small { display: block; margin-top: 5px; }
@@ -166,7 +170,7 @@
 .wb-next-step-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
 .wb-guide-heading { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
 .wb-guide-heading strong { color:var(--ink); font-weight:var(--font-weight-emphasis); }
-.wb-guide-stages { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; max-width:720px; list-style:none; padding:4px; margin:8px 0 14px; border:1px solid var(--glass-edge); border-radius:9px; background:var(--surface-inset); box-shadow:var(--control-inset-shadow); font-size:13px; }
+.wb-guide-stages { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; max-width:720px; list-style:none; padding:4px; margin:8px 0 14px; border:1px solid var(--glass-edge); border-radius:9px; background:var(--segment-track,var(--surface-inset)); box-shadow:var(--control-inset-shadow); font-size:13px; }
 .wb-guide-stages li { display:flex; min-width:0; }
 .wb-guide-stages button { display:flex; width:100%; align-items:center; gap:10px; min-height:54px; padding:8px 12px; border:1px solid transparent; border-radius:var(--radius-control); background:transparent; box-shadow:none; color:var(--muted); text-align:left; transition:background-color 140ms ease,color 140ms ease; }
 .wb-guide-stages button:not(:disabled):hover { background:var(--control-hover); color:var(--ink); box-shadow:none; }
@@ -178,7 +182,7 @@
 .wb-guide-label strong { font-weight:var(--font-weight-emphasis); }
 .wb-guide-label small { font-size:11px; color:var(--muted); }
 .wb-guide-stages button[aria-current=step],
-.wb-guide-stages button[aria-current=step]:not(:disabled):hover { color:var(--teal); background:var(--control-surface); box-shadow:none; }
+.wb-guide-stages button[aria-current=step]:not(:disabled):hover { color:var(--teal); background:var(--segment-selected,var(--control-surface)); box-shadow:var(--segment-shadow,none); }
 .wb-guide-stages [aria-current=step] .wb-guide-number { background:var(--teal); color:var(--on-primary); }
 @media(max-width:540px) { .wb-guide-stages { grid-template-columns:minmax(0,1fr); } .wb-guide-stages button { padding:8px 10px; } }
 @media(prefers-reduced-motion:reduce) { .wb-guide-stages button { transition:none; } }
@@ -591,3 +595,16 @@ table.wb-clear-scope-review { width:100%; table-layout:fixed; }
 
 .scope-summary .dependency-summary { margin:5px 0 0; font-size:12px; color:var(--muted); }
 .scope-summary .dependency-summary.needs-attention { color:var(--danger); }
+
+.wb-cycle-help { margin-top:12px; color:var(--ink); font-size:12px; line-height:1.65; }
+.wb-cycle-help h4 { margin:16px 0 6px; font-size:12px; font-weight:var(--font-weight-emphasis); }
+.wb-cycle-help h4:first-child { margin-top:0; }
+.wb-cycle-help > p { margin:6px 0; overflow-wrap:anywhere; }
+.wb-cycle-references { display:grid; gap:8px; margin:8px 0 12px; padding:0; list-style:none; }
+.wb-cycle-references > li {
+  min-width:0; padding:8px 10px; border:1px solid var(--line);
+  border-radius:var(--radius-control); background:var(--surface-inset);
+}
+.wb-cycle-references li > p { margin:0 0 7px; font-size:11px; overflow-wrap:anywhere; }
+.wb-cycle-help .btn { max-width:100%; white-space:normal; text-align:left; }
+@media(forced-colors:active) { .wb-cycle-references > li { border-color:CanvasText; } }

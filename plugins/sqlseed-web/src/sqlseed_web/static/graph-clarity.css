@@ -41,6 +41,27 @@
   outline: 2px solid var(--graph-inspect);
   outline-offset: 2px;
 }
+.wb-schema-graph .graph-legend-swatch.blocked {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+.wb-schema-graph .graph-legend-line {
+  display: inline-flex;
+  align-items: center;
+  width: 22px;
+  height: 12px;
+  flex: 0 0 22px;
+  color: var(--graph-edge-default, var(--graph-chosen-edge));
+}
+.wb-schema-graph .graph-legend-line::before { content: ''; flex: 1; border-top: 1.6px solid currentColor; }
+.wb-schema-graph .graph-legend-line::after {
+  content: '';
+  border-block: 3px solid transparent;
+  border-inline-start: 5px solid currentColor;
+}
+.wb-schema-graph .graph-legend-line.related { color: var(--teal); }
+.wb-schema-graph .graph-legend-line.focused { color: var(--graph-inspect); }
+.wb-schema-graph .graph-legend-line.problem { color: var(--warning); }
 .wb-schema-graph .graph-node {
   --graph-node-stroke: var(--line);
   --graph-node-fill: var(--graph-other-fill);
@@ -76,6 +97,14 @@
 .wb-schema-graph .graph-node.focused .graph-focus-ring,
 .wb-schema-graph .graph-node:focus-visible .graph-focus-ring {
   opacity: 1;
+}
+.wb-schema-graph :is(.graph-node,.graph-edge) .graph-selection-halo {
+  fill:none; stroke:var(--graph-inspect)!important; stroke-width:6!important; stroke-dasharray:none;
+  vector-effect:non-scaling-stroke; opacity:0; pointer-events:none;
+}
+.wb-schema-graph .graph-edge .graph-selection-halo { stroke:var(--graph-edge-stroke)!important; }
+@media(prefers-reduced-motion:reduce),(forced-colors:active) {
+  .wb-schema-graph .graph-selection-halo { display:none; }
 }
 .wb-schema-graph .graph-edge.path-related .edge-line {
   stroke: var(--teal);
@@ -138,10 +167,10 @@
   inset: 0 auto auto 0;
   z-index: 0;
   box-sizing: border-box;
-  border: 1px solid var(--glass-edge);
+  border: 1px solid var(--segment-edge);
   border-radius: var(--radius-control);
-  background: var(--control-surface);
-  box-shadow: var(--control-rest-shadow);
+  background: var(--segment-selected);
+  box-shadow: var(--segment-shadow);
   pointer-events: none;
   visibility: hidden;
 }
@@ -163,4 +192,86 @@
     background: Highlight;
     color: HighlightText;
   }
+}
+
+/* Dependency groups: one quiet card, with clearly actionable table controls. */
+:is(.wb-page,.wb-overlay) .execution-heading {
+  display:flex; align-items:baseline; justify-content:space-between; flex-wrap:wrap;
+  gap:4px 12px; margin-top:20px;
+}
+:is(.wb-page,.wb-overlay) .execution-heading h3 { margin:0; font-size:14px; }
+:is(.wb-page,.wb-overlay) .execution-heading .text-button {
+  min-height:28px; padding:3px 0; font-size:12px; color:var(--teal);
+}
+:is(.wb-page,.wb-overlay) .execution-sequence { margin:10px 0 12px; }
+:is(.wb-page,.wb-overlay) .execution-sequence > li { gap:8px; padding-bottom:10px; }
+:is(.wb-page,.wb-overlay) .execution-sequence > li:not(:last-child)::before { top:32px; }
+:is(.wb-page,.wb-overlay) .execution-step { margin-top:9px; }
+:is(.wb-page,.wb-overlay) .execution-group {
+  padding:8px 10px; border:1px solid var(--line); border-radius:8px;
+  background:var(--surface-inset);
+}
+:is(.wb-page,.wb-overlay) .execution-group > small {
+  display:block; font-size:11px; line-height:1.5; font-weight:var(--font-weight-emphasis);
+}
+:is(.wb-page,.wb-overlay) .execution-tables { gap:6px; margin-top:7px; }
+:is(.wb-page,.wb-overlay) .execution-tables .execution-table {
+  min-width:0; min-height:30px; padding:5px 8px; gap:6px; justify-content:flex-start;
+  border:1px solid var(--control-field-edge); border-radius:var(--radius-control);
+  background:var(--control-surface); box-shadow:var(--control-rest-shadow);
+  color:var(--ink); font:var(--font-weight-emphasis) 12px/1.5 var(--font-ui);
+  white-space:normal;
+}
+:is(.wb-page,.wb-overlay) .execution-table-caption { min-width:0; overflow-wrap:anywhere; }
+:is(.wb-page,.wb-overlay) .execution-table > .icon { width:14px; height:14px; flex-shrink:0; color:var(--teal); }
+:is(.wb-page,.wb-overlay) .execution-tables .execution-table:not(:disabled):hover {
+  background:var(--control-hover); border-color:var(--control-selected-border);
+  box-shadow:var(--control-hover-shadow); color:var(--teal);
+}
+:is(.wb-page,.wb-overlay) .execution-tables .execution-table:not(:disabled):active {
+  background:var(--control-selected); box-shadow:var(--control-inset-shadow);
+}
+:is(.wb-page,.wb-overlay) .execution-tables .execution-table:focus-visible {
+  outline:2px solid var(--focus); outline-offset:2px;
+}
+:is(.wb-page,.wb-overlay) .execution-tables .execution-table:disabled { box-shadow:none; }
+@media(forced-colors:active) {
+  :is(.wb-page,.wb-overlay) .execution-group { border-color:CanvasText; }
+  :is(.wb-page,.wb-overlay) .execution-tables .execution-table {
+    border-color:ButtonText; box-shadow:none;
+  }
+}
+
+/* Editing the scale changes the SVG only; controls and validation keep their size. */
+.wb-schema-graph .graph-zoom-field { position:relative; flex:0 0 82px; width:82px; }
+.wb-schema-graph .graph-zoom-input {
+  box-sizing:border-box; width:100%; min-width:0; height:28px; min-height:28px;
+  padding:4px 20px 4px 6px; margin:0; text-align:right;
+  border:1px solid var(--control-field-edge); border-radius:var(--radius-control);
+  background:var(--control-surface); color:var(--ink); box-shadow:var(--control-rest-shadow);
+  font:var(--font-weight-emphasis) 11px/1.5 var(--font-ui); font-variant-numeric:tabular-nums;
+}
+.wb-schema-graph .graph-zoom-field > span[aria-hidden=true] {
+  position:absolute; inset-inline-end:6px; top:50%; transform:translateY(-50%);
+  pointer-events:none; font-size:11px; color:var(--muted);
+}
+.wb-schema-graph .graph-zoom-input:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+.wb-schema-graph .graph-zoom-input[aria-invalid=true] { border-color:var(--danger); }
+.wb-schema-graph .graph-zoom-input:disabled { opacity:.5; box-shadow:none; }
+.wb-schema-graph .graph-control-announcement {
+  position:absolute; width:1px; height:1px; padding:0; overflow:hidden;
+  clip-path:inset(50%); white-space:nowrap;
+}
+.wb-schema-graph .graph-zoom-error {
+  position:absolute; z-index:3; inset-inline-end:0; top:calc(100% + 6px);
+  width:max-content; max-width:min(300px,70vw); padding:7px 9px;
+  border:1px solid var(--danger); border-radius:var(--radius-control);
+  background:var(--solid-surface); color:var(--danger); box-shadow:var(--control-rest-shadow);
+  font-size:11px; line-height:1.5; text-align:start; pointer-events:none;
+}
+.wb-schema-graph .graph-zoom-error[hidden] { display:none; }
+@media(forced-colors:active) {
+  .wb-schema-graph .graph-zoom-input,.wb-schema-graph .graph-zoom-error { border-color:ButtonText; box-shadow:none; }
+  .wb-schema-graph .graph-zoom-input:focus-visible { outline-color:Highlight; }
+  .wb-schema-graph .graph-legend-swatch.blocked { border-style:double; }
 }

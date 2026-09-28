@@ -1,5 +1,5 @@
 /* Shared native disclosures in the product pages and their overlays. */
-:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control) {
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control, .language-control) {
   --disclosure-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
 }
 
@@ -26,7 +26,7 @@
 
 :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary::after,
 .wb-page details.wb-structure-menu[open] > summary::after,
-:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control) .dropdown-btn::after {
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control, .language-control) .dropdown-btn::after {
   content: "";
   inline-size: 16px;
   block-size: 16px;
@@ -48,7 +48,7 @@
   transform: translateY(-50%) rotate(180deg);
 }
 
-:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control) .dropdown-btn[aria-expanded="true"]::after {
+:is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control, .language-control) .dropdown-btn[aria-expanded="true"]::after {
   transform: rotate(180deg);
 }
 
@@ -112,7 +112,7 @@
   }
 
   :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary::after,
-  :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control) .dropdown-btn::after {
+  :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control, .language-control) .dropdown-btn::after {
     transition: transform 200ms ease;
   }
 
@@ -145,7 +145,7 @@
 
 @media (forced-colors: active) {
   :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay) details > summary::after,
-  :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control) .dropdown-btn::after {
+  :is(.wb-page, .settings-page, .configs-page, .runs-page, .wb-overlay, .theme-control, .language-control) .dropdown-btn::after {
     background-color: ButtonText;
     forced-color-adjust: none;
   }

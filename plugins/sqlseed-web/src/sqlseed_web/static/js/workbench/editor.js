@@ -934,7 +934,7 @@ export function createRuleEditor({
       if (key.ref_table === table.name && column.nullable) {
         el.append(h('p', {
           class: 'muted'
-        }, tr('editor.selfReference')));
+        }, tr(key.columns.length === 1 ? 'editor.selfReference' : 'editor.compositeSelfReference')));
       }
     }
     el.append(row(tr('editor.sampling'), dropdown('strategy', current.params.strategy || 'random', [{
@@ -964,7 +964,7 @@ export function createRuleEditor({
       value: String((current.null_ratio || 0) * 100),
       disabled: !current.null_ratio
     });
-    const percentageRow = row(tr('editor.nullPercent'), ratio);
+    const percentageRow = row(tr('editor.nullPercent'), ratio, tr('editor.nullProbabilityHelp'));
     percentageRow.hidden = ratio.disabled;
     const nullable = h('input', {
       type: 'checkbox',

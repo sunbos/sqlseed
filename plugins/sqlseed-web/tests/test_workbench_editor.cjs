@@ -236,6 +236,51 @@ test('schema grouped FK owns its source, sampling and nullable controls', async 
   });
 });
 
+test('self-reference NULL controls keep checked state and fractional configuration while explaining probability and application',async()=>{
+  const ui=harness({column:{name:'parent_id'},table:{name:'categories',foreign_keys:[{
+    id:'parent',columns:['parent_id'],ref_table:'categories',ref_columns:['id'],nullable:true,
+  }]},rule:{generator:'foreign_key_or_integer',params:{strategy:'random'}}});
+  const checkbox=ui.field('nullable'),ratio=ui.field('null_ratio');
+  assert.equal(Boolean(checkbox.checked),false);assert.equal(ratio.disabled,true);
+  assert.equal(ratio.closest('.wb-editor-row').hidden,true);
+  await ui.input('nullable',true,'change');
+  assert.equal(checkbox.checked,true);assert.equal(ratio.disabled,false);assert.equal(ratio.value,'5');
+  assert.equal(ui.changes.at(-1).null_ratio,0.05);
+  assert.match(ui.editor.el.textContent,/每条记录的概率.*少量预览可能没有 NULL.*应用修改后重新预览/);
+  assert.match(ui.editor.el.textContent,/空表预览可能全部为 NULL.*回填.*不能保证.*100% NULL/);
+  await ui.input('null_ratio','12.5');assert.equal(ui.changes.at(-1).null_ratio,0.125);
+  const draft=plain(ui.editor.getDraft()),changeCount=ui.changes.length;
+  ui.context.setLanguage('en');
+  assert.equal(ui.field('nullable'),checkbox);assert.equal(checkbox.checked,true);assert.equal(ratio.value,'12.5');
+  assert.match(ui.editor.el.textContent,/per-record probability, not a fixed count.*Apply your changes/);
+  assert.equal(ui.changes.length,changeCount);assert.deepEqual(plain(ui.editor.getDraft()),draft);
+  const restored=harness({column:{name:'parent_id'},table:{name:'categories',foreign_keys:[{
+    id:'parent',columns:['parent_id'],ref_table:'categories',ref_columns:['id'],nullable:true,
+  }]},draft});
+  assert.equal(restored.field('nullable').checked,true);assert.equal(restored.field('null_ratio').value,'12.5');
+  await restored.input('nullable',false,'change');
+  assert.equal(restored.field('null_ratio').disabled,true);assert.equal(restored.field('null_ratio').closest('.wb-editor-row').hidden,true);
+  assert.equal(restored.changes.at(-1).null_ratio,undefined);
+});
+
+test('the real composite warehouse-bin self-reference never promises single-column initialization or backfill',async()=>{
+  const fixture=require('./complex_business_graph.json');
+  const edge=fixture.edges.find(item=>item.source==='warehouse_bins' && item.target==='warehouse_bins');
+  const table=fixture.tables.find(item=>item.name==='warehouse_bins');
+  const ui=harness({column:{name:'parent_code',type:'TEXT',nullable:true},table:{...structuredClone(table),foreign_keys:[{
+    id:edge.id,columns:edge.targetColumns,ref_table:edge.source,ref_columns:edge.sourceColumns,nullable:edge.nullable,
+  }]},rule:{generator:'foreign_key_or_integer',params:{strategy:'random'}}});
+  assert.match(ui.editor.el.textContent,/复合外键.*warehouse_id, parent_code/);
+  assert.match(ui.editor.el.textContent,/本表没有可用引用键时.*不支持初始化.*NULL 百分比.*不能解除/);
+  assert.doesNotMatch(ui.editor.el.textContent,/先留空，再回填|100% NULL 会保持全部留空/);
+  await ui.input('nullable',true,'change');assert.equal(ui.changes.at(-1).null_ratio,0.05);
+  const before=plain(ui.editor.getDraft());ui.context.setLanguage('en');
+  assert.match(ui.editor.el.textContent,/composite self-reference requires a complete, valid key group/);
+  assert.match(ui.editor.el.textContent,/cannot initialize.*no usable reference keys/);
+  assert.doesNotMatch(ui.editor.el.textContent,/then fills some references/);
+  assert.deepEqual(plain(ui.editor.getDraft()),before);assert.equal(ui.field('nullable').checked,true);
+});
+
 test('derived editing validates references, preserves constraints and excludes source fields', async () => {
   const ui = harness({rule: {generator: 'integer', params: {min_value: 1}, constraints: {unique: true}}});
   await ui.choose('mode', '派生');

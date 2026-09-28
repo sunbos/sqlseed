@@ -9,7 +9,7 @@ const paths = {
   fields: 'M3 9h18M9 9v11M3 14h18',
   save: 'M4 3h13l4 4v14H3V3zM7 3v6h10V3M7 21v-8h10v8',
   folder: 'M3 7V5a2 2 0 0 1 2-2h5l3 4h6a2 2 0 0 1 2 2v2M3 7v12a2 2 0 0 0 2 2h13l4-10H6L3 19',
-  relations: 'M3 8h7m-4 0v5h12m0 0v3M14 19h8',
+  relations: 'M8 12h4M12 5v14M12 5h4M12 19h4',
   download: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
   upload: 'M12 16V4m-5 5 5-5 5 5M4 16v5h16v-5',
   code: 'm8 6-6 6 6 6m8-12 6 6-6 6m-3-14-2 16',
@@ -87,8 +87,8 @@ export function icon(name) {
     });
   }
   if (name === 'relations') {
-    for (const [x, y] of [[2, 3], [14, 16]]) {
-      shape('rect', { x, y, width: 8, height: 6, rx: 1.5 });
+    for (const [x, y] of [[2, 9], [16, 2], [16, 16]]) {
+      shape('rect', { x, y, width: 6, height: 6, rx: 1.5 });
     }
   }
   if (name === 'database') {

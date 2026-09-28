@@ -273,8 +273,12 @@
       "Composite foreign key ({columns}) is handled as one group by the database relationship rules."
     ],
     "selfReference": [
-      "此列为自引用；空表初始化时 NULL 比例可能受引用顺序影响。",
-      "This column references its own table. Reference order may affect the NULL ratio when initializing an empty table."
+      "此列引用本表。空表预览可能全部为 NULL；空表正式写入会先留空，再回填部分引用，不能保证这里的 NULL 比例。100% NULL 会保持全部留空。",
+      "This column references its own table. Previewing an empty table may show only NULLs. Filling an empty table first leaves NULLs, then fills some references, so this NULL percentage is not guaranteed. Explicit 100% NULL keeps all values NULL."
+    ],
+    "compositeSelfReference": [
+      "复合自引用必须使用整组有效引用键；本表没有可用引用键时，当前工作台不支持初始化，调整 NULL 百分比也不能解除这一限制。",
+      "A composite self-reference requires a complete, valid key group. The workbench cannot initialize it when this table has no usable reference keys. Changing the NULL percentage does not remove that limitation."
     ],
     "sampling": [
       "采样方式",
@@ -291,6 +295,10 @@
     "nullPercent": [
       "NULL 百分比",
       "NULL percentage"
+    ],
+    "nullProbabilityHelp": [
+      "按每条记录的概率抽样，不是固定数量；少量预览可能没有 NULL。应用修改后重新预览，才能看到新规则的效果。",
+      "This is a per-record probability, not a fixed count. A small preview may contain no NULLs. Apply your changes and preview again to see the new rule."
     ],
     "nullRange": [
       "NULL 百分比必须在 0 到 100 之间。",

@@ -148,11 +148,11 @@ ignore = [
     "PLR0917",
     # ---- Project convention: lazy import of optional deps ----
     # CLAUDE.md: "Optional deps (mimesis): always lazy import with try/except"
-    # Optional dependencies (mimesis, faker, rich, tqdm, testcontainers, etc.)
+    # Optional dependencies (mimesis, rich, tqdm, testcontainers, etc.)
     # MUST be imported lazily inside try/except blocks or factory functions
     # so the core package stays importable when the optional dep is absent.
-    # This pattern is fundamental to the 4-package architecture (core has no
-    # CLI/AI/MCP code; rich/tqdm belong to sqlseed-cli, not core). Inline
+    # This pattern is fundamental to the 5-package architecture (core has no
+    # CLI/AI/MCP/Web code; rich/tqdm belong to sqlseed-cli, not core). Inline
     # `# noqa: PLC0415` would be problem-avoidance; project-level disable
     # with documentation is the correct approach. Mirrors pylint's
     # `import-outside-toplevel` disable in [tool.pylint.main] above.

@@ -153,8 +153,8 @@
       "View components in the Python environment running this Web service."
     ],
     "generation": [
-      "新建配置偏好",
-      "New configuration defaults"
+      "默认配置",
+      "Defaults"
     ],
     "generationSubtitle": [
       "设置新配置的常用起点；已有配置保持原值。",

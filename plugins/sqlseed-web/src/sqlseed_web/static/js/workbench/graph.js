@@ -2,6 +2,7 @@ import { tr, joinText, formatNumber, setText, setAttr } from '../i18n.js';
 import '../i18n/messages/graph.js';
 import './graph-layout.js';
 import './dependency-view.js';
+import { createSegmentIndicator } from '../segment-motion.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
 const GRAPH_MODES = ['plan', 'all', 'paths', 'issues'];
 let graphSequence = 0;
@@ -122,6 +123,7 @@ export function createSchemaGraph({
   let relatedEdges = new Set();
   let zoom = 1,
     actualSize = false,
+    manualZoom = false,
     layout = null,
     frame = null,
     svg = null,
@@ -141,6 +143,25 @@ export function createSchemaGraph({
     el.addEventListener(type, callback, options);
     (drawing ? drawingListeners : listeners).push(() => el.removeEventListener(type, callback, options));
   };
+  const motionPreference = window.matchMedia?.('(prefers-reduced-motion: reduce)');
+  let selectionAnimation = null;
+  function cancelSelectionFeedback() {
+    selectionAnimation?.cancel();
+    selectionAnimation = null;
+  }
+  function showSelectionFeedback(group) {
+    cancelSelectionFeedback();
+    const halo = group?.querySelector('.graph-selection-halo');
+    if (destroyed || motionPreference?.matches !== false || !halo?.isConnected || typeof halo.animate !== 'function') return;
+    // A single decorative fade confirms selection; the real outline, direction,
+    // problem colors and accessible state are already present and never fade.
+    const animation = halo.animate([{opacity: .28}, {opacity: 0}], {duration: 120, easing: 'ease-out'});
+    selectionAnimation = animation;
+    animation.onfinish = () => {
+      if (selectionAnimation === animation) selectionAnimation = null;
+    };
+  }
+  if (motionPreference?.addEventListener) listen(motionPreference, 'change', cancelSelectionFeedback);
   const activate = (el, callback) => {
     listen(el, 'click', callback, true);
     listen(el, 'keydown', event => {
@@ -202,9 +223,10 @@ export function createSchemaGraph({
       currentMode = 'paths';
       currentPath = value;
       pathFocus = currentFocus;
-      draw();
+      draw(false, false, true);
     });
   }
+  const pathIndicator = createSegmentIndicator(pathScopes, {selected: () => controls.get(currentPath)});
   const search = html('div', {
     class: 'graph-search sg-search'
   });
@@ -314,13 +336,48 @@ export function createSchemaGraph({
     class: 'graph-tools sg-modes'
   });
   setAttr(control(zoomTools, 'zoom-out', '−', () => changeZoom(zoom / 1.25)), 'aria-label', tr('graph.zoomOut'));
+  const zoomField = html('div', {class: 'graph-zoom-field'});
+  const zoomInput = html('input', {
+    type: 'text',
+    inputmode: 'decimal',
+    autocomplete: 'off',
+    spellcheck: 'false',
+    class: 'graph-zoom-input',
+    'data-graph-zoom-input': '',
+    'aria-label': tr('graph.zoomInput'),
+    'aria-describedby': `${markerId}-zoom-hint ${markerId}-zoom-error`
+  });
+  const zoomHint = html('span', {id: `${markerId}-zoom-hint`, class: 'graph-control-announcement'});
+  const zoomError = html('span', {
+    id: `${markerId}-zoom-error`, class: 'graph-zoom-error', role: 'status', 'aria-live': 'polite'
+  });
+  zoomError.hidden = true;
   const zoomLabel = html('span', {
-    class: 'graph-zoom-label sg-zoom',
+    class: 'graph-control-announcement',
     'data-graph-zoom': '',
     'aria-live': 'polite',
     title: tr('graph.scaleHint')
   }, '100%');
-  zoomTools.append(zoomLabel);
+  zoomField.append(zoomInput, html('span', {'aria-hidden': 'true'}, '%'), zoomHint, zoomError, zoomLabel);
+  zoomTools.append(zoomField);
+  let zoomDraft = false;
+  listen(zoomInput, 'input', () => {
+    zoomDraft = true;
+    clearZoomError();
+  });
+  listen(zoomInput, 'blur', commitZoom);
+  listen(zoomInput, 'keydown', event => {
+    if (event.isComposing) return;
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      commitZoom();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      syncZoomInput();
+    }
+  });
   setAttr(control(zoomTools, 'zoom-in', '＋', () => changeZoom(zoom * 1.25)), 'aria-label', tr('graph.zoomIn'));
   setAttr(control(zoomTools, 'fit', tr('graph.fit'), () => applyViewport(true)), 'title', tr('graph.fitHint'));
   setAttr(control(zoomTools, 'readable', tr('graph.readNatural'), () => {
@@ -343,14 +400,25 @@ export function createSchemaGraph({
     role: 'group',
     'aria-label': tr('graph.legend')
   });
-  for (const [state, label] of [['chosen', tr('graph.plan')], ['referenced', tr('graph.referenced')], ['unused', tr('graph.unused')], ['current', tr('graph.current')]]) {
+  for (const [state, label] of [['chosen', tr('graph.plan')], ['referenced', tr('graph.referenced')], ['unused', tr('graph.unused')], ['current', tr('graph.current')], ['blocked', tr('graph.problemTable')]]) {
     const item = html('span', {
       class: 'graph-legend-item'
     });
+    if (state === 'blocked') setAttr(item, 'title', tr('graph.problemTableHint'));
     item.append(html('i', {
       class: `graph-legend-swatch ${state}`,
       'aria-hidden': 'true'
     }), html('span', {}, label));
+    legend.append(item);
+  }
+  let relatedLegendLabel;
+  for (const [state, label] of [['normal', tr('graph.otherRelations')], ['related', tr('graph.relatedPaths')], ['focused', tr('graph.selectedRelation')], ['problem', tr('graph.problemRelation')]]) {
+    const swatch = html('i', {class: `graph-legend-line ${state}`, 'aria-hidden': 'true'});
+    const caption = html('span', {}, label);
+    if (state === 'related') relatedLegendLabel = caption;
+    const item = html('span', {class: 'graph-legend-item'});
+    if (state === 'problem') setAttr(item, 'title', tr('graph.problemRelationHint'));
+    item.append(swatch, caption);
     legend.append(item);
   }
   const canvas = html('div', {
@@ -364,7 +432,8 @@ export function createSchemaGraph({
   const footer = html('div', {
     class: 'graph-footer sg-footer'
   });
-  footer.append(html('span', {id: `${markerId}-help`}, tr('graph.help', {issueHint: issues.length ? tr('graph.issueColor') : ''})));
+  const help = html('span', {id: `${markerId}-help`});
+  footer.append(help);
   const labelControl = html('label'),
     labelToggle = html('input', {
       type: 'checkbox',
@@ -470,11 +539,20 @@ export function createSchemaGraph({
     return visibleGraph(visible);
   }
   function highlightFocus() {
-    // Highlight the complete dependency closure within the existing projection.
-    // This includes sources needed by child branches without moving any nodes.
-    const paths = globalThis.SqlseedDependencyView.selectGraph(data, currentFocus, 'paths');
-    const relatedNodes = new Set(paths.nodes.map(node => node.id));
-    relatedEdges = new Set(paths.edges.map(edge => edge.id));
+    let relatedNodes;
+    if (currentMode === 'all') {
+      // A hub's full closure can cover the database. In the overview, emphasize
+      // only incident edges, never edges that merely join two of its neighbors.
+      const direct = data.edges.filter(edge => edge.source === currentFocus || edge.target === currentFocus);
+      relatedNodes = new Set([currentFocus, ...direct.flatMap(edge => [edge.source, edge.target])]);
+      relatedEdges = new Set(direct.map(edge => edge.id));
+    } else {
+      // Dependency views retain every source needed by child branches. This is
+      // presentation only: neither projection nor generation scope is changed.
+      const paths = globalThis.SqlseedDependencyView.selectGraph(data, currentFocus, 'paths');
+      relatedNodes = new Set(paths.nodes.map(node => node.id));
+      relatedEdges = new Set(paths.edges.map(edge => edge.id));
+    }
     for (const node of canvas.querySelectorAll('[data-graph-node]')) {
       const id = node.dataset.graphNode,
         selected = id === currentFocus;
@@ -510,6 +588,8 @@ export function createSchemaGraph({
     }
   }
   function updateContext() {
+    setText(relatedLegendLabel, tr(currentMode === 'all' ? 'graph.directRelations' : 'graph.relatedPaths'));
+    setText(help, tr(currentMode === 'all' ? 'graph.helpAll' : 'graph.help', {issueHint: issues.length ? tr('graph.issueColor') : ''}));
     setText(pathTitle, pathFocus ? tr('graph.pathTitle', {table: pathFocus}) : tr('graph.noTable'));
     setText(inspectedTable, currentFocus ? tr('graph.inspecting', {table: currentFocus}) : '');
     inspectedTable.hidden = !currentFocus || currentFocus === pathFocus;
@@ -600,6 +680,7 @@ export function createSchemaGraph({
     publishView();
   }
   function highlightEdge(id) {
+    const changed = selectedEdge !== id;
     selectedEdge = id;
     highlightEdges();
     const edge = data.edges.find(item => item.id === id);
@@ -607,6 +688,7 @@ export function createSchemaGraph({
       onEdge(edge);
     }
     publishView();
+    if (changed) showSelectionFeedback([...canvas.querySelectorAll('[data-graph-edge]')].find(edge => edge.dataset.graphEdge === id));
   }
   function positionScopeIndicator(animate = false, resized = false) {
     if (destroyed) return;
@@ -637,10 +719,11 @@ export function createSchemaGraph({
     setAttr(scopes, 'data-indicator-ready', '');
     scopeGeometry = next;
   }
-  function draw(preserveViewport = false, animateScope = false) {
+  function draw(preserveViewport = false, animateScope = false, animatePath = false) {
     if (destroyed) {
       return;
     }
+    cancelSelectionFeedback();
     const previousFrame = preserveViewport ? frame : null;
     drawingListeners.splice(0).forEach(remove => remove());
     const visible = projection();
@@ -652,6 +735,7 @@ export function createSchemaGraph({
     for (const value of ['complete', 'upstream', 'downstream', 'neighbors']) {
       setAttr(controls.get(value), 'aria-pressed', String(currentPath === value));
     }
+    pathIndicator.update({animate: animatePath});
     updateContext();
     renderSearchResults();
     controls.get('clear-search').disabled = !searchText;
@@ -663,6 +747,7 @@ export function createSchemaGraph({
       stage = null;
       layout = null;
       setText(zoomLabel, '—');
+      syncZoomInput();
       for (const action of ['zoom-in', 'zoom-out', 'fit', 'readable']) {
         controls.get(action).disabled = true;
       }
@@ -748,6 +833,7 @@ export function createSchemaGraph({
       const fitted = graphViewport(layout, size.width, size.height);
       zoom = previousFrame.scale / fitted.fitScale;
       actualSize = false;
+      manualZoom = true;
       applyViewport();
     } else {
       applyViewport(true);
@@ -770,9 +856,12 @@ export function createSchemaGraph({
       const titleText = nodeTitle(title);
       const existing = table?.row_count != null ? tr('graph.existing', {count: table.row_count, value: formatNumber(table.row_count)}) : '';
       const metadata = nodeMetadata();
-      const state = node.readonly || selected || referenced ? metadata : tr('graph.unusedState', {metadata});
+      const membership = node.readonly || selected || referenced ? metadata : tr('graph.unusedState', {metadata});
+      const state = problemTables.has(node.id)
+        ? joinText([membership, tr('graph.problemTableHint')], '；') : membership;
       setAttr(group, 'aria-label', tr('graph.nodeStateLabel', {table: title, state}));
-      group.append(svgElement('title', {}, title), svgElement('rect', {
+      group.append(svgElement('title', {}, problemTables.has(node.id)
+        ? joinText([title, tr('graph.problemTableHint')], '；') : title), svgElement('rect', {
         class: 'graph-node-body',
         'pointer-events': 'fill',
         x: node.x,
@@ -780,6 +869,15 @@ export function createSchemaGraph({
         width: node.width,
         height: node.height,
         rx: 8
+      }), svgElement('rect', {
+        class: 'graph-selection-halo',
+        x: node.x - 4,
+        y: node.y - 4,
+        width: node.width + 8,
+        height: node.height + 8,
+        rx: 12,
+        'pointer-events': 'none',
+        'aria-hidden': 'true'
       }), svgElement('rect', {
         class: 'graph-focus-ring',
         x: node.x - 4,
@@ -803,10 +901,12 @@ export function createSchemaGraph({
         if (onSelect(node.id) === false || destroyed) {
           return;
         }
+        const changed = currentFocus !== node.id || selectedEdge !== null;
         currentFocus = node.id;
         selectedEdge = null;
         highlightFocus();
         publishView();
+        if (changed) showSelectionFeedback(group);
       });
       svg.append(group);
       function nodeMetadata() {
@@ -831,9 +931,16 @@ export function createSchemaGraph({
           'data-issue': String(problemEdges.has(edge.id)),
           role: 'button',
           tabindex: 0,
-          'aria-label': relationText(edge)
+          'aria-label': problemEdges.has(edge.id)
+            ? joinText([relationText(edge), tr('graph.problemRelationHint')], '；') : relationText(edge)
         });
         group.append(svgElement('title', {}, relationText(edge)), svgElement('path', {
+          class: 'graph-selection-halo',
+          'vector-effect': 'non-scaling-stroke',
+          'pointer-events': 'none',
+          'aria-hidden': 'true',
+          d: edge.path
+        }), svgElement('path', {
           class: 'edge-hit sg-hit',
           'vector-effect': 'non-scaling-stroke',
           d: edge.path
@@ -903,9 +1010,11 @@ export function createSchemaGraph({
     if (pendingViewport) {
       zoom = pendingViewport.zoom;
       actualSize = pendingViewport.actualSize;
+      manualZoom = Math.abs(zoom - 1) >= .001;
     } else if (reset) {
       zoom = 1;
       actualSize = false;
+      manualZoom = false;
     }
     frame = graphViewport(layout, width, height, zoom, actualSize);
     zoom = frame.zoom;
@@ -931,10 +1040,11 @@ export function createSchemaGraph({
     const scaleLabel = formatNumber(frame.scale, {style: 'percent', maximumFractionDigits: 0});
     setText(zoomLabel, scaleLabel);
     setAttr(zoomLabel, 'aria-label', tr('graph.zoomLabel', {scale: scaleLabel}));
+    syncZoomInput();
     for (const action of ['zoom-in', 'zoom-out', 'fit']) {
       controls.get(action).disabled = false;
     }
-    setAttr(controls.get('fit'), 'aria-pressed', String(!actualSize && Math.abs(zoom - 1) < .001));
+    setAttr(controls.get('fit'), 'aria-pressed', String(!manualZoom && !actualSize && Math.abs(zoom - 1) < .001));
     controls.get('readable').disabled = Math.abs(frame.scale - 1) < .001;
     if (pendingViewport) {
       canvas.scrollLeft = pendingViewport.scrollLeft;
@@ -972,7 +1082,52 @@ export function createSchemaGraph({
   function changeZoom(value, anchor = null) {
     zoom = Math.min(Math.max(8, 2 / (frame?.fitScale || 1)), Math.max(.25, value));
     actualSize = false;
+    manualZoom = true;
     applyViewport(false, anchor);
+  }
+  // Percentages describe actual node size, while stored zoom remains relative
+  // to fit. Round the input bounds like the displayed value; changeZoom still
+  // enforces the exact existing limits for buttons, wheel and typed values.
+  function zoomPercent(scale) {
+    return Number((scale * 100).toFixed(2));
+  }
+  function zoomRange() {
+    return {min: zoomPercent(.25 * frame.fitScale), max: zoomPercent(Math.max(8 * frame.fitScale, 2))};
+  }
+  function clearZoomError() {
+    zoomInput.removeAttribute('aria-invalid');
+    zoomError.hidden = true;
+    setText(zoomError, '');
+  }
+  function syncZoomInput() {
+    zoomDraft = false;
+    clearZoomError();
+    zoomInput.disabled = !frame;
+    zoomInput.value = frame ? String(zoomPercent(frame.scale)) : '';
+    zoomInput.placeholder = frame ? '' : '—';
+    if (frame) {
+      const {min, max} = zoomRange();
+      const hint = tr('graph.zoomEntryHint', {min: formatNumber(min), max: formatNumber(max)});
+      setText(zoomHint, hint);
+      setAttr(zoomInput, 'title', hint);
+    } else {
+      setText(zoomHint, '');
+      zoomInput.removeAttribute('title');
+    }
+  }
+  function commitZoom() {
+    if (destroyed || !frame || !zoomDraft) return;
+    const raw = zoomInput.value.trim().replace(/\s*%$/, '');
+    const percentage = /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) ? Number(raw) : NaN;
+    const {min, max} = zoomRange();
+    if (!Number.isFinite(percentage) || percentage <= 0 || percentage < min || percentage > max) {
+      setAttr(zoomInput, 'aria-invalid', 'true');
+      setText(zoomError, tr('graph.zoomInvalid', {min: formatNumber(min), max: formatNumber(max)}));
+      zoomError.hidden = false;
+      return;
+    }
+    pendingViewport = null;
+    changeZoom(percentage / 100 / frame.fitScale);
   }
   listen(canvas, 'wheel', event => {
     if (!event.ctrlKey && !event.metaKey) return;
@@ -1051,6 +1206,13 @@ export function createSchemaGraph({
     // clientWidth/clientHeight 会取整；缩放后的不足 1px 溢出可能让两个滚动条
     // 交替出现。使用实际内容区尺寸，并在后续缩放/重绘中沿用同一精度。
     measuredCanvas = {width: bounds.width, height: bounds.height};
+    // A scrollbar changes the fit scale, not the scale the user requested.
+    // Keep the stored zoom fit-relative, recalculating it from the actual scale
+    // after manual zoom. Fit mode still follows the available canvas size.
+    if (manualZoom && frame && layout && !pendingViewport) {
+      const fitted = graphViewport(layout, bounds.width, bounds.height);
+      zoom = frame.scale / fitted.fitScale;
+    }
     applyViewport();
   });
   resizeObserver?.observe(canvas);
@@ -1061,6 +1223,7 @@ export function createSchemaGraph({
     if (destroyed || !nodeIds.has(id)) {
       return false;
     }
+    cancelSelectionFeedback();
     const visible = projection().nodes.some(node => node.id === id),
       hadSearch = Boolean(searchText);
     currentFocus = id;
@@ -1092,8 +1255,10 @@ export function createSchemaGraph({
     focusTable,
     destroy() {
       destroyed = true;
+      cancelSelectionFeedback();
       resizeObserver?.disconnect();
       scopeObserver?.disconnect();
+      pathIndicator.destroy();
       drawingListeners.splice(0).forEach(remove => remove());
       listeners.splice(0).forEach(remove => remove());
     }

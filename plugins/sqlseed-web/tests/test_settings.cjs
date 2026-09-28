@@ -88,14 +88,14 @@ test('generation metadata waits for management detection and is skipped in maint
   assert.equal(t.calls.some(call => call.url.includes('/meta/')), false);
   management.resolve({enabled:true, available:false}); await t.mounted;
   assert.equal(t.calls.some(call => call.url.includes('/meta/')), false);
-  assert.equal(t.find('新建配置偏好').disabled, true);
+  assert.equal(t.find('默认配置').disabled, true);
   t.context.unmount();
 });
 
 test('new-generation defaults save locally only and leave AI drafts untouched', async () => {
   const t = harness(); await t.mounted;
   const aiModel = t.input('模型名称'); aiModel.value = 'unsaved-model'; await aiModel.dispatchEvent('input');
-  await t.find('新建配置偏好').click(); await tick();
+  await t.find('默认配置').click(); await tick();
   const count = t.input('默认每表行数'); count.value = '250'; await count.dispatchEvent('input');
   await t.input('默认生成引擎').click();
   await t.document.querySelectorAll('[role="option"]').find(el => el.textContent === 'Mimesis').click();
@@ -139,7 +139,7 @@ test('appearance settings apply immediately without changing an unsaved AI draft
 
 test('appearance deep links and tab keyboard navigation reach all four sections', async () => {
   const t = harness({section: 'appearance'}); await t.mounted;
-  const ai = t.find('AI 服务'), plugins = t.find('插件与版本'), generation = t.find('新建配置偏好'), appearance = t.find('外观');
+  const ai = t.find('AI 服务'), plugins = t.find('插件与版本'), generation = t.find('默认配置'), appearance = t.find('外观');
   for (const tab of [ai, plugins, generation, appearance]) tab.focus = () => {t.document.activeElement = tab;};
   assert.equal(appearance.getAttribute('aria-selected'), 'true');
   assert.equal(t.document.querySelector('#settings-appearance').hidden, false);
@@ -1013,7 +1013,7 @@ test('generation defaults and cached update feedback stay live across language c
   const t = harness({request: call => call.url.endsWith('/updates') ? {components:[
     {id:'core', label:'Core', current:'0.2.5', latest:'0.2.6', status:'update_available', cached:true}
   ]} : undefined}); await t.mounted;
-  await t.find('新建配置偏好').click(); await tick();
+  await t.find('默认配置').click(); await tick();
   const count = t.input('默认每表行数'); count.value = '0'; await count.dispatchEvent('input');
   const defaultsPanel = t.document.querySelector('.settings-generation-control');
   assert.match(defaultsPanel.textContent, /1–1,000,000/);

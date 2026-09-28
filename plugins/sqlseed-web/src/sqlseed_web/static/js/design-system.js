@@ -6,6 +6,7 @@ import { createDatePicker } from './workbench/date-picker.js';
 import { createSchemaGraph } from './workbench/graph.js';
 import { createThemeControl } from './theme-control.js';
 import './tab-motion.js';
+import { createSegmentIndicator } from './segment-motion.js';
 
 const root = document.getElementById('design-reference');
 const disposables = [];
@@ -124,10 +125,12 @@ const countInput = h('input', { type: 'text', inputmode: 'numeric', value: '0', 
 const countField = field('生成数量 · 错误恢复示例', countInput);
 countField.append(countError);
 const stageSample = h('ol', {class:'wb-guide-stages', 'aria-label':'生成流程样式示例'});
+let stageIndicator;
 for (const [index, [label, hint]] of [['设定规则','选择表与字段'],['预览样例','只读查看结果'],['确认写入','核对生成计划']].entries()) {
   const stage = button('', () => {
     for (const item of stageSample.querySelectorAll('button')) item.removeAttribute('aria-current');
     stage.setAttribute('aria-current','step');
+    stageIndicator.update({animate:true});
     actionStatus.textContent = `样式示例：${label}。正式工作台会进入对应操作。`;
   }, {plain:true, ...(index===0 ? {'aria-current':'step'} : {})});
   stage.append(h('span',{class:'wb-guide-number','aria-hidden':'true'},String(index+1)),
@@ -138,6 +141,11 @@ root.append(section('controls', '基础控件', '悬停、键盘焦点与选中�
   h('div', { class: 'ds-row' }, primaryButton, secondaryButton, toggleButton,
     button('不可用', null, { disabled: true }), loadingButton),
   actionStatus,
+  h('h3',{},'关系图入口 · 节点与分支'),
+  h('div', {class:'ds-row'},
+    button('', () => { actionStatus.textContent = '依赖路径入口样例；正式工作台会定位当前表的关系图。'; },
+      {glyph:'relations', plain:true, class:'table-graph-shortcut', 'aria-label':'查看依赖路径样例', title:'查看依赖路径样例'}),
+    button('查看关系图', () => { actionStatus.textContent = '带文字的关系图入口样例，没有修改配置。'; }, {glyph:'relations',small:true})),
   h('h3',{},'生成流程 · 分段导航'), stageSample,
   h('h3',{},'连接恢复 · 主次操作'),
   h('div', {class:'wb-welcome-actions'},
@@ -155,7 +163,10 @@ root.append(section('controls', '基础控件', '悬停、键盘焦点与选中�
       countField, field('数据库标识 · 禁用', h('input', { type: 'text', value: 'shop_demo.db', disabled: true })))),
   notes('Tab 逐项移动焦点，Space 切换复选框；焦点环不等同于已选状态。',
     '鼠标悬停呈现柔和阴影，按钮不移动；已选底色仍然保留，键盘焦点继续有清晰外圈。',
-    '生成流程是一个分段容器：三项共用底槽，当前项只有柔和底板，没有独立外投影；窄屏保留编号和两行说明。',
+    '绿色主按钮使用同色相渐变、低反光内缘与柔和外阴影表达厚度；按下时回落，不出现白色亮顶线。',
+    '关系入口使用三个圆角节点和正交分支；检查小尺寸轮廓、明暗描边与键盘提示，不依赖图标独自解释功能。',
+    '生成流程共用底槽，选中底板短暂滑动，编号和文字保持原位；窄屏换行、初载和尺寸变化直接定位。',
+    '快速来回切换时底板从当前位置转向；系统选择减少动态效果时立即切换。复选框和单选框只让标记短暂浮现，输入框不会位移。',
     '连接恢复按钮居中并保持间距，窄屏自然换行；主操作和次操作使用正式按钮样式。',
     '错误值改为 100 后提示消失；错误时仍能继续输入，无效内容不会被悄悄替换。',
     '加载与禁用不可再次提交；前后保持布局宽度，反馈区域不会挤动其他控件。')));
@@ -328,11 +339,12 @@ const graph = createSchemaGraph({ schema: fixture, focus: 'orders',
 disposables.push(graph);
 root.append(section('relationships', '关系图', '正式关系图组件，使用 5 张表、3 条外键的固定结构。仅检查浏览行为。', 'schema',
   graph.toolbar, graph.el, graphStatus,
-  notes('点节点切换当前查看对象，固定生成范围不改变；点连线显示真实样例列映射。',
-    '搜索、整库 / 依赖路径、缩放、100% 阅读、展开和字段标签均可操作。',
+  notes('点节点切换当前查看对象，固定生成范围不改变；点连线显示真实样例列映射。选中表或关系只有一次短促的高亮反馈，不移动节点或箭头；减少动态效果时直接切换。',
+    '搜索、整库 / 依赖路径、缩放、100% 阅读、展开和字段标签均可操作。百分比可直接输入：Enter 或移开焦点应用，Esc 恢复；越界输入须说明有效范围且保持图形比例。',
     '静态按钮与输入共用轻高光和短阴影；已选路径悬停后仍保留浅色选中态。',
     'orders → order_items 应直连；products → order_items 应从下方短路径接入，不穿过 orders，也不绕到顶部。',
     '在 125% / 150% 系统缩放下静置画布；节点与滚动条不得反复移动或出现。',
+    '橙色图例分别解释检查涉及的表与引用关系，不表示已有数据损坏；箭头静态表达依赖方向，不暗示实时流动。',
     '关系图包含仅引用和其他表状态；“检查问题”为空仅表示此固定样例未提供问题，不表示业务检查通过。')));
 
 const references = [
@@ -347,6 +359,8 @@ root.append(section('references', '设计依据', '采用共同的层级与交�
     h('a', { href: url, target: '_blank', rel: 'noopener noreferrer' }, title), h('p', { class: 'muted' }, description)))),
   h('p', {}, '本页是持续维护的交互参考，不是“所有平台已经验收通过”的报告。视觉、键盘、缩放和系统回退仍需逐项实测。')));
 root.append(h('p', { class: 'muted ds-end' }, '所有示例共用正式 style.css 与组件模块。刷新本页会恢复固定初始值。'));
+stageIndicator = createSegmentIndicator(stageSample);
+disposables.push(stageIndicator);
 
 window.addEventListener('pagehide', event => {
   if (event.persisted) return;
