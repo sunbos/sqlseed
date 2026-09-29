@@ -1,6 +1,6 @@
 # 评审记录
 
-- [当前项目收尾](2026-09-29-project-closure.md)：PR #20 合并后的证据、真实模型补充复验、能力边界及剩余 Sonar 事项。
+- [当前项目收尾](2026-09-29-project-closure.md)：PR #20、#21 合并后的证据、真实模型补充复验、Sonar 最终处置及能力边界。
 - [PR #19 历史验收](2026-09-28-project-closure.md)：此前问题、实测范围和当时的交付状态。
 - [Sonar 整改与逐项判定](2026-09-13-sonar-remediation/README.md)：保留误报依据及 issue ledger；`sqlseed.fill` 参数数量问题按用户决定暂缓，不借整理文档改变 public API。
 - [历史验收与清理说明](history.md)：已完成轮次的出处和仍有效的决策。
