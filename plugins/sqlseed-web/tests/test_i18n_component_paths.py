@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 from starlette.requests import Request
+from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import plugin_environment as environment
@@ -262,10 +263,9 @@ def test_update_metadata_rejects_wrong_identity_and_incompatible_python(metadata
 def test_update_index_failure_is_localizable_without_mutating_installed_metadata(
     monkeypatch: pytest.MonkeyPatch, failure: Exception | None
 ) -> None:
-    def unavailable(_: str) -> Any:
+    def unavailable(_: str) -> None:
         if failure is not None:
             raise failure
-        return None
 
     monkeypatch.setattr(updates.settings_updates, "_fetch_index", unavailable)
     packages = {"mimesis": environment.InstalledPackage("1.0", ())}
@@ -333,7 +333,7 @@ def test_missing_installer_and_unowned_lock_cannot_produce_install_commands(tmp_
     with pytest.raises(RuntimeError) as unowned:
         lock.fileno()
     assert_message(unowned.value.args[0], "backend.plugin_environment.the_environment_lock_is_not_held")
-    assert list(tmp_path.iterdir()) == []
+    assert not list(tmp_path.iterdir())
 
 
 @pytest.mark.parametrize("problem", ["managed", "invalid_config", "missing_installer"])
@@ -373,7 +373,7 @@ def test_connection_admission_failures_preserve_registry_and_sqlite_rows(tmp_pat
     with pytest.raises(ValueError) as empty:
         registry.add_connection(str(path), provider="base", connection_id="")
     assert_message(empty.value.args[0], "backend.state.connection_id_must_not_be_empty")
-    assert registry.list_connections() == []
+    assert_empty(registry.list_connections(), list)
     conn = registry.add_connection(str(path), provider="base")
     try:
         with (
@@ -431,7 +431,8 @@ def test_incompatible_relation_templates_cannot_replace_existing_rules(
     path = tmp_path / "relations.db"
     with sqlite_connection(path) as database:
         database.execute(
-            "CREATE TABLE records(quantity INTEGER, price REAL, integer_result INTEGER, text_source TEXT, text_result TEXT, date_source DATE, date_result DATE)"
+            "CREATE TABLE records(quantity INTEGER, price REAL, integer_result INTEGER, "
+            "text_source TEXT, text_result TEXT, date_source DATE, date_result DATE)"
         )
     registry = UIState()
     conn = registry.add_connection(str(path), provider="base")

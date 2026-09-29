@@ -179,7 +179,7 @@ def test_unconfirmed_installer_cleanup_blocks_restore_and_holds_lock_until_retry
     manager._worker.join(5)
     assert manager.status()["phase"] == "recovery_failed"
     assert controller.calls == ["pause", "maintenance"]
-    assert cleanups == []
+    assert not cleanups
     contender = EnvironmentLock(manager.environment.prefix, exclusive=True)
     with pytest.raises(RuntimeError):
         contender.acquire()

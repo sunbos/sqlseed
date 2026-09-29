@@ -19,7 +19,7 @@ from urllib.parse import urlsplit
 
 from packaging.requirements import InvalidRequirement, Requirement
 from packaging.specifiers import InvalidSpecifier, SpecifierSet
-from packaging.tags import sys_tags
+from packaging.tags import Tag, sys_tags
 from packaging.utils import canonicalize_name, parse_wheel_filename
 from packaging.version import InvalidVersion, Version
 from sqlseed._utils.daemon_task import DaemonTask
@@ -97,13 +97,11 @@ def _read_artifact(url: str, *, limit: int, timeout: float) -> bytes:
             raise ValueError(tr("backend.plugin_updates.the_official_package_is_temporarily_unavailable_retry"))
         content = bytearray()
         while len(content) <= limit:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
+            if (remaining := deadline - time.monotonic()) <= 0:
                 raise TimeoutError("Package read timed out")
             if connection.sock is not None:
                 connection.sock.settimeout(remaining)
-            chunk = response.read1(min(65536, limit + 1 - len(content)))
-            if not chunk:
+            if not (chunk := response.read1(min(65536, limit + 1 - len(content)))):
                 return bytes(content)
             content.extend(chunk)
         raise ValueError(tr("backend.plugin_updates.the_package_exceeds_the_size_limit_for"))
@@ -122,7 +120,7 @@ def _package_metadata(data: bytes, distribution: str, version: str) -> Installed
         raise ValueError(tr("backend.plugin_updates.package_metadata_does_not_match_the_selected"))
     python_requirement = message.get("Requires-Python")
     if python_requirement and not SpecifierSet(str(python_requirement)).contains(
-        ".".join(map(str, sys.version_info[:3]))
+        ".".join(str(part) for part in sys.version_info[:3])
     ):
         raise ValueError(tr("backend.plugin_updates.the_latest_stable_version_does_not_support"))
     requirements = tuple(sorted(str(value) for value in message.get_all("Requires-Dist", [])))
@@ -178,6 +176,42 @@ def prepare_update(distribution: str, packages: dict[str, InstalledPackage]) -> 
     return _bounded_network(lambda: _prepare_update(distribution, dict(packages)), _PLAN_TIMEOUT)
 
 
+def _wheel_rank(file: dict[str, Any], distribution: str, latest: Version, tags: dict[Tag, int]) -> int | None:
+    """Rank compatible wheels by interpreter tags, rejecting unverified metadata."""
+    filename = file.get("filename", "")
+    if not isinstance(filename, str) or not re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", filename):
+        return None
+    try:
+        name, version, _, wheel_tags = parse_wheel_filename(filename)
+    except ValueError:
+        return None
+    if name != distribution or version != latest or not wheel_tags.intersection(tags):
+        return None
+    required_python = file.get("requires-python")
+    if required_python and not SpecifierSet(required_python).contains(".".join(str(p) for p in sys.version_info[:3])):
+        return None
+    if not file.get("core-metadata", file.get("dist-info-metadata")):
+        return None
+    return min(tags[tag] for tag in wheel_tags if tag in tags)
+
+
+def _select_wheel(payload: object, distribution: str, latest: str) -> dict[str, Any]:
+    """Choose the highest-priority wheel with a stable filename tie-breaker."""
+    if not isinstance(payload, dict):
+        raise TypeError(tr("backend.plugin_updates.the_official_index_has_an_invalid_format"))
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    tags = {tag: index for index, tag in enumerate(sys_tags())}
+    version = Version(latest)
+    for file in payload["files"]:
+        if not isinstance(file, dict) or file.get("yanked", False) is not False:
+            continue
+        if (rank := _wheel_rank(file, distribution, version, tags)) is not None:
+            candidates.append((rank, file))
+    if not candidates:
+        raise ValueError(tr("backend.plugin_updates.no_wheel_for_the_latest_stable_version"))
+    return min(candidates, key=lambda item: (item[0], item[1]["filename"]))[1]
+
+
 def _prepare_update(distribution: str, packages: dict[str, InstalledPackage]) -> PreparedUpdate:
     try:
         payload = settings_updates._fetch_index(distribution)
@@ -186,31 +220,7 @@ def _prepare_update(distribution: str, packages: dict[str, InstalledPackage]) ->
             raise ValueError(tr("backend.plugin_updates.the_installed_version_is_already_at_or"))
         if distribution == "sqlseed-ai" and not Requirement(AI_INSTALL_REQUIREMENT).specifier.contains(latest):
             raise ValueError(tr("backend.plugin_updates.the_latest_stable_version_does_not_meet"))
-        if not isinstance(payload, dict):
-            raise TypeError(tr("backend.plugin_updates.the_official_index_has_an_invalid_format"))
-        candidates: list[tuple[int, dict[str, Any]]] = []
-        tags = {tag: index for index, tag in enumerate(sys_tags())}
-        for file in payload["files"]:
-            if not isinstance(file, dict) or file.get("yanked", False) is not False:
-                continue
-            filename = file.get("filename", "")
-            if not isinstance(filename, str) or not re.fullmatch(r"[A-Za-z0-9_.+-]+\.whl", filename):
-                continue
-            try:
-                name, version, _, wheel_tags = parse_wheel_filename(filename)
-            except ValueError:
-                continue
-            if name != distribution or version != Version(latest) or not wheel_tags.intersection(tags):
-                continue
-            required_python = file.get("requires-python")
-            if required_python and not SpecifierSet(required_python).contains(".".join(map(str, sys.version_info[:3]))):
-                continue
-            if not file.get("core-metadata", file.get("dist-info-metadata")):
-                continue
-            candidates.append((min(tags[tag] for tag in wheel_tags if tag in tags), file))
-        if not candidates:
-            raise ValueError(tr("backend.plugin_updates.no_wheel_for_the_latest_stable_version"))
-        candidate = min(candidates, key=lambda item: (item[0], item[1]["filename"]))[1]
+        candidate = _select_wheel(payload, distribution, latest)
         url, filename = str(candidate["url"]), str(candidate["filename"])
         _artifact_path(url)
         digest = candidate.get("hashes", {}).get("sha256", "")

@@ -25,6 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Reject non-object AI tool arguments through the normal format-error path, apply strict output-limit checks to streaming refinement, and ignore malformed suggestion cache envelopes.
+- Bound Web update checks across DNS and response-header waits, retain in-flight request limits after timeouts, and prevent late responses from replacing the active cache result.
+- Publish a terminal component-operation failure when temporary-file cleanup fails, preserving installer exit information and service recovery without automatically retrying installation.
 - Reject missing or columnless AI refinement targets before reading cached suggestions or calling a model, preserving valid empty tables and SQLite identifier resolution.
 - Keep AI-refined suggestions and cached configurations bound to the requested table; retry wrong-target model responses and ignore mismatched caches without silently renaming them.
 - Preserve quoted colon identifiers in database sampling, column-value and row-count queries without treating them as SQL parameters or changing sampled JSON/date values.

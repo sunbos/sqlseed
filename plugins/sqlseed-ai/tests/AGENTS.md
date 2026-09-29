@@ -28,7 +28,7 @@
 
 ## 真实 LLM 与验证命令
 
-- [healer/conftest.py](healer/conftest.py) 的 `llm_client` 检查 LM Studio；服务不可用时 skip。模型可用 `SQLSEED_TEST_LLM_MODEL` 指定。
+- [healer/conftest.py](healer/conftest.py) 的 `llm_client` 检查 LM Studio 及 `/v1/models` 是否列出所选模型；服务不可用或缺少所选模型时 skip。模型可用 `SQLSEED_TEST_LLM_MODEL` 指定。模型列表协议错误仍报错；列表可用不等于真实推理通过，completion 失败不能转换成 skip。
 - 保持 healer `*_real.py` 的真实 LLM 合同：使用真实环境或 skip，不能用 mock LLM 伪装通过。该限制针对真实 LLM 测试，不把其中用于隔离调度的 deterministic validator stub 当作真实修复证据。
 - 部分集成测试通过根 `available_llm_backend` / `pg_url` 使用真实后端或 PostgreSQL；报告结果时区分 pass 与因环境缺失而 skip。
 - [test_mcp_stdio.py](test_mcp_stdio.py) 启动真实 MCP 子进程，使用本地固定 completion HTTP 响应和真实 SQLite 验证 JSON-RPC、无 stdout 污染与实际行值；它验证协议集成，不证明真实模型能力。修改 MCP 时与 [test_mcp.py](test_mcp.py) 一起运行。

@@ -258,3 +258,38 @@ def test_strict_tool_text_fallback_does_not_hide_empty_or_invalid_response(
         analyzer.call_llm(_MESSAGES, strict_json=True, preserve_names=preserve_names)
     assert captured.value.code == code
     assert str(captured.value) == code
+
+
+@pytest.mark.parametrize("arguments", ["[]", '[{"name":"events"}]', "17", '"PRIVATE_RESPONSE_MARKER"', "null", "true"])
+def test_strict_tool_arguments_require_an_object_without_retrying(
+    monkeypatch: pytest.MonkeyPatch, arguments: str
+) -> None:
+    requests = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        message = _tool_message()
+        message["tool_calls"][0]["function"]["arguments"] = arguments
+        return _completion(message, finish_reason="tool_calls")
+
+    with (
+        _analyzer_http(monkeypatch, handle, tools=True) as analyzer,
+        pytest.raises(JSONResponseError) as captured,
+    ):
+        analyzer.call_llm(_MESSAGES, strict_json=True, preserve_names=True)
+
+    assert captured.value.code == "invalid_json"
+    assert str(captured.value) == "invalid_json"
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("preserve_names", [False, True])
+def test_legacy_tool_arguments_can_fall_back_to_valid_text(
+    monkeypatch: pytest.MonkeyPatch, preserve_names: bool
+) -> None:
+    message = _tool_message()
+    message["tool_calls"][0]["function"]["arguments"] = "[]"
+    message["content"] = _JSON
+    with _analyzer_http(monkeypatch, lambda _request: _completion(message), tools=True) as analyzer:
+        result = analyzer.call_llm(_MESSAGES, preserve_names=preserve_names)
+    assert result == _expected(preserved=preserve_names)

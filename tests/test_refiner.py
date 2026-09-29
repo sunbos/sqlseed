@@ -263,9 +263,14 @@ def _make_fail_then_succeed_streaming(
     call_log: list[int] = []
 
     def mock_streaming(
-        _msgs: list[dict[str, str]], on_progress: Any = None, *, preserve_names: bool = False
+        _msgs: list[dict[str, str]],
+        on_progress: Any = None,
+        *,
+        preserve_names: bool = False,
+        strict_json: bool = False,
     ) -> dict[str, Any]:
         assert preserve_names is True
+        assert strict_json is True
         del on_progress
         call_log.append(1)
         if len(call_log) <= fail_until_call:

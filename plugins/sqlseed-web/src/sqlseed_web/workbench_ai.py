@@ -689,41 +689,8 @@ def eligibility(body: EligibilityRequest) -> dict[str, Any]:
         }
 
 
-def _model_cause_error(cause: BaseException) -> HTTPException | None:
-    # Import only at the optional model boundary, never during application startup.
-    try:
-        from sqlseed_ai._json_utils import JSONResponseError
-    except ImportError:
-        pass  # The AI package can be absent or older; ordinary errors still classify.
-    else:
-        if isinstance(cause, JSONResponseError):
-            messages = {
-                "empty_response": tr("backend.workbench_ai.ai_returned_no_usable_content_check_the"),
-                "truncated_response": tr("backend.workbench_ai.the_ai_response_reached_its_output_limit"),
-                "invalid_json": tr("backend.workbench_ai.the_ai_response_is_not_complete_valid"),
-            }
-            return HTTPException(
-                502,
-                detail={"code": "ai_" + cause.code, "message": messages.get(cause.code, messages["invalid_json"])},
-            )
-    name = type(cause).__name__.lower()
-    if isinstance(cause, TimeoutError) or "timeout" in name:
-        return HTTPException(
-            504,
-            detail={
-                "code": "ai_model_timeout",
-                "message": tr("backend.workbench_ai.the_ai_service_timed_out_check_the"),
-            },
-        )
-    if isinstance(cause, ConnectionError) or "connection" in name:
-        return HTTPException(
-            502,
-            detail={
-                "code": "ai_connection_failed",
-                "message": tr("backend.workbench_ai.connection_failed_during_analysis"),
-            },
-        )
-    status = getattr(cause, "status_code", None)
+def _model_http_error(status: Any) -> HTTPException | None:
+    """Map model HTTP failures without exposing the upstream response body."""
     if status in {401, 403}:
         return HTTPException(
             502,
@@ -764,6 +731,45 @@ def _model_cause_error(cause: BaseException) -> HTTPException | None:
                 "message": tr("backend.workbench_ai.ai_requests_are_rate_limited_retry_later"),
             },
         )
+    return None
+
+
+def _model_cause_error(cause: BaseException) -> HTTPException | None:
+    # Import only at the optional model boundary, never during application startup.
+    try:
+        from sqlseed_ai._json_utils import JSONResponseError
+    except ImportError:
+        pass  # The AI package can be absent or older; ordinary errors still classify.
+    else:
+        if isinstance(cause, JSONResponseError):
+            messages = {
+                "empty_response": tr("backend.workbench_ai.ai_returned_no_usable_content_check_the"),
+                "truncated_response": tr("backend.workbench_ai.the_ai_response_reached_its_output_limit"),
+                "invalid_json": tr("backend.workbench_ai.the_ai_response_is_not_complete_valid"),
+            }
+            return HTTPException(
+                502,
+                detail={"code": "ai_" + cause.code, "message": messages.get(cause.code, messages["invalid_json"])},
+            )
+    name = type(cause).__name__.lower()
+    if isinstance(cause, TimeoutError) or "timeout" in name:
+        return HTTPException(
+            504,
+            detail={
+                "code": "ai_model_timeout",
+                "message": tr("backend.workbench_ai.the_ai_service_timed_out_check_the"),
+            },
+        )
+    if isinstance(cause, ConnectionError) or "connection" in name:
+        return HTTPException(
+            502,
+            detail={
+                "code": "ai_connection_failed",
+                "message": tr("backend.workbench_ai.connection_failed_during_analysis"),
+            },
+        )
+    if (error := _model_http_error(getattr(cause, "status_code", None))) is not None:
+        return error
     if isinstance(cause, json.JSONDecodeError):
         return HTTPException(
             502,

@@ -142,8 +142,7 @@ class InheritedEnvironmentLock:
             import msvcrt
             from multiprocessing.context import get_spawning_popen
 
-            spawning = get_spawning_popen()
-            if spawning is None:
+            if (spawning := get_spawning_popen()) is None:
                 raise RuntimeError("Environment handles can only be transferred while spawning a worker")
             handle = spawning.duplicate_for_child(msvcrt.get_osfhandle(self.descriptor))
             return _WindowsEnvironmentHandle, (handle,)

@@ -166,8 +166,9 @@ Python 调用可使用 `SchemaAnalyzer.call_llm(..., strict_json=True)` 或
 `JSONResponseError.code` 区分空回答、无效 JSON 和输出长度截断。解析器可补齐末尾缺失的
 `}` / `]`，包括代码围栏内的 JSON，但不会补值或字符串；达到输出长度上限时，即使前缀
 可解析也会拒绝，包括流式独立空终止帧中的长度截断标记。两种 Python 方法默认均为
-`strict_json=False`；此可选模式不增加模型请求。CLI 直接分析显式启用，verification/refiner
-的默认行为不变；解析后的建议仍需验证范围和业务规则。
+`strict_json=False`；此可选模式不增加模型请求。CLI 直接分析与 refiner 的普通、流式路径
+均显式启用，保留各自现有重试预算。严格工具调用还会拒绝数组、标量和 `null` 参数，
+返回 `invalid_json`；兼容模式仍可回退到响应正文。解析后的建议仍需验证范围和业务规则。
 
 直接 Python 调用可给 `SchemaAnalyzer.call_llm()` 或 `call_llm_streaming()` 传入
 `preserve_names=True`，保留标识符后再按实际 schema 校验；默认仍保留既有的前导标点清理。
@@ -189,6 +190,7 @@ Python 调用可使用 `SchemaAnalyzer.call_llm(..., strict_json=True)` 或
 ### 文件缓存
 
 AI 配置缓存包含 schema hash，结构变化会使旧建议失效；`--no-cache` 跳过缓存。
+缓存元数据或配置容器类型无效时，按缓存未命中重新分析。
 默认路径为 macOS 的 `~/Library/Caches/sqlseed/ai_configs/`、Linux 的
 `$XDG_CACHE_HOME/sqlseed/ai_configs/`（未设置时为 `~/.cache/sqlseed/ai_configs/`），
 以及 Windows 的 `%LOCALAPPDATA%/sqlseed/ai_configs/`。

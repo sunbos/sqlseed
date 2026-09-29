@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import api, workbench, workbench_data
@@ -106,7 +107,8 @@ def fixture_validation_db(tmp_path: Path) -> Iterator[tuple[UIState, Connection]
         db.executescript(
             "CREATE TABLE items(id INTEGER PRIMARY KEY, code TEXT NOT NULL UNIQUE, amount INTEGER NOT NULL);"
             "INSERT INTO items VALUES(1, 'existing', 7);"
-            "CREATE TABLE required_self(id INTEGER PRIMARY KEY, parent_id INTEGER NOT NULL REFERENCES required_self(id));"
+            "CREATE TABLE required_self(id INTEGER PRIMARY KEY, "
+            "parent_id INTEGER NOT NULL REFERENCES required_self(id));"
             "CREATE TABLE pair_self(x INTEGER, y INTEGER, px INTEGER, py INTEGER, PRIMARY KEY(x, y),"
             " FOREIGN KEY(px, py) REFERENCES pair_self(x, y));"
         )
@@ -170,7 +172,7 @@ def test_rule_rejections_have_localizable_field_context_and_do_not_write(
     assert issue["table"] == "items"
     assert issue["column"] == columns[0]["name"]
     assert_message(issue["message"], suffix)
-    assert result["samples"] == {}
+    assert_empty(result["samples"], dict)
     assert document == original
     assert conn.orchestrator.query("SELECT * FROM items") == [{"id": 1, "code": "existing", "amount": 7}]
 

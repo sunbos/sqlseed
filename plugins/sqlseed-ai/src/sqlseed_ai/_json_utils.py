@@ -54,8 +54,7 @@ def parse_json_response(content: str, *, strict: bool = False, preserve_names: b
     if strict and not cleaned:
         raise JSONResponseError("empty_response")
     for parser in (_try_direct_parse, _try_markdown_fence_parse, _try_raw_decode):
-        result = parser(cleaned, preserve_names=preserve_names)
-        if result is not None:
+        if (result := parser(cleaned, preserve_names=preserve_names)) is not None:
             return result
     if strict:
         raise JSONResponseError("invalid_json")
@@ -125,8 +124,7 @@ def _try_raw_decode(content: str, *, preserve_names: bool = False) -> dict[str, 
         pass
     # Never invent missing strings, values or separators.
     candidate = content[first_brace:].strip()
-    closers = _missing_closers(candidate)
-    if closers:
+    if closers := _missing_closers(candidate):
         return _try_direct_parse(candidate + closers, preserve_names=preserve_names)
     return None
 
