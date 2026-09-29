@@ -28,7 +28,7 @@ from sqlseed_web.plugin_process import run_installer
 from sqlseed_web.supervised_plugins import SupervisedPluginManager
 
 
-def package(version: str = "1.0", *requirements: str) -> environment.InstalledPackage:
+def package(version: str, *requirements: str) -> environment.InstalledPackage:
     return environment.InstalledPackage(version, tuple(sorted(requirements)))
 
 
@@ -82,7 +82,7 @@ def test_plan_checks_target_and_reverse_dependencies_and_downloads_only_metadata
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, calls = official_wheel(monkeypatch, "shared>=1", "optional; extra == 'feature'")
-    packages = {"mimesis": package(), "shared": package("1.5"), "consumer": package("1", "mimesis<3")}
+    packages = {"mimesis": package("1.0"), "shared": package("1.5"), "consumer": package("1", "mimesis<3")}
     result = updates.prepare_update("mimesis", packages)
     assert result.package == package("2.0", "shared>=1", "optional; extra == 'feature'")
     assert result.dependencies == ("shared==1.5",)
@@ -98,7 +98,7 @@ def test_plan_checks_target_and_reverse_dependencies_and_downloads_only_metadata
         ((), {"consumer": package("1", "mimesis<2")}, "consumer 需要 mimesis<2"),
         (("shared[extra]",), {"shared": package("1", "missing; extra == 'extra'")}, "shared 需要 missing"),
         (("optional; extra == 'feature'",), {"consumer": package("1", "mimesis[feature]")}, "optional"),
-        (("shared @ https://example.test/private.whl",), {"shared": package()}, "指定来源"),
+        (("shared @ https://example.test/private.whl",), {"shared": package("1.0")}, "指定来源"),
     ],
 )
 def test_dependency_changes_are_blocked_before_download_or_install(
@@ -106,7 +106,7 @@ def test_dependency_changes_are_blocked_before_download_or_install(
 ) -> None:
     _, calls = official_wheel(monkeypatch, *requirements)
     with pytest.raises(ValueError, match=expected):
-        updates.prepare_update("mimesis", {"mimesis": package(), **extra_packages})
+        updates.prepare_update("mimesis", {"mimesis": package("1.0"), **extra_packages})
     assert len(calls) == 1 and calls[0].endswith(".metadata")
 
 
@@ -117,13 +117,13 @@ def test_latest_stable_cannot_downgrade_current_or_development_versions(
     _, calls = official_wheel(monkeypatch)
     with pytest.raises(ValueError, match="不会降级"):
         updates.prepare_update("mimesis", {"mimesis": package(current)})
-    assert calls == []
+    assert not calls
 
 
 def test_missing_target_and_protected_distributions_are_rejected() -> None:
     for target in ("sqlseed", "sqlseed-web", "faker", "arbitrary", "mimesis"):
         with pytest.raises(ValueError, match="可选组件"):
-            updates.prepare_update(target, {"sqlseed": package()})
+            updates.prepare_update(target, {"sqlseed": package("1.0")})
 
 
 @pytest.mark.parametrize(
@@ -142,7 +142,7 @@ def test_unsupported_or_unverified_release_never_becomes_an_update_plan(
     payload = updates.settings_updates._fetch_index("mimesis")
     payload["files"][0].update(change)
     with pytest.raises(ValueError, match=expected):
-        updates.prepare_update("mimesis", {"mimesis": package()})
+        updates.prepare_update("mimesis", {"mimesis": package("1.0")})
     assert all(address.endswith(".metadata") for address in calls)
 
 
@@ -166,7 +166,7 @@ def test_download_checks_both_published_wheel_hash_and_reviewed_metadata(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _, calls = official_wheel(monkeypatch)
-    planned = updates.prepare_update("mimesis", {"mimesis": package()})
+    planned = updates.prepare_update("mimesis", {"mimesis": package("1.0")})
     with pytest.raises(ValueError, match="SHA256"):
         updates.download_update(replace(planned, sha256="0" * 64), tmp_path)
     assert not list(tmp_path.iterdir())
@@ -302,7 +302,8 @@ def test_update_plan_metadata_snapshot_is_rechecked_before_maintenance(update_ma
         manager.execute(ExecuteRequest(plan_id=plan["plan_id"]))
     assert caught.value.status_code == 409
     assert "环境已发生变化" in caught.value.detail["message"]
-    assert installs == [] and events == ["pause", "resume"]
+    assert not installs
+    assert events == ["pause", "resume"]
 
 
 def test_slow_plan_has_total_budget_and_late_result_cannot_publish_a_plan(
@@ -329,9 +330,11 @@ def test_slow_plan_has_total_budget_and_late_result_cannot_publish_a_plan(
         with pytest.raises(HTTPException) as next_request:
             manager.plan(PlanRequest(component_id="mimesis", action="update"))
         assert "上一次更新查询" in next_request.value.detail["message"]
-        assert events == [] and installs == []
+        assert not events
+        assert not installs
     finally:
         release.set()
+        # A semaphore context manager cannot bound the wait for a late worker.
         assert updates._NETWORK_SLOT.acquire(timeout=5)
         updates._NETWORK_SLOT.release()
     assert manager._plan is None, "late read-only completion cannot publish a previously timed-out plan"
@@ -366,10 +369,11 @@ def test_timed_out_wheel_read_cannot_write_after_service_recovery(
         assert result["status"] == "failed" and result["service_ready"] is True
         assert any("超时" in line for line in result["output"])
         assert events == ["pause", "maintenance", "restore"]
-        assert installs == []
+        assert not installs
         assert len(directories) == 1 and not directories[0].exists()
     finally:
         release.set()
+        # Wait for ownership to return before releasing it, with a fixed deadline.
         assert updates._NETWORK_SLOT.acquire(timeout=5)
         updates._NETWORK_SLOT.release()
     assert not directories[0].exists(), "late bytes must never recreate a cleaned-up download directory"
@@ -431,7 +435,7 @@ def test_update_download_failure_or_environment_race_never_invokes_installer_and
     result = manager.task_snapshot(task["task_id"])
     assert result["status"] == "failed" and result["service_ready"] is True
     assert events == ["pause", "maintenance", "restore"]
-    assert installs == []
+    assert not installs
     assert len(directories) == 1 and not directories[0].exists()
 
 
@@ -456,13 +460,13 @@ def test_real_confirmed_update_only_changes_selected_package_in_temporary_venv(
     wheels = tmp_path / "wheels"
     wheels.mkdir()
     paths = []
-    for name, requirements in [
+    for name, requirements in (
         ("sqlseed", ("Faker>=1",)),
         ("sqlseed-web", ("sqlseed>=1",)),
         ("Faker", ()),
         ("mimesis", ("shared>=1",)),
         ("shared", ()),
-    ]:
+    ):
         filename, content, _ = wheel(name, "1.0", *requirements)
         path = wheels / filename
         path.write_bytes(content)
@@ -507,7 +511,7 @@ def test_real_confirmed_update_only_changes_selected_package_in_temporary_venv(
         assert "_update" not in plan and "url" not in plan["artifact"]
         assert len(reads) == 1
         assert environment.installed_packages(prefix) == before
-        assert controller.calls == []
+        assert not controller.calls
         task = manager.execute(ExecuteRequest(plan_id=plan["plan_id"]))
         assert manager._worker is not None
         manager._worker.join(45)

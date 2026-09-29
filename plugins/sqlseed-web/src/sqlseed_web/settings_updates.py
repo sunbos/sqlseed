@@ -6,7 +6,7 @@ import http.client
 import json
 import threading
 import time
-from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from importlib import metadata
 from typing import Any
 
@@ -19,6 +19,7 @@ from packaging.utils import (
     parse_wheel_filename,
 )
 from packaging.version import InvalidVersion, Version
+from sqlseed._utils.daemon_task import DaemonTask
 
 from sqlseed_web.messages import MessageRoute
 
@@ -35,7 +36,18 @@ _PROJECTS = (
 _CACHE: dict[str, tuple[float, dict[str, Any]]] = {}
 _LOCK = threading.Lock()
 _TIMEOUT = 5
+_CHECK_TIMEOUT = 11
 _MAX_BYTES = 8 * 1024 * 1024
+
+
+@dataclass
+class _VersionCheck:
+    task: DaemonTask[tuple[float, dict[str, Any]]]
+    deadline: float
+    discarded: bool = False
+
+
+_PENDING: dict[str, _VersionCheck] = {}
 
 
 def _fetch_index(project: str) -> object:
@@ -60,8 +72,7 @@ def _fetch_index(project: str) -> object:
                 raise TimeoutError("Index read timed out")
             # read1 performs at most one buffered/raw read, so a trickling body
             # returns to the deadline check instead of filling a large read(n).
-            chunk = response.read1(min(65536, _MAX_BYTES + 1 - len(content)))
-            if not chunk:
+            if not (chunk := response.read1(min(65536, _MAX_BYTES + 1 - len(content)))):
                 return json.loads(content)
             content.extend(chunk)
         raise ValueError("Index too large")
@@ -93,19 +104,78 @@ def _latest_stable(project: str, payload: object) -> str:
     return str(max(versions))
 
 
-def _remote_version(project: str) -> dict[str, Any]:
-    now = time.monotonic()
-    cached = _CACHE.get(project)
-    if cached and cached[0] > now:
-        return {**cached[1], "cached": True}
-    result: dict[str, Any] = {"latest": None, "checked_at": time.time(), "cached": False}
+def _failed_version() -> dict[str, Any]:
+    return {"latest": None, "checked_at": time.time(), "cached": False, "error": True}
+
+
+def _read_remote_version(project: str) -> dict[str, Any]:
+    """Network workers return values only; a late result must never write the cache."""
+    result = _failed_version()
     try:
         result["latest"] = _latest_stable(project, _fetch_index(project))
         result["error"] = False
-    except (OSError, ValueError, TypeError, http.client.HTTPException):
+    except (OSError, ValueError, TypeError, RecursionError, http.client.HTTPException):
         result["error"] = True
-    _CACHE[project] = (time.monotonic() + (30 if result["error"] else 900), result)
     return result
+
+
+def _timed_remote_version(project: str) -> tuple[float, dict[str, Any]]:
+    result = _read_remote_version(project)
+    return time.monotonic(), result
+
+
+def _version_check(project: str, deadline: float) -> dict[str, Any] | _VersionCheck:
+    with _LOCK:
+        if (cached := _CACHE.get(project)) and cached[0] > time.monotonic():
+            return {**cached[1], "cached": True}
+        if pending := _PENDING.get(project):
+            # A timed-out resolver/header read still owns its slot until its
+            # actual thread exits. No repeated click can grow background work.
+            if not pending.discarded or not pending.task.wait(0):
+                return pending
+            del _PENDING[project]
+        try:
+            task = DaemonTask(lambda: _timed_remote_version(project), name="sqlseed-version-check")
+        except RuntimeError:
+            result = _failed_version()
+            _CACHE[project] = (time.monotonic() + 30, result)
+            return result
+        pending = _VersionCheck(task, deadline)
+        _PENDING[project] = pending
+        return pending
+
+
+def _version_result(project: str, check: dict[str, Any] | _VersionCheck, deadline: float) -> dict[str, Any]:
+    if isinstance(check, dict):
+        return check
+    finished = check.task.wait(max(0, min(deadline, check.deadline) - time.monotonic()))
+    with _LOCK:
+        if not finished and time.monotonic() < check.deadline:
+            # An older caller can join a newer shared check with less time left.
+            # Its own budget cannot invalidate work still within the owner's budget.
+            return _failed_version()
+        check.discarded = check.discarded or not finished
+        owns_slot = _PENDING.get(project) is check
+        try:
+            result = _failed_version()
+            if finished and not check.discarded:
+                completed_at, received = check.task.result()
+                check.discarded = completed_at > check.deadline
+                if not check.discarded:
+                    result = received
+            if owns_slot:
+                _CACHE[project] = (time.monotonic() + (30 if result["error"] else 900), result)
+            return result
+        finally:
+            # Even an unexpected worker exception must release a completed slot;
+            # it still propagates, but cannot poison every future explicit retry.
+            if finished and owns_slot:
+                del _PENDING[project]
+
+
+def _remote_version(project: str) -> dict[str, Any]:
+    deadline = time.monotonic() + _CHECK_TIMEOUT
+    return _version_result(project, _version_check(project, deadline), deadline)
 
 
 def _compare(current: str | None, latest: str | None) -> str:
@@ -127,9 +197,11 @@ def _compare(current: str | None, latest: str | None) -> str:
 @router.post("/updates")
 def check_updates() -> dict[str, Any]:
     """Check only on explicit requests; never import or install checked packages."""
-    # Serialize batches, so simultaneous clicks/tabs share the freshly filled cache.
-    with _LOCK, ThreadPoolExecutor(max_workers=len(_PROJECTS)) as executor:
-        remote = list(executor.map(_remote_version, [item[2] for item in _PROJECTS]))
+    # Start fixed, deduplicated project reads together and share one total wait
+    # budget, including DNS and response headers (not covered by socket timeout).
+    deadline = time.monotonic() + _CHECK_TIMEOUT
+    checks = [_version_check(project, deadline) for _, _, project in _PROJECTS]
+    remote = [_version_result(item[2], check, deadline) for item, check in zip(_PROJECTS, checks, strict=True)]
     rows = []
     for (identity, label, project), result in zip(_PROJECTS, remote, strict=True):
         try:

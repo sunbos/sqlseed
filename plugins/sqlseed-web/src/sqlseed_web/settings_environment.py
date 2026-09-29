@@ -131,8 +131,7 @@ class _Installer:
 
     def command(self, action: Literal["install", "check"], requirement: str | None = None) -> str | None:
         """Build a shell-quoted command for the serving interpreter without executing it."""
-        arguments = self._arguments(action, requirement)
-        if arguments is None:
+        if (arguments := self._arguments(action, requirement)) is None:
             return None
         if self.shell == "powershell":
             return "& " + " ".join("'" + argument.replace("'", "''") + "'" for argument in arguments)

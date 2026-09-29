@@ -60,14 +60,23 @@ def test_refiner_cache_keeps_quoted_table_names_inside_cache(
         assert db.execute('SELECT count(*) FROM "' + table + '"').fetchone()[0] == 0
 
 
-def test_refiner_refuses_unsafe_legacy_cache_but_reads_safe_legacy_name(
+@pytest.fixture(name="legacy_cache")
+def fixture_legacy_cache(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
+) -> tuple[AiConfigRefiner, Path, dict[str, object]]:
+    """Provide independent legacy cache entries inside and outside the allowed directory."""
     cache = tmp_path / "cache"
     cache.mkdir()
     refiner = refiner_for(tmp_path / "unused.db", cache, "users", monkeypatch)
     entry = {"_meta": {"schema_hash": "old"}, "config": {"name": "users", "columns": []}}
     (tmp_path / "outside.json").write_text(json.dumps(entry))
+    return refiner, cache, entry
+
+
+def test_refiner_refuses_unsafe_legacy_cache_but_reads_safe_legacy_name(
+    legacy_cache: tuple[AiConfigRefiner, Path, dict[str, object]],
+) -> None:
+    refiner, cache, entry = legacy_cache
     assert refiner.get_cached_config("../outside", "old") is None
     (cache / "users.json").write_text(json.dumps(entry))
     assert refiner.get_cached_config("users", "old") == entry["config"]
@@ -75,15 +84,11 @@ def test_refiner_refuses_unsafe_legacy_cache_but_reads_safe_legacy_name(
 
 
 def test_refiner_refuses_legacy_cache_symlink_outside_directory(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    legacy_cache: tuple[AiConfigRefiner, Path, dict[str, object]],
 ) -> None:
-    cache = tmp_path / "cache"
-    cache.mkdir()
-    refiner = refiner_for(tmp_path / "unused.db", cache, "users", monkeypatch)
-    entry = {"_meta": {"schema_hash": "old"}, "config": {"name": "users", "columns": []}}
-    (tmp_path / "outside.json").write_text(json.dumps(entry))
+    refiner, cache, _ = legacy_cache
     try:
-        (cache / "linked.json").symlink_to(tmp_path / "outside.json")
+        (cache / "linked.json").symlink_to(cache.parent / "outside.json")
     except OSError as exc:
         if getattr(exc, "winerror", None) == 1314:
             pytest.skip("Windows account lacks symlink creation privilege; real symlink protection remains unverified")

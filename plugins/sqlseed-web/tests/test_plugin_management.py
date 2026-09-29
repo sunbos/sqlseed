@@ -282,7 +282,7 @@ def test_new_plan_recovers_from_installer_probe_drift(
         assert error.value.status_code == 409
         assert manager.status()["active_task"] is None
         assert environment.installed_packages(tmp_path) == before
-        assert invocations == []
+        assert not invocations
 
         new_plan = manager.plan(management.PlanRequest(component_id="mimesis", action="install"))
         assert new_plan["plan_id"] != old_plan["plan_id"]

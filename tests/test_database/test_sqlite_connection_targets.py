@@ -72,7 +72,7 @@ def test_file_uri_read_write_mode_does_not_create_a_missing_database(tmp_path: P
     path = tmp_path / "absent %41.db"
     with SQLAlchemyAdapter() as adapter, pytest.raises(OperationalError, match="unable to open database"):
         adapter.connect(f"sqlite:///{path.as_uri()}?uri=true&mode=rw")
-    assert list(tmp_path.iterdir()) == []
+    assert not list(tmp_path.iterdir())
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows disallows ? in filenames")

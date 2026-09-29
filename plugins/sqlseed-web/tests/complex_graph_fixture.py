@@ -134,8 +134,7 @@ def create_database(path: Path) -> None:
         raise FileExistsError(path)
     with closing(sqlite3.connect(path)) as connection, connection:
         connection.executescript(DDL)
-        violations = connection.execute("PRAGMA foreign_key_check").fetchall()
-        if violations:
+        if violations := connection.execute("PRAGMA foreign_key_check").fetchall():
             raise RuntimeError(f"Fixture has invalid foreign keys: {violations}")
 
 

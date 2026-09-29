@@ -36,7 +36,7 @@ from sqlseed.core.stream import GenerationBudgetExceededError, GenerationCancell
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
-from sqlseed_web.diagnostics import CREDENTIAL_KEY_PATTERN
+from sqlseed_web._diagnostic_text import CREDENTIAL_KEY_PATTERN
 from sqlseed_web.diagnostics import public_error as _public_error
 from sqlseed_web.messages import message as tr
 from sqlseed_web.messages import message_list
@@ -215,8 +215,7 @@ def _cyclic_components(dependencies: dict[str, set[str]]) -> list[set[str]]:
         pending = [start]
         component: set[str] = set()
         while pending:
-            name = pending.pop()
-            if name not in visited:
+            if (name := pending.pop()) not in visited:
                 visited.add(name)
                 component.add(name)
                 pending.extend(children[name])

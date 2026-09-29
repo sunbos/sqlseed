@@ -53,7 +53,8 @@ def test_worker_holds_environment_after_spawning_parent_exits(tmp_path: Path) ->
         "    finally: os.close(descriptor)\n"
         "if __name__=='__main__':\n"
         "    root=Path(sys.argv[1]); lock=EnvironmentLock(root,exclusive=True); lock.acquire()\n"
-        "    child=multiprocessing.get_context('spawn').Process(target=hold,args=(InheritedEnvironmentLock(lock.fileno()),str(root)))\n"
+        "    child=multiprocessing.get_context('spawn').Process(\n"
+        "        target=hold,args=(InheritedEnvironmentLock(lock.fileno()),str(root)))\n"
         "    child.start()\n"
         "    while not (root/'ready').exists(): time.sleep(.01)\n"
         "    os._exit(0)\n",

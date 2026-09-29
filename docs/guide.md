@@ -434,7 +434,13 @@ Python callers can opt into the same diagnostics with
 `call_llm_streaming(..., strict_json=True)`. The default remains `False` for both
 methods. Strict streaming rejects `finish_reason=length` even when it arrives in a
 separate empty terminal chunk and the preceding JSON is parseable. This does not
-make every streaming caller or the verification/refiner path strict by default.
+make every raw Python streaming caller strict by default. Both streaming and
+non-streaming `AiConfigRefiner` calls explicitly enable strict response handling,
+including the default CLI verification path. A response marked as truncated is
+rejected even if its JSON prefix could be repaired and pass generation validation;
+the existing retry budget and output-file preservation rules still apply.
+Non-object tool arguments receive the same safe format diagnostics. Malformed
+suggestion cache envelopes are treated as cache misses and regenerated normally.
 
 ### `ai-analyze`
 
