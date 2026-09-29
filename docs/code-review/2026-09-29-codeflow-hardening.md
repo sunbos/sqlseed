@@ -2,7 +2,7 @@
 
 本轮基线为 `e8ecd296ac31ddb479030f3fcf52e00ae79c5aa1` 的 [CodeFlow 报告](https://app.getcodeflow.com/github/sunbos/sqlseed/commits/e8ecd296ac31ddb479030f3fcf52e00ae79c5aa1)，共 86 条告警。下表 ID 是该报告导出清单的固定编号，不是后续扫描的排序。逐项合并核对得到 **53 条修正、33 条有依据保留**，ID 1–86 无遗漏、无重复计数。
 
-“修正”指实现或测试已调整，不预先断言线上告警已经消失；“保留”指完成具体语义审查后保留现有实现，并非尚未处理。成对重复告警可能指向同一修改，告警数量也不等于产品缺陷数量。本轮没有关闭规则、降低阈值、扩大排除范围或削弱断言。此前项目验收及 Sonar 处置仍以[项目收尾记录](2026-09-29-project-closure.md)为准，不将历史结果挪作本轮验证。
+`c7524437d56967d31cde3f43f3b8b570545b316f` 的线上 CodeFlow 重扫实际报告 **0 errors、33 warnings**；已逐项核对，53 条修正项消失，33 条保留项与本记录一致。“保留”指完成具体语义审查后保留现有实现，并非尚未处理。成对重复告警可能指向同一修改，告警数量也不等于产品缺陷数量。本轮没有关闭规则、降低阈值、扩大排除范围或削弱断言。此前项目验收及 Sonar 处置仍以[项目收尾记录](2026-09-29-project-closure.md)为准，不将历史结果挪作本轮验证。
 
 ## 关联审查发现的真实缺陷
 
@@ -89,7 +89,7 @@
 
 ## 已完成的定向验证
 
-下列批次存在重叠，不能相加为独立测试总数；均对应本轮工作树的各次验收，不代替待推送提交的完整检查。
+下列批次存在重叠，不能相加为独立测试总数；均对应本轮工作树的各次验收，完整检查及提交归属见下一节。
 
 | 范围 | 已观察到的结果与限制 |
 | --- | --- |
@@ -107,7 +107,21 @@
 - 首轮完整 pytest 得到 4,100 passed、89 skipped、8 failed。两项失败来自测试替身未接收新增 `strict_json` 参数，接口同步后该测试文件 61 passed，原降级与实际结果断言保留。
 - 其余六项首次失败是 LM Studio 返回 HTTP 200 但模型列表为空，真实 completion 返回 `No models loaded`。修正 healer 前提探针后，相关批次 16 passed、6 skipped：只有列表包含所选模型才继续；畸形协议和真实推理错误仍然失败。本轮没有加载模型，不能宣称六项真实推理通过。
 
-待补：稳定代码上的完整本地复验、独立工作区变异测试、最终提交 SHA 与对应 PR 的 CI、Sonar、Codecov、CodeFlow 结果。扫描后按原 ID 的位置与规则复核，不以“53 条修正”推算远端必然只剩 33 条；PR 验证不等于已经合并或发布。
+- 稳定代码完整 pytest：**4,115 passed、95 skipped**，652.19 秒。17 条 SQLAlchemy 警告在下述兼容性补充中继续处理；没有将跳过的真实服务或平台用例算作通过。
+- 本地默认 mutation gate 在独立工作区执行：**246 / 246 killed**，0 survived、0 timeout、0 suspicious、0 skipped。范围为 `unique_adjuster.py` 及默认的两份回归测试；已核对这三个文件与待交付代码一致，不代表全项目变异覆盖。工作区结束后通过管理工具归档，保留日志与结果证据。
+- 提交 `c752443` 的 [CI](https://github.com/sunbos/sqlseed/actions/runs/36583328081) 已完成：lint、五包安装验收、性质测试、PostgreSQL integration、Python 3.10 / 3.12 / 3.13、macOS 和 Windows 均成功；[doc-sync](https://github.com/sunbos/sqlseed/actions/runs/36583327585) 成功。PR 的 docs 部署 job 按条件跳过，本地 MkDocs strict 构建另已通过。
+- 同一提交的 [Codecov patch](https://app.codecov.io/gh/sunbos/sqlseed/pull/23) 实际覆盖率 **96.64%**，要求 **88.21%**；[CodeFlow](https://app.getcodeflow.com/github/sunbos/sqlseed/pull-requests/23) 的 33 条保留提示逐条复核完成。
+- 同一提交的 Sonar quality gate 为 success，但检查摘要报告 **9 条新增问题**。这不等于零问题：本次尚未读取这 9 条的明细。当前缺少 Sonar CLI，所选 Sonar 集成流程需要确认安装、登录及 hooks / MCP 配置，确认仍待用户回复；不能据此宣称全部技术债已清空。
+
+### SQLAlchemy 2.0 / 2.1 兼容性补充
+
+完整测试中 15 条弃用警告来自 SQLAlchemy 2.1 将停止为 `mode=memory` 隐式选择连接池；另两类来源提示对应负向测试故意遗漏 `uri=true`。补充修改显式保留 `sqlite` / `sqlite+pysqlite` 命名内存 URL 既有的 `SingletonThreadPool` 策略，不切换连接寿命或改写 URI / 线程参数。负向测试只局部捕获并精确断言预期警告，其他警告仍失败。
+
+- 新增 11 项真实行为回归：共享 / 私有命名内存、连接关闭后数据寿命、普通内存、磁盘 URI 持久化、字面百分号和 timeout、自定义 SQLite driver 与 PostgreSQL 的默认 pool 策略。
+- SQLAlchemy **2.0.51** 和 **2.1.0** 的同组八文件验收均为 **107 passed、7 skipped**，分别 22.25 / 22.39 秒；将 `SAWarning` 和 `SADeprecationWarning` 视为错误，无非预期警告。七项跳过来自 Windows 平台限制，未改动当前开发环境的依赖版本。
+- 补充源码与测试 Pylint 2.17.7 无告警；完整 Ruff / format、mypy（174 文件）、import-linter 与文档同步通过。该小范围补充已独立复核，没有新的 P1 / P2 发现。
+
+补充提交的完整测试和线上结果持续记录于 [PR #23](https://github.com/sunbos/sqlseed/pull/23)，以该 PR 的当前 head SHA 为准；上面的 `c752443` 结果不代替后续提交检查。PR 保留草稿状态，未合并、打 tag 或发布。
 
 ## 证据归属
 
@@ -119,5 +133,8 @@
 - `sqlseed-codeflow-resolution-web-lifecycle.json`：ID 40、41、51、68、79、80、81，包含两项独立复审修复和最终并发验证。
 - `sqlseed-codeflow-root-checks.json`：图穷举与新进程导入证据。`sqlseed-codeflow-root-tests.json` 中 61 项结果及旧缺陷重放属于基线审计，不充当修复后最终全量验收。
 - `sqlseed-codeflow-independent-implementation-review.json`：审查范围、源文件 hash、两项发现、修复前后重放及最终结论；平台专项和完整门禁不在其声明范围。
+- `sqlseed-hardening-pytest-final.log` / `.xml`、`sqlseed-hardening-node.log`：稳定代码的完整 Python / Node 结果。
+- `sqlseed-hardening-mutation-isolated.log`、`sqlseed-hardening-mutation-results.txt`：独立工作区的默认 mutation gate 结果。
+- `sqlseed-pool-final-2.0.log`、`sqlseed-pool-final-2.1.log`：兼容性补充的双版本验收；后续全量复验另存 `sqlseed-hardening-pytest-pool-final.log` / `.xml`。
 
 本轮使用隔离测试数据库、临时缓存与受控协议输入；没有以清理告警为由删除用户数据、停止用户预览服务或安装 / 卸载用户环境组件。真实模型和跨平台验证仅以各自实际运行结果为准。
