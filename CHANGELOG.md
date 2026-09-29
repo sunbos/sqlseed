@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Preserve SQLite `mode=memory` connection-pool behavior explicitly across SQLAlchemy 2.0/2.1, avoiding a deprecated implicit default without changing URI parsing or thread policy.
 - Reject non-object AI tool arguments through the normal format-error path, apply strict output-limit checks to streaming refinement, and ignore malformed suggestion cache envelopes.
 - Bound Web update checks across DNS and response-header waits, retain in-flight request limits after timeouts, and prevent late responses from replacing the active cache result.
 - Publish a terminal component-operation failure when temporary-file cleanup fails, preserving installer exit information and service recovery without automatically retrying installation.
