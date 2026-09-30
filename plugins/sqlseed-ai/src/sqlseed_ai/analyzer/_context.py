@@ -118,10 +118,11 @@ class ContextBuilderMixin:
             )
         ]
 
-        lines: list[str] = []
-        lines.append(f"# Table: {table_name}")
-        lines.append(f"Database dialect: {dialect}")
-        lines.append("")
+        lines: list[str] = [
+            f"# Table: {table_name}",
+            f"Database dialect: {dialect}",
+            "",
+        ]
 
         self._append_columns_info(lines, columns, fk_column_names)
 
@@ -143,10 +144,14 @@ class ContextBuilderMixin:
             self._append_check_constraints_info(lines, check_constraints)
 
         if all_table_names:
-            lines.append("")
-            lines.append("## All Tables in Database")
-            lines.append(", ".join(all_table_names))
-            lines.append("These names are reference context only, not additional tables to configure.")
+            lines.extend(
+                [
+                    "",
+                    "## All Tables in Database",
+                    ", ".join(all_table_names),
+                    "These names are reference context only, not additional tables to configure.",
+                ]
+            )
 
         if sample_data:
             lines.append("")
