@@ -403,10 +403,57 @@ test('a file response arriving during connection mutation cannot replace the dis
   const files = deferred(), addition = deferred();
   const ui = harness({browse: () => files.promise, add: () => addition.promise}); await flush();
   ui.document.querySelector('[name="db_path"]').value = '/temporary/new.db';
-  await ui.buttons('选择文件')[0].click();
+  const browsing = ui.buttons('选择文件')[0].click(); await flush();
   const pending = ui.buttons('连接数据库')[0].click(); await flush();
-  files.resolve({path:'/temporary',parent:null,entries:[{name:'late.db',path:'/temporary/late.db',is_dir:false}]}); await flush();
+  files.resolve({path:'/temporary',parent:null,entries:[{name:'late.db',path:'/temporary/late.db',is_dir:false}]}); await browsing;
   assert.equal(ui.document.querySelector('.connection-browser').hidden, true);
   assert.equal(ui.buttons('late.db').length, 0);
   addition.resolve({...connection('N'),tables:[]}); await pending;
+});
+
+for (const trigger of ['open', 'enter', 'directory']) test(`file ${trigger} failures stay local and permit returning home`, async () => {
+  let failing = trigger === 'open';
+  const ui = harness({browse: () => {
+    if (failing) throw new Error('directory unavailable');
+    return {path:'/temporary',parent:null,entries:[{name:'folder',path:'/temporary/folder',is_dir:true}]};
+  }});
+  await flush();
+  const before = JSON.stringify(ui.store);
+  await ui.buttons('选择文件')[0].click();
+  if (trigger !== 'open') {
+    failing = true;
+    if (trigger === 'enter') {
+      const input = ui.document.querySelector('.connection-file-path').querySelector('input');
+      input.value = '/missing';
+      await input.dispatchEvent({type:'keydown',key:'Enter'});
+    } else await ui.buttons('folder')[0].click();
+  }
+  const browser = ui.document.querySelector('.connection-browser');
+  assert.match(browser.querySelector('[role="alert"]').textContent, /directory unavailable/);
+  assert.equal(browser.hidden, false);
+  assert.equal(JSON.stringify(ui.store), before);
+  assert.equal(ui.requests.some(request => request.method !== 'GET'), false);
+  failing = false;
+  await ui.buttons('返回主目录')[0].click();
+  assert.equal(browser.querySelector('[role="alert"]'), null);
+  assert.ok(ui.buttons('folder')[0]);
+  ui.dialog.close();
+});
+
+for (const closeEarly of [false, true]) test(`connection list rejection is handled with closed=${closeEarly}`, async () => {
+  const gate = deferred();
+  const ui = harness({listed: async () => {await gate.promise; throw new Error('list unavailable');}});
+  const before = JSON.stringify(ui.store), existing = ui.document.querySelector('.connection-existing');
+  if (closeEarly) ui.dialog.close();
+  gate.resolve(); await flush();
+  assert.equal(JSON.stringify(ui.store), before);
+  assert.deepEqual(ui.changes, []);
+  if (closeEarly) {
+    assert.equal(existing.textContent, '');
+    assert.equal(ui.document.querySelector('[role="dialog"]'), null);
+  } else {
+    assert.match(existing.textContent, /list unavailable/);
+    assert.equal(ui.buttons('连接数据库')[0].disabled, false);
+    ui.dialog.close();
+  }
 });

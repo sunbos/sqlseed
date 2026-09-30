@@ -7,7 +7,7 @@ function plain(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
-function harness(foreignKeys = []) {
+function harness(foreignKeys = [], preview = () => ({ rows: [{ value: 4 }] })) {
   const dom = { document: createDom() };
   const changes = [];
   const requests = [];
@@ -18,8 +18,10 @@ function harness(foreignKeys = []) {
     setTimeout(callback) { timers.set(++timerId, callback); return timerId; },
     clearTimeout(id) { timers.delete(id); },
     fetch: async (url, options) => {
-      requests.push({ url, body: JSON.parse(options.body) });
-      return { ok: true, json: async () => ({ rows: [{ value: 4 }] }) };
+      const body = JSON.parse(options.body);
+      requests.push({ url, body });
+      const result = await preview(body);
+      return { ok: true, json: async () => result };
     },
   };
   const dropdown = loadFrontend('dropdown.js', bindings);
@@ -352,4 +354,65 @@ test('an id-like column without a database foreign key stays editable', () => {
   ui.select({ generator_name: 'integer', params: { min_value: 1 } }, 'parent_id');
   assert.ok(ui.panel.el.querySelector('.dropdown'));
   assert.ok(ui.row('最小值'));
+});
+
+const tick = () => new Promise(resolve => setImmediate(resolve));
+
+test('automatic preview reports rejection and a manual retry displays the current column', async () => {
+  let fail = true;
+  const ui = harness([], () => {
+    if (fail) throw new Error('preview unavailable');
+    return {rows: [{value: 7}]};
+  });
+  ui.select({generator_name: 'integer', params: {min_value: 1, max_value: 9}});
+  await tick();
+  assert.match(ui.panel.el.querySelector('.genform-preview').textContent, /预览失败：preview unavailable/);
+  fail = false;
+  await [...ui.panel.el.querySelectorAll('button')].find(node => node.textContent === '刷新').click();
+  await tick();
+  assert.equal(ui.panel.el.querySelector('.genform-preview-val').textContent, '7');
+  assert.equal(ui.requests.length, 2);
+  assert.deepEqual(ui.requests[1].body.columns.value, {generator: 'integer', params: {min_value: 1, max_value: 9}});
+});
+
+test('late preview rejection after selecting another column leaves its result intact', async () => {
+  let reject;
+  const pending = new Promise((_, failed) => {reject = failed;});
+  const ui = harness([], body => body.columns.value ? pending : {rows: [{another: 12}]});
+  ui.select({generator_name: 'integer', params: {}});
+  const oldOutput = ui.panel.el.querySelector('.genform-preview');
+  ui.select({generator_name: 'integer', params: {}}, 'another');
+  await tick();
+  assert.equal(ui.panel.el.querySelector('.genform-preview-val').textContent, '12');
+  reject(new Error('old preview failed'));
+  await tick();
+  assert.equal(ui.panel.el.querySelector('.genform-preview-val').textContent, '12');
+  assert.equal(oldOutput.textContent, '…');
+});
+
+test('an older preview cannot replace a newer result for the same column', async () => {
+  let resolve;
+  const pending = new Promise(done => {resolve = done;});
+  let calls = 0;
+  const ui = harness([], () => ++calls === 1 ? pending : {rows: [{value: 9}]});
+  ui.select({generator_name: 'integer', params: {}});
+  await [...ui.panel.el.querySelectorAll('button')].find(node => node.textContent === '刷新').click();
+  await tick();
+  assert.equal(ui.panel.el.querySelector('.genform-preview-val').textContent, '9');
+  resolve({rows: [{value: 1}]});
+  await tick();
+  assert.equal(ui.panel.el.querySelector('.genform-preview-val').textContent, '9');
+});
+
+test('preview rejection after detaching the form does not render a stale error', async () => {
+  let reject;
+  const pending = new Promise((_, failed) => {reject = failed;});
+  const ui = harness([], () => pending);
+  ui.select({generator_name: 'integer', params: {}});
+  const output = ui.panel.el.querySelector('.genform-preview');
+  ui.panel.el.remove();
+  reject(new Error('late detached error'));
+  await tick();
+  assert.equal(output.textContent, '…');
+  assert.equal(output.querySelector('.msg'), null);
 });

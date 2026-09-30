@@ -117,6 +117,16 @@ function notify(text, error = false, {inputValidation = false} = {}) {
 function notifyPreviewError(error) {
   notify(errorText(error), true, {inputValidation: error.code === 'workbench_invalid_input'});
 }
+function deferPreviewReturn(onReturn, canReturn) {
+  const version = active, owner = session, document = model();
+  // Restore only after the closing modal has released its focus trap. The
+  // returned callback can reopen a preview asynchronously, so observe it too.
+  return Promise.resolve().then(() => {
+    if (canReturn()) return onReturn();
+  }).catch(error => {
+    if (version === active && owner === session && document === model()) notifyPreviewError(error);
+  });
+}
 function reportExecutionCheck(m = model()) {
   const context = executionChecks.get(m);
   if (!context || !notice?.isConnected) return;
@@ -438,7 +448,9 @@ export async function mount() {
     draw({
       autoPreview: !previewOrigin
     });
-    loadProviderStatus();
+    loadProviderStatus().catch(error => {
+      if (currentMount()) notify(errorText(error), true);
+    });
     if (cachedSchemaNotice) {
       notify(cachedSchemaNotice, true);
     }
@@ -927,11 +939,7 @@ async function openAI(initialScope = 'current', initialState = null, {
   let suppressReturn = false;
   const returnToPreview = () => {
     if (onReturn) {
-      Promise.resolve().then(() => {
-        if (!suppressReturn && intent === modalIntent) {
-          onReturn();
-        }
-      });
+      return deferPreviewReturn(onReturn, () => !suppressReturn && intent === modalIntent);
     }
   };
   function goAISettings({
@@ -974,7 +982,7 @@ async function openAI(initialScope = 'current', initialState = null, {
         updateGuidance();
         syncBusy();
       }
-      returnToPreview();
+      return returnToPreview();
     },
     onApply: suggestions => {
       if (!current()) {
@@ -1008,7 +1016,7 @@ async function openAI(initialScope = 'current', initialState = null, {
       onClose: () => {
         cancelled = true;
         if (!suppressReturn) {
-          returnToPreview();
+          return returnToPreview();
         }
       }
     });
@@ -1717,11 +1725,7 @@ function openRule(table, column, initialTab = 'rule', {
     onClose: () => {
       component?.destroy();
       if (onReturn) {
-        Promise.resolve().then(() => {
-          if (intent === modalIntent) {
-            onReturn();
-          }
-        });
+        return deferPreviewReturn(onReturn, () => intent === modalIntent);
       }
     }
   });
@@ -2449,7 +2453,7 @@ async function showDependencies() {
       return;
     }
     dialog.close();
-    action(summary)();
+    return action(summary)();
   }, {
     primary: true,
     disabled: !model().check?.ok
@@ -3013,11 +3017,15 @@ async function configDocument() {
         setText(error, tr("workbench.yaml.tooLarge"));
         return;
       }
-      const version = textVersion,
-        value = await selected.text();
-      if (dialog.body.isConnected && version === textVersion) {
-        text.value = value;
-        textVersion++;
+      const version = textVersion;
+      try {
+        const value = await selected.text();
+        if (dialog.body.isConnected && version === textVersion) {
+          text.value = value;
+          textVersion++;
+        }
+      } catch (readError) {
+        if (stillCurrent() && dialog.body.isConnected && version === textVersion) setText(error, errorText(readError));
       }
     }
   });
@@ -3192,9 +3200,13 @@ async function importStructure() {
         setText(error, tr("workbench.graph.tooLarge"));
         return;
       }
-      const value = await selected.text();
-      if (dialog.body.isConnected) {
-        text.value = value;
+      try {
+        const value = await selected.text();
+        if (dialog.body.isConnected) {
+          text.value = value;
+        }
+      } catch (readError) {
+        if (current() && dialog.body.isConnected) setText(error, errorText(readError));
       }
     }
   });

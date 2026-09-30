@@ -184,6 +184,18 @@
 
 远端必须检查本轮提交的精确 head SHA。Sonar 当前配置为 automatic analysis，只分析 main 与 PR；PR 结果只覆盖新增代码，main 全源数字需要合并后重扫才能刷新。没有降低阈值、扩大排除范围、接受 / 标记误报或关闭任何 issue 来达到数字清零；本次不包含合并、tag 或发布。
 
+### 10 月 1 日远端新规则与异步拒绝补充
+
+提交 `2bed240a1622ef89483beecd5097fbebd6dd9cf8` 的 [CI](https://github.com/sunbos/sqlseed/actions/runs/36772020514) 和 [文档同步](https://github.com/sunbos/sqlseed/actions/runs/36772020242) 均成功，所有实际执行 job 通过；docs 部署按 PR 条件跳过。CodeFlow 同一提交状态为 `Good job! No issues.`。Sonar 上轮的 14 项 PR 问题已解决，但本次实际报告 **11 项 BUG 和 2 项 CODE_SMELL**，quality gate 的新增可靠性评级为 C，未通过。不能用 CI 成功或本地辅助规则的零提示替代该失败结果。
+
+11 项 BUG 来自 `javascript:S9383`，其远端规则记录创建于 2026-09-29；本地已安装 SonarJS 规则集合尚不含此规则。现对页面初载、目录浏览、AI 编辑器、关闭弹窗后恢复预览、生成计划入口和运行详情的 Promise 明确返回或捕获拒绝。额外检查 63 个正式 JS 文件，修复另 13 处同类 Promise 表达式，并保留目录键盘动作的可等待返回；旧连接页的 DELETE 失败和两处文件读取失败也有局部提示及迟到响应保护。没有以 `void` 或空 `catch` 隐藏拒绝，也没有恢复 legacy 页面到正式导航。
+
+两项 `css:S7924` 为原型数据库图标及摘要图标的背景。仅调整两行背景色，对比度分别为 **6.85:1 / 7.33:1**；实际浏览器 computed style 和截图确认颜色生效、尺寸仍为 36×36 / 31×31，控制台 warning / error 为 0。原型验收标签页和隔离 HTTP 服务随后关闭。
+
+新增 36 项前端行为回归，覆盖实际失败反馈与重试、文件读取、乱序响应、换页 / 换列 / 关窗后的迟到响应、当前配置不被覆盖及旧 DELETE 不触发新页重载。源码冻结后的整套 Node 以 `--unhandled-rejections=strict` 执行，**998 passed、0 failed、0 skipped**。64 个 JS 文件的已报告规则辅助复扫及模块语法检查通过；TypeScript 类型推断的 Promise 表达式辅助检查为 0 提示，范围和方法保留在报告中，不冒充官方 SonarCloud 重扫。三个实现分工经交叉只读复审，无剩余 P1 / P2。
+
+本补充仅修改 JS、CSS 与前端测试 / 审计文档；前述完整 Python、平台 CI、资源、类型和默认 mutation 验收仍分别对应其实际提交及修改范围。补充提交推送后的官方 Sonar、CodeFlow、Codecov 和 CI 仍需按新 head SHA 复验，main 全源零问题需合并并重扫后才能确认。
+
 ## 证据归属
 
 原始文件保留于任务系统 TEMP，不作为产品运行依赖：
@@ -203,5 +215,8 @@
 - `sqlseed-sonar-timing-final.log`、`sqlseed-notebook-cache-constant-pytest.log`：等待边界与 Notebook 最后常量调整的实际验收。
 - `sqlseed-sonar-final-node-clean.log`、`sqlseed-sonar-all-js-final-check.json`、`sqlseed-sonar-final-python-pylint.json`、`sqlseed-sonar-final-precommit.log`、`sqlseed-sonar-final-docs.log`：冻结后的前端、辅助规则、Python、提交钩子与文档结果。
 - `sqlseed-layout-differential.log`、`sqlseed-graph-layout-independent-review.json`、`sqlseed-dependency-view-review/differential-result.json`：图布局与依赖投影的旧新结果对照和独立复审。
+- `sqlseed-sonar-2bed240-issues.toon`、`sqlseed-sonar-2bed240-gate.json`：新规则下实际 13 项明细与失败条件；不删除失败证据。
+- `sqlseed-S9383-components-ledger.json`、`sqlseed-sonar-resolution-promises-ai.json`、`sqlseed-css-S7924-followup-ledger.json`：异步与对比度补充的源码、回归及浏览器依据。
+- `sqlseed-sonar-followup-node-clean.log`、`sqlseed-sonar-followup-js-rules.json`、`sqlseed-sonar-followup-promises.json`：补充源码冻结后的完整 Node、已报告规则和 Promise 表达式辅助结果。
 
 本轮使用隔离测试数据库、临时缓存与受控协议输入；没有以清理告警为由删除用户数据、停止用户预览服务或安装 / 卸载用户环境组件。真实模型和跨平台验证仅以各自实际运行结果为准。
