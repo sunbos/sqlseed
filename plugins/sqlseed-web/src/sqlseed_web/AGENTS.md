@@ -12,6 +12,7 @@
 - `/api/config/parse` 通过临时文件调用 core `load_config()`，`finally` 删除文件；`serialize` 使用 safe YAML。解析成功不表示 generator 名称有效，未知名称仍可在生成/验证时失败。
 - `config_to_dict()` 使用完整 Pydantic `model_dump`；新增配置字段时仍需核对前端往返，避免手工白名单漏字段。
 - [messages.py](messages.py) 仅为显式构造的 `Message` 添加翻译描述：保留原字符串，增加 `<field>_key/<field>_params`；数组保留原值并添加对齐的 `<field>_i18n`。HTTP、流、受管 IPC 和持久化边界保持元数据，不扫描普通字符串猜译文，不把用户对象当翻译模板。原始诊断仍先脱敏；消息参数不得带密钥。共享字典位于 `static/i18n/backend-messages.json`，与前端 JSON 字典及 JS 注册入口一起随 wheel 分发。
+- `_diagnostic_text.py` 是不依赖消息层的纯文本脱敏模块，供 messages 和 diagnostics 共用；`diagnostics.public_error()` 另保留 `Message` 与 `KeyError` 的结构化翻译元数据。不要重新引入两者的循环导入或先把结构化异常转成普通字符串。
 - `/api/fs/browse` 列出服务器目录，默认隐藏非 DB 文件，始终跳过 dotfiles；浏览器 file input 不能提供服务器绝对路径。
 
 ## HTTP 准入与数据保护
@@ -87,6 +88,7 @@
 - AI 可用性还需无调用检查当前 Web 所需的 AIConfig 字段、call_llm(stage=...) 与共享 runtime 工厂；旧包可导入不等于接口兼容。Web ai extra 和受管安装目标要求 `sqlseed-ai>=0.2.4.dev0`，不可回退安装缺少工作台接口的 0.2.3。维护进程只读取 metadata，不导入正在变更的包。
 - 缺失/异常 AI 仍返回脱敏 `effective` 普通设置，但禁止检测、保存、eligibility 和 suggest；错误带 `component_id=ai`、`recovery_action=install/repair`。`/api/meta/providers` 保留 available 数组并增加 statuses 事实对象。选中缺失 Mimesis 的配置允许保存，check/preview/执行复核返回 `provider_not_installed` 或 `provider_import_error`，不能静默换引擎。
 - `settings_updates.py` 只在显式请求时查询固定组件的 PyPI Simple JSON API，稳定版本用 packaging.version 比较；版本查询自身不升级，不接收任意包或源，不把环境路径/AI 信息发往 PyPI。实际更新须另走组件计划与确认。失败有界、脱敏且可重试；更新提示不能当作兼容性承诺。
+- 只读版本查询包含 DNS 与响应头的总等待预算；每个固定组件最多一个实际网络任务。观察者较短的等待预算不能废弃仍在自身预算内的共享任务；超时任务实际退出前继续占槽，迟到结果不得写缓存，完成异常必须释放其自身槽位而不能删除后来的任务。
 
 ## 历史 AI API 兼容
 
@@ -109,6 +111,7 @@
 - 默认 supervisor 持有独占环境锁；POSIX 子进程保留同一 flock 描述符，Windows 复制同一内核文件对象，父 IPC 断开后关闭准入、自然排空工作再退出。外部正常 app 持共享锁，旧维护 app 持独占锁。锁不是外部 pip/Python 进程的强制协调器，不能声称阻止旧版本或任意外部进程。
 - `runtime_lifecycle.py` 对所有非管理 HTTP 和真实后台线程计数；原子空闲检查失败返回 409，不强杀生成/AI 线程。`runtime_session.py` 只经内存和 IPC 保存原连接身份、凭据、provider/locale 与完整 AI 覆盖；成功后清除原始快照。内存 SQLite 阻止操作，部分恢复失败单独报告且不创建缺失数据库。
 - `plugin_process.py` 使用受控 argv、固定环境、冻结版本 constraints、wheel-only、超时与有界脱敏输出；不得引入任意命令、路径、package spec 或 pip 私有 API。测试真实 pip/uv 只能操作临时 virtualenv 与离线测试 wheel，不得修改当前用户环境。
+- 安装器已确认退出后，临时文件清理失败也必须发布明确失败终态，保留安装返回码和实际环境变化；不得自动重装。此类文件清理失败与 `InstallerCleanupPending` 不同：后者仍持有进程资源及环境锁，不能提前恢复业务或允许第二次安装。
 - Windows、macOS/Linux 的受管独立环境支持组件包变更。Windows 环境锁使用不共享删除的文件句柄，经 spawn 复制同一文件对象；安装器先加入禁止脱离的 Job Object，确认所有后代退出后才释放锁并恢复业务。不确定的清理失败必须保留维护状态及锁；重试恢复不重复安装。Windows 业务 worker 使用 SelectorEventLoop 接管继承监听 socket。手动命令仍提示激活并核对 Web 的 Python 环境；CMD 不显示含 `%`/`!` 的路径。
 
 ## 验证

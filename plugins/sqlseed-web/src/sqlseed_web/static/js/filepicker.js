@@ -43,7 +43,7 @@ export function openFilePicker({
     placeholder: tr("flow.files.path"),
     onkeydown: e => {
       if (e.key === 'Enter') {
-        load(e.target.value.trim() || null);
+        return load(e.target.value.trim() || null);
       }
     }
   });
@@ -53,6 +53,7 @@ export function openFilePicker({
   };
   let current = null;
   let selected = null;
+  let requestSequence = 0;
   const dialog = h('div', {
     class: 'modal'
   }, h('h3', {}, isDir ? tr("flow.files.chooseFolder") : tr("flow.files.chooseDatabase")), h('div', {
@@ -69,7 +70,7 @@ export function openFilePicker({
     type: 'checkbox',
     onchange: e => {
       showAll.value = e.target.checked;
-      load(current);
+      return load(current);
     }
   }), tr("flow.files.showAll"))), crumbs, h('div', {
     class: 'file-list-wrap'
@@ -94,7 +95,14 @@ export function openFilePicker({
     id: 'fp-confirm'
   }, tr("flow.action.select"))));
   function close() {
+    requestSequence += 1;
     overlay.remove();
+  }
+  function showLoadError(error) {
+    if (!overlay.isConnected) return;
+    setText(statusEl, '');
+    clear(listing);
+    appendContent(listing, msg(tr("flow.files.error", {detail: errorText(error)})));
   }
   function pick(path, isDb) {
     if (selected) {
@@ -129,9 +137,10 @@ export function openFilePicker({
     }
   }
   async function load(path) {
-    clear(listing);
-    setText(statusEl, tr("flow.files.loading"));
+    const request = ++requestSequence;
     try {
+      clear(listing);
+      setText(statusEl, tr("flow.files.loading"));
       const q = path ? `?path=${encodeURIComponent(path)}` : '';
       const fileFilterQuery = () => {
         if (showAll.value) {
@@ -141,6 +150,7 @@ export function openFilePicker({
         }
       };
       const res = await get(`/api/fs/browse${q}${fileFilterQuery()}`);
+      if (request !== requestSequence || !overlay.isConnected) return;
       current = res.path;
       pathInput.value = res.path;
       renderCrumbs(res.path);
@@ -170,7 +180,7 @@ export function openFilePicker({
           onkeydown: e => {
             if (e.key === 'Enter' || e.key === ' ') {
               e.preventDefault();
-              entry.is_dir ? load(entry.path) : pick(entry.path, entry.is_db);
+              return entry.is_dir ? load(entry.path) : pick(entry.path, entry.is_db);
             }
           },
           title: entry.path
@@ -183,13 +193,12 @@ export function openFilePicker({
         }, humanSize(entry.size)) : null));
       }
     } catch (e) {
-      setText(statusEl, '');
-      appendContent(listing, msg(tr("flow.files.error", {detail: errorText(e)})));
+      if (request === requestSequence) showLoadError(e);
     }
   }
   appendContent(document.body, overlay);
   appendContent(overlay, dialog);
-  load(startPath || null);
+  load(startPath || null).catch(showLoadError);
 }
 function humanSize(n) {
   if (n < 1024) {

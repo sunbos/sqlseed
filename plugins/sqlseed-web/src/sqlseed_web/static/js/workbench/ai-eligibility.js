@@ -12,12 +12,13 @@ const populated = value => {
     return Boolean(value);
   }
 };
+const denied = (code, reason) => ({
+  eligible: false,
+  code,
+  reason
+});
+
 export function fieldAIEligibility(table, column, rule) {
-  const denied = (code, reason) => ({
-    eligible: false,
-    code,
-    reason
-  });
   if (!table || !column?.name) return denied('unavailable', tr("assistant.protected.schema"));
   if (column.is_autoincrement) return denied('database_generated', tr("assistant.protected.auto"));
   if (column.is_primary_key || table.primary_key?.includes(column.name)) return denied('primary_key', tr("assistant.protected.primary"));

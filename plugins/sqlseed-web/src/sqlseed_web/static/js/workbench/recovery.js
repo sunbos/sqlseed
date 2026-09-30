@@ -1,13 +1,13 @@
 import {tr} from '../i18n.js';
 import '../i18n/messages/components.js';
+const blocked=reason=>({ok:false,reason});
+const count=value=>Number.isSafeInteger(value)&&value>=0;
 // A new editable plan, never an automatic retry or a mutation of run history.
 export function remainingRun(run) {
-  const blocked=reason=>({ok:false,reason});
   if(run.status!=='error')return blocked(tr('recovery.onlyFailed'));
   if(run.execution?.mode && run.execution.mode!=='append')return blocked(tr('recovery.replacement'));
   if(run.row_counts_exact!==true || run.count_complete===false)return blocked(tr('recovery.uncertain'));
   const configured=run.document?.tables,results=run.tables;
-  const count=value=>Number.isSafeInteger(value)&&value>=0;
   if(!Array.isArray(configured)||!configured.length||!Array.isArray(results)||results.length!==configured.length)
     return blocked(tr('recovery.incomplete'));
   const names=new Set(),remaining=[],tableDrafts={};let committed=0;

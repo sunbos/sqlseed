@@ -12,14 +12,17 @@ from sqlseed._utils.sql_safe import quote_identifier
 from sqlseed.config.models import TableConfig
 from tests.sqlite_helpers import sqlite_connection
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-pytest.importorskip("sqlseed_ai")
-
-from sqlseed_ai.refiner import AISuggestionFailedError
+try:
+    from sqlseed_ai.refiner import AISuggestionFailedError
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai is not installed", allow_module_level=True)
 
 from .test_refiner_json_recovery import _completion_server, _refiner
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.mark.parametrize("streaming", [False, True])
@@ -146,7 +149,8 @@ def test_other_target_gets_retry_feedback_without_changing_database(
     messages = requests[1]["messages"]
     assert isinstance(messages, list)
     assert "table_mismatch" in messages[-1]["content"]
-    assert target in messages[-1]["content"] and other in messages[-1]["content"]
+    assert target in messages[-1]["content"]
+    assert other in messages[-1]["content"]
     assert database.read_bytes() == before
     assert not (tmp_path / "cache").exists()
 
@@ -190,4 +194,45 @@ def test_other_target_cache_is_ignored_and_replaced_only_by_valid_suggestion(tmp
     assert result == correct
     assert len(requests) == 1
     assert refiner.get_cached_config("events") == correct
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize(
+    "entry",
+    [
+        {"_meta": None, "config": {"name": "events"}},
+        {"_meta": [], "config": {"name": "events"}},
+        {"_meta": "invalid", "config": {"name": "events"}},
+        {"_meta": {}, "config": None},
+        {"_meta": {}, "config": []},
+        {"_meta": {}, "config": "invalid"},
+        {"_meta": {}},
+    ],
+)
+def test_malformed_cache_is_a_miss_then_replaced_after_real_validation(
+    tmp_path: Path, streaming: bool, entry: dict[str, object]
+) -> None:
+    database = tmp_path / "cache-shape.db"
+    with sqlite_connection(database) as db:
+        db.execute("CREATE TABLE events(value INTEGER NOT NULL CHECK(value=7))")
+    before = database.read_bytes()
+    correct = {
+        "name": "events",
+        "columns": [{"name": "value", "generator": "integer", "params": {"min_value": 7, "max_value": 7}}],
+    }
+    requests: list[dict[str, object]] = []
+    with _completion_server([(json.dumps(correct), "stop")], requests) as base_url:
+        refiner = _refiner(database, base_url)
+        cache_file = refiner._cache_path("events")
+        cache_file.parent.mkdir()
+        cache_file.write_text(json.dumps(entry), encoding="utf-8")
+        assert refiner.get_cached_config("events") is None
+        generate = refiner.generate_and_refine_streaming if streaming else refiner.generate_and_refine
+        result = generate("events", max_retries=0)
+
+    assert result == correct
+    assert len(requests) == 1
+    assert refiner.get_cached_config("events") == correct
+    assert json.loads(cache_file.read_text(encoding="utf-8"))["_meta"]["cache_format"] == 2
     assert database.read_bytes() == before

@@ -1,5 +1,5 @@
 // API helpers + shared UI state (connection id survives page switches).
-import { localizedNode, setAttr, setText, tr, joinText, serverText, UserFacingError } from './i18n.js';
+import { localizedNode, setAttr, setText, t, tr, joinText, serverText, UserFacingError } from './i18n.js';
 import './i18n/messages/shell.js';
 
 export const store = {
@@ -102,19 +102,29 @@ export function setConnBadge() {
 
 /** Display identity only; omit URL userinfo and query parameters. */
 export function safeTargetLabel(target) {
+  const identity = targetIdentity(target);
+  return identity.available ? joinText([identity.value]) : tr('shell.connected');
+}
+
+/** Snapshot identity for session/callback payloads, never a live display object. */
+export function safeTargetIdentity(target) {
+  const identity = targetIdentity(target);
+  return identity.available ? identity.value : t('shell.connected');
+}
+function targetIdentity(target) {
   if (!target) {
-    return tr('shell.connected');
+    return {available: false};
   }
   const text = String(target);
   if (text.includes('://')) {
     try {
       const url = new URL(text);
-      return `${url.hostname}${url.port ? ":" + url.port : ''}${decodeURIComponent(url.pathname)}`;
+      return {available: true, value: `${url.hostname}${url.port ? ":" + url.port : ''}${decodeURIComponent(url.pathname)}`};
     } catch {
-      return tr('shell.connected');
+      return {available: false};
     }
   }
-  return /^(?:[\\/]|[A-Za-z]:[\\/])/.test(text) ? text.split(/[\\/]/).findLast(Boolean) || text : text;
+  return {available: true, value: /^(?:[\\/]|[A-Za-z]:[\\/])/.test(text) ? text.split(/[\\/]/).findLast(Boolean) || text : text};
 }
 
 // ---- 跨刷新恢复 ------------------------------------------------------------
@@ -182,7 +192,7 @@ export async function restoreConnection() {
       return Boolean(store.connId);
     }
     store.connId = pick.conn_id;
-    store.target = String(detail.target || '').includes('://') ? safeTargetLabel(detail.target) : detail.target;
+    store.target = String(detail.target || '').includes('://') ? safeTargetIdentity(detail.target) : detail.target;
     store.tables = detail.tables;
     setConnBadge();
     return true;

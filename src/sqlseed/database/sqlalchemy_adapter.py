@@ -43,6 +43,7 @@ from sqlalchemy import (
     table as table_clause,
 )
 from sqlalchemy.exc import ArgumentError, NoSuchModuleError, NoSuchTableError, SQLAlchemyError
+from sqlalchemy.pool import SingletonThreadPool
 from sqlalchemy.sql.elements import Null, quoted_name
 
 from sqlseed._utils.logger import get_logger
@@ -369,6 +370,10 @@ class SQLAlchemyAdapter:
                 # Match the psycopg3 driver supplied by sqlseed[postgres].
                 # Keep the original target and every explicitly chosen driver.
                 engine_url = engine_url.set(drivername="postgresql+psycopg")
+            if engine_url.drivername in {"sqlite", "sqlite+pysqlite"} and engine_url.query.get("mode") == "memory":
+                # Preserve the per-thread pool used by SQLAlchemy 2.0/2.1.
+                # 2.1 deprecates selecting it implicitly for mode=memory.
+                return create_engine(engine_url, poolclass=SingletonThreadPool)
             return create_engine(engine_url)
         except NoSuchModuleError as exc:
             # Give a friendly hint when the driver is not installed

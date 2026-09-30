@@ -87,13 +87,15 @@ def test_pg_self_reference_second_phase_and_append_preserve_existing_rows(pg_url
         DataOrchestrator(pg_url, provider_name="base", optimize_pragma=False) as orch,
     ):
         first = orch.fill_table("audit_nodes", count=12, batch_size=4, seed=42, skip_ai=True)
-        assert first.count == 12 and not first.errors
+        assert first.count == 12
+        assert not first.errors
         rows = orch.query("SELECT * FROM audit_nodes ORDER BY id")
         assert rows[0]["parent_id"] is None
         assert any(row["parent_id"] is not None for row in rows)
         assert all(row["parent_id"] is None or row["parent_id"] < row["id"] for row in rows)
         appended = orch.fill_table("audit_nodes", count=4, seed=42, skip_ai=True)
-        assert appended.count == 4 and not appended.errors
+        assert appended.count == 4
+        assert not appended.errors
         assert orch.query("SELECT * FROM audit_nodes WHERE id<=12 ORDER BY id") == rows
         assert not orch.query(
             "SELECT n.id FROM audit_nodes n LEFT JOIN audit_nodes p ON p.id=n.parent_id "
@@ -142,8 +144,9 @@ def test_pg_midstream_failure_rolls_back_all_batches_and_releases_connection(pg_
         raise RuntimeError("synthetic stream failure")
 
     with _schema(pg_url, ddl, ["DROP TABLE IF EXISTS audit_rollback"]) as adapter:
+        rows = broken_rows()
         with pytest.raises(RuntimeError, match="synthetic stream failure"):
-            adapter.batch_insert("audit_rollback", broken_rows(), batch_size=1)
+            adapter.batch_insert("audit_rollback", rows, batch_size=1)
         with closing(adapter.execute("SELECT id FROM audit_rollback ORDER BY id")) as cursor:
             assert cursor.fetchall() == [(99,)]
         assert adapter.batch_insert("audit_rollback", iter([{"id": 3}]), batch_size=1) == 1

@@ -3,13 +3,13 @@ import '../i18n/messages/flow.js';
 // 唯一可执行文档；视图和未勾选表的编辑草稿单独持久化。
 const copy = value => structuredClone(value);
 export const MAX_GENERATION_COUNT = Number.MAX_SAFE_INTEGER;
-export function generationCountError(value) {
+export function generationCountErrorKey(value) {
   const text = String(value);
   if ((/^\d+$/.test(text) || typeof value === 'number' && Number.isInteger(value)) && Number(text) >= 1 && !Number.isSafeInteger(Number(text))) {
-    return tr("flow.count.tooLarge");
+    return "flow.count.tooLarge";
   }
   if (!/^\d+$/.test(text) || !Number.isSafeInteger(Number(text)) || Number(text) < 1) {
-    return tr("flow.count.positive");
+    return "flow.count.positive";
   }
   return '';
 }
@@ -63,11 +63,11 @@ export class WorkbenchDocument {
     this.touch();
   }
   setCount(name,text) {
-    const key=`count:${name}`, problem=generationCountError(text);
+    const key=`count:${name}`, problem=generationCountErrorKey(text);
     this.view.invalidCounts ||= {};
     if(problem) {
       this.view.invalidCounts[name]=String(text);
-      this.setError(key,tr("flow.count.invalid", {table: name, problem: problem})); return false;
+      this.setError(key,tr("flow.count.invalid", {table: name, problem: tr(problem)})); return false;
     }
     delete this.view.invalidCounts[name];
     this.errors.delete(key);
@@ -83,12 +83,12 @@ export class WorkbenchDocument {
     const tables=[...Object.values(this.view.tableDrafts || {}), ...this.document.tables];
     for(const table of tables) {
       if(table.count === undefined) continue;
-      const problem=generationCountError(table.count);
-      if(problem) this.errors.set(`count:${table.name}`,tr("flow.count.invalid", {table: table.name, problem: problem}));
+      const problem=generationCountErrorKey(table.count);
+      if(problem) this.errors.set(`count:${table.name}`,tr("flow.count.invalid", {table: table.name, problem: tr(problem)}));
     }
     for(const [name,text] of Object.entries(this.view.invalidCounts || {})) {
-      const problem=generationCountError(text);
-      if(problem) this.errors.set(`count:${name}`,tr("flow.count.invalid", {table: name, problem: problem}));
+      const problem=generationCountErrorKey(text);
+      if(problem) this.errors.set(`count:${name}`,tr("flow.count.invalid", {table: name, problem: tr(problem)}));
       else delete this.view.invalidCounts[name];
     }
   }

@@ -7,6 +7,9 @@ import { fieldAIEligibility } from './ai-eligibility.js';
 import { requestAISuggestions } from './ai-stream.js';
 import { openSuggestionAdjustment } from './ai-adjustment.js';
 const prefix = '/api/workbench/ai';
+function suggestionMatchesTargets(item, targets) {
+  return targets.some(target => target.table === item.table && target.columns.includes(item.column)) && item.after?.name === item.column;
+}
 const copy = value => structuredClone(value);
 const backendLabels = [{
   id: 'openai_compat',
@@ -522,7 +525,7 @@ export function openAIAssistant({
     const issues = [...(Array.isArray(result.validation?.issues) ? serverMessages(result.validation, 'issues') : []), ...(Array.isArray(result.issues) ? serverMessages(result, 'issues') : [])];
     const reasons = issues.map(issue => {
       if (typeof issue === 'string' || isLocalized(issue)) {
-        return issue;
+        return joinText([issue]);
       } else {
         return joinText([[issue.table, issue.column].filter(Boolean).join('.'), issue.message ? joinText([': ', serverText(issue)]) : '']);
       }
@@ -869,9 +872,8 @@ export function openAIAssistant({
       }
     }
     function acceptSuggestions(result) {
-      const valid = item => targets.some(target => target.table === item.table && target.columns.includes(item.column)) && item.after?.name === item.column;
-      const invalidGroups = new Set(result.suggestions.filter(item => !valid(item)).map(item => item.group_id).filter(Boolean));
-      suggestions = result.validation?.ok === false ? [] : copy(result.suggestions.filter(item => valid(item) && !invalidGroups.has(item.group_id)));
+      const invalidGroups = new Set(result.suggestions.filter(item => !suggestionMatchesTargets(item, targets)).map(item => item.group_id).filter(Boolean));
+      suggestions = result.validation?.ok === false ? [] : copy(result.suggestions.filter(item => suggestionMatchesTargets(item, targets) && !invalidGroups.has(item.group_id)));
       const completionMessage = suggestions.length ? tr("assistant.suggestion.received", {count: suggestions.length}) : serverText(result.validation) || tr("assistant.suggestion.empty");
       setText(status, completionMessage);
       const analysisCompletionLabel = () => {
@@ -884,6 +886,34 @@ export function openAIAssistant({
       finishProgress(joinText([analysisCompletionLabel(), completionMessage], ' · '));
       showDiagnostics(result);
     }
+  }
+  function candidateDocument(patches) {
+    const document = copy(model.document);
+    for (const patch of patches) {
+      let table = document.tables.find(table => table.name === patch.table);
+      if (!table) {
+        table = copy(model.table(patch.table));
+        document.tables.push(table);
+      }
+      table.columns = (table.columns || []).filter(column => column.name !== patch.column);
+      table.columns.push(copy(patch.after));
+    }
+    return document;
+  }
+  async function validateAdjustedSuggestions(patches) {
+    setText(status, tr("assistant.candidate.checking"));
+    const document = candidateDocument(patches);
+    const ticket = version;
+    controller = new AbortController();
+    const checked = await api('/api/workbench/check', {method: 'POST', signal: controller.signal,
+      body: JSON.stringify({conn_id: connId, schema_hash: schemaHash, document, count: 3})});
+    if (!alive || ticket !== version) return false;
+    if (!current()) throw new UserFacingError(tr("assistant.stale.configuration"));
+    if (!checked.ok) {
+      const errors = (checked.issues || []).filter(issue => issue.severity !== 'warning').map(issue => serverText(issue)).filter(Boolean);
+      throw new UserFacingError(tr("assistant.candidate.invalid", {issues: errors.length ? joinText(errors, '; ') : tr("assistant.candidate.checkHelp")}));
+    }
+    return true;
   }
   async function applySuggestions() {
     if (!current()) {
@@ -901,24 +931,7 @@ export function openAIAssistant({
       const targets = allowedTargets();
       if (!patches.every(item => targets.some(target => target.table === item.table && target.columns.includes(item.column)) && item.after?.name === item.column)) throw new UserFacingError(tr("assistant.stale.scope"));
       if ([...selected].some(index => adjusted.has(index))) {
-        setText(status, tr("assistant.candidate.checking"));
-        const document = copy(model.document);
-        for (const patch of patches) {
-          let table = document.tables.find(table => table.name === patch.table);
-          if (!table) {table = copy(model.table(patch.table)); document.tables.push(table);}
-          table.columns = (table.columns || []).filter(column => column.name !== patch.column);
-          table.columns.push(copy(patch.after));
-        }
-        const ticket = version;
-        controller = new AbortController();
-        const checked = await api('/api/workbench/check', {method: 'POST', signal: controller.signal,
-          body: JSON.stringify({conn_id: connId, schema_hash: schemaHash, document, count: 3})});
-        if (!alive || ticket !== version) return;
-        if (!current()) throw new UserFacingError(tr("assistant.stale.configuration"));
-        if (!checked.ok) {
-          const errors = (checked.issues || []).filter(issue => issue.severity !== 'warning').map(issue => serverText(issue)).filter(Boolean);
-          throw new UserFacingError(tr("assistant.candidate.invalid", {issues: errors.length ? joinText(errors, '; ') : tr("assistant.candidate.checkHelp")}));
-        }
+        if (!await validateAdjustedSuggestions(patches)) return;
       }
       if (!current()) throw new UserFacingError(tr("assistant.stale.configuration"));
       await onApply?.(patches);

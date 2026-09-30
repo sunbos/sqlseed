@@ -89,6 +89,11 @@ Names and email addresses are inferred from the columns. The database assigns th
 primary keys. Each run appends another 100 rows; it does not clear the table.
 Check both `result.count` and `result.errors` after generation.
 
+In current development source, `sqlseed.FillOptions(provider="faker", seed=42)`
+can share generation settings across `fill(..., options=settings)` calls.
+Existing individual keywords remain supported; see the
+[Python API reference](docs/api.md#filloptions).
+
 To inspect samples without writing rows:
 
 ```python
@@ -233,7 +238,7 @@ for the supported scope and write behavior.
 | Next step | Read |
 | --- | --- |
 | Configure generators, expressions, and multi-table data | [User guide](https://sunbos.github.io/sqlseed/guide/) |
-| Use `fill`, `preview`, `connect`, `fill_from_config`, or `load_config` | [Python API reference](https://sunbos.github.io/sqlseed/api/) |
+| Use `fill`, `FillOptions`, `preview`, `connect`, `fill_from_config`, or `load_config` | [Python API reference](https://sunbos.github.io/sqlseed/api/) |
 | Try a complete multi-table example | [Order workflow](https://github.com/sunbos/sqlseed/tree/main/examples/order_workflow) |
 | Understand package boundaries and extension hooks | [Architecture](https://sunbos.github.io/sqlseed/architecture/) |
 | Upgrade an existing installation | [Migration guide](https://sunbos.github.io/sqlseed/migration/) |

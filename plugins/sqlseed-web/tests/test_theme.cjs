@@ -16,7 +16,10 @@ function harness({saved, dark = false, readError = false, writeError = false, st
   else window.localStorage = storage;
   media.matches = dark;
   if (legacyMedia) {
-    media.addListener = listener => Element.prototype.addEventListener.call(media, 'change', listener);
+    media.addListener = function(listener) {
+      assert.equal(this, media, 'the legacy MediaQueryList method requires its original receiver');
+      Element.prototype.addEventListener.call(this, 'change', listener);
+    };
     media.addEventListener = undefined;
   }
   window.matchMedia = () => {if (mediaError) throw Error('media unavailable'); return media;};

@@ -129,7 +129,7 @@ window.addEventListener('sqlseed:connection-changed', event => {
       history.replaceState(history.state, '', '#/workbench');
     }
     setConnBadge();
-    render();
+    return render();
   }
 });
 await loadBackendMessages();

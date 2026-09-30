@@ -181,9 +181,9 @@ test('a slower prior route cannot replace the latest page', async () => {
   const ui = routerHarness(); await flush();
   const gate = deferred(); ui.modules.set('./pages/workbench.js', gate.promise);
   ui.store.connId = 'B';
-  await ui.window.dispatchEvent('sqlseed:connection-changed');
+  const changing = ui.window.dispatchEvent('sqlseed:connection-changed');
   ui.location.hash = '#/runs'; await ui.window.dispatchEvent('hashchange'); await flush();
-  gate.resolve({render: () => new Element('div', 'obsolete')}); await flush();
+  gate.resolve({render: () => new Element('div', 'obsolete')}); await changing;
   assert.equal(ui.document.getElementById('app').textContent, './pages/runs.js');
 });
 
@@ -328,3 +328,28 @@ test('late startup restoration cannot replace a newer explicit connection', asyn
   assert.equal(vm.runInContext('store.connId', context), 'B');
   assert.equal(vm.runInContext('store.target', context), 'new.db');
 });
+
+for (const leave of [false, true]) {
+  test(`connection remount handles a rejected page load${leave ? ' after navigation' : ''}`, async () => {
+    const ui = routerHarness(); await ui.ready;
+    let rejectMount;
+    const mounting = new Promise((_, reject) => { rejectMount = reject; });
+    ui.modules.set('./pages/workbench.js', {
+      render: () => new Element('section', 'loading workbench'), mount: () => mounting,
+    });
+    ui.store.connId = 'B';
+    let settled = false;
+    const changing = ui.window.dispatchEvent('sqlseed:connection-changed').then(() => { settled = true; });
+    await flush();
+    assert.equal(settled, false, 'the event result represents the remount lifecycle');
+    if (leave) {
+      ui.location.hash = '#/runs';
+      await ui.window.dispatchEvent('hashchange');
+    }
+    rejectMount(new Error('page load failed'));
+    await changing;
+    const content = ui.document.getElementById('app').textContent;
+    if (leave) assert.equal(content, './pages/runs.js');
+    else assert.match(content, /page load failed/);
+  });
+}

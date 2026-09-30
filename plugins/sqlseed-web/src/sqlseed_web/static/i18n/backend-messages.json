@@ -1711,6 +1711,10 @@
     "JSON 格式无效",
     "Invalid JSON"
   ],
+  "backend.plugin_management.temporary_file_cleanup_failed": [
+    "组件操作已结束，但临时文件清理失败。请检查临时目录的占用或权限；本次安装不会自动重试。",
+    "The component operation has ended, but temporary files could not be removed. Check temporary-directory access or file locks; installation will not be retried automatically."
+  ],
   "backend.validation.invalid": [
     "字段无效，请检查格式和值",
     "Invalid field; check its format and value"

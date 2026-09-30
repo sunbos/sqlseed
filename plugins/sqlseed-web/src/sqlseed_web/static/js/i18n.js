@@ -129,7 +129,7 @@ export function loadMessages(url) {
     }).catch(cause => {
       const error = new UserFacingError(tr('common.languageResourcesFailed'), {cause});
       const app = globalThis.document?.getElementById?.('app');
-      if (app && app.childNodes.length === 0) {
+      if (app?.childNodes.length === 0) {
         const notice = globalThis.document.createElement('p');
         notice.setAttribute('role', 'alert');
         setText(notice, error.localizedMessage);

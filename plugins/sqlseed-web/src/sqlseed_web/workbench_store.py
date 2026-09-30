@@ -91,7 +91,9 @@ def _decode(value: str) -> dict[str, Any]:
     result: dict[str, Any] = json.loads(value)
     if not isinstance(result, dict):
         # Corrupt persisted records use RuntimeError under the runtime validation contract.
-        raise RuntimeError(tr_en("backend.workbench_store.invalid_workspace_record_expected_a_json_object"))  # noqa: TRY004
+        raise RuntimeError(  # noqa: TRY004
+            tr_en("backend.workbench_store.invalid_workspace_record_expected_a_json_object")
+        )
     return result
 
 

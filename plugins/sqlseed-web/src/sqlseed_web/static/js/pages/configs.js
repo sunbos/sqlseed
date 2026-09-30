@@ -268,45 +268,61 @@ function deleteSelectedConfigs() {
       h('strong', {}, record.name), h('span', {class: 'muted'}, joinText([record.target_label || tr('configurations.unknownTarget'), " · v", record.revision]))))), h('p', {}, tr('configurations.bulkDeleteHint')), progress, alert);
   appendContent(owned.actions, cancel, confirm);
   cancel.focus({preventScroll: true});
+  function removeDeletedRecord(record) {
+    publish('sqlseed:draft-deleted', {id: record.id, revision: record.revision});
+    if (context.pageCurrent()) {
+      selected.delete(record.id);
+      records = records.filter(item => item.id !== record.id);
+    }
+  }
+  async function deleteReviewedRecord(record, result) {
+    try {
+      await api(`${draftPath(record.id)}?revision=${record.revision}`, {method: 'DELETE'});
+      result.deleted++;
+      removeDeletedRecord(record);
+    } catch (error) {
+      if (error.status === 404) {
+        result.missing++;
+        removeDeletedRecord(record);
+      } else {
+        result.failures.push(joinText([record.name, "：", error.status === 409 ? tr('configurations.changedNotDeleted') : tr('configurations.unknownDeletion')]));
+        return error.status === 409;
+      }
+    }
+    return true;
+  }
+  function deletionSummary({deleted, missing, failures}, remaining) {
+    return tr('configurations.deletedSummary', {count: formatNumber(deleted), missing: missing ? tr('configurations.missingCount', {count: formatNumber(missing)}) : '', failed: failures.length ? tr('configurations.failedCount', {count: failures.length, value: formatNumber(failures.length)}) : '', remaining: remaining ? tr('configurations.remainingCount', {count: formatNumber(remaining)}) : ''});
+  }
+  async function* deletionResults(result) {
+    let current = 0;
+    // Each pull submits one reviewed revision. Cancellation or an unknown
+    // outcome must stop the batch before the next mutation is submitted.
+    for (const record of targets) {
+      if (!context.current()) return;
+      current++;
+      setText(progress, tr('configurations.deleteProgress', {current: formatNumber(current), total: formatNumber(targets.length), name: record.name}));
+      yield deleteReviewedRecord(record, result);
+    }
+  }
   async function submit() {
     if (pending || submitted || !context.current()) return;
     pending = submitted = bulkPending = true;
     confirm.disabled = true;
     setText(cancel, tr('configurations.stopDeletion'));
     updateSelection();
-    let deleted = 0, missing = 0, attempted = 0;
-    const failures = [];
-    for (const record of targets) {
-      if (!context.current()) break;
+    let attempted = 0;
+    const result = {deleted: 0, missing: 0, failures: []};
+    for await (const canContinue of deletionResults(result)) {
       attempted++;
-      setText(progress, tr('configurations.deleteProgress', {current: formatNumber(attempted), total: formatNumber(targets.length), name: record.name}));
-      try {
-        await api(`${draftPath(record.id)}?revision=${record.revision}`, {method: 'DELETE'});
-        deleted++;
-        publish('sqlseed:draft-deleted', {id: record.id, revision: record.revision});
-        if (context.pageCurrent()) {
-          selected.delete(record.id);
-          records = records.filter(item => item.id !== record.id);
-        }
-      } catch (error) {
-        if (error.status === 404) {
-          missing++;
-          publish('sqlseed:draft-deleted', {id: record.id, revision: record.revision});
-          if (context.pageCurrent()) {
-            selected.delete(record.id);
-            records = records.filter(item => item.id !== record.id);
-          }
-        } else {
-          failures.push(joinText([record.name, "：", error.status === 409 ? tr('configurations.changedNotDeleted') : tr('configurations.unknownDeletion')]));
-          if (error.status !== 409) break;
-        }
-      }
+      if (!canContinue) break;
     }
     pending = false;
     if (!context.pageCurrent()) return;
     bulkPending = false;
     const remaining = targets.length - attempted;
-    const summary = tr('configurations.deletedSummary', {count: formatNumber(deleted), missing: missing ? tr('configurations.missingCount', {count: formatNumber(missing)}) : '', failed: failures.length ? tr('configurations.failedCount', {count: failures.length, value: formatNumber(failures.length)}) : '', remaining: remaining ? tr('configurations.remainingCount', {count: formatNumber(remaining)}) : ''});
+    const {failures} = result;
+    const summary = deletionSummary(result, remaining);
     drawList();
     if (context.current()) {
       if (!failures.length && !remaining) owned.close();

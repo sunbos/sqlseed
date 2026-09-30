@@ -487,8 +487,7 @@ def ai_suggest(
         with DataOrchestrator(db_path) as orch:
             if not orch.get_column_names(table):
                 raise ValueError(f"Table '{table}' does not exist or has no columns")
-        result = _run_ai_analysis(analyzer, db_path, table, verify, max_retries, no_cache)
-        if result:
+        if result := _run_ai_analysis(analyzer, db_path, table, verify, max_retries, no_cache):
             _write_ai_output(output, db_path, result, target_table=table)
     except (ValueError, RuntimeError, OSError) as exc:
         err_msg = str(exc).lower()

@@ -41,6 +41,20 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _merge_message_history(
+    initial_messages: list[dict[str, str]], history: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Keep retry feedback compatible with templates requiring alternating roles."""
+    messages = list(initial_messages)
+    for previous in history:
+        if messages and previous["role"] == "user" and messages[-1]["role"] == "user":
+            # A format failure has no safe assistant answer to replay.
+            messages[-1] = {"role": "user", "content": messages[-1]["content"] + "\n\n" + previous["content"]}
+        else:
+            messages.append(previous)
+    return messages
+
+
 class _RetryState:
     """Mutable state for the refinement retry loop."""
 
@@ -258,14 +272,7 @@ class AiConfigRefiner:
             if level_idx < state.min_prompt_level:
                 continue
             initial_messages = self._analyzer.build_initial_messages(schema_ctx, compact=compact, ultra_compact=ultra)
-            messages = list(initial_messages)
-            for previous in state.messages_history:
-                if messages and previous["role"] == "user" and messages[-1]["role"] == "user":
-                    # Some local chat templates require alternating roles.
-                    # A format failure has no safe assistant answer to replay.
-                    messages[-1] = {"role": "user", "content": messages[-1]["content"] + "\n\n" + previous["content"]}
-                else:
-                    messages.append(previous)
+            messages = _merge_message_history(initial_messages, state.messages_history)
             try:
                 if not (config_dict := call_fn(messages)):
                     return None, ErrorSummary(
@@ -528,7 +535,9 @@ class AiConfigRefiner:
             schema_ctx = orch.get_schema_context(table_name)
 
             def _call_streaming(messages: list[dict[str, str]]) -> dict[str, Any] | None:
-                return self._analyzer.call_llm_streaming(messages, on_progress=on_progress, preserve_names=True)
+                return self._analyzer.call_llm_streaming(
+                    messages, on_progress=on_progress, preserve_names=True, strict_json=True
+                )
 
             return self._run_refinement_loop(
                 orch,
@@ -555,8 +564,7 @@ class AiConfigRefiner:
         Raises:
             ValueError: If the target has no columns to generate, including a missing table.
         """
-        column_names = orch.get_column_names(table_name)
-        if not column_names:
+        if not (column_names := orch.get_column_names(table_name)):
             raise ValueError(f"Table '{table_name}' does not exist or has no columns")
         raw = "|".join(sorted(column_names))
         return hashlib.sha256(raw.encode()).hexdigest()[:16]
@@ -897,7 +905,10 @@ class AiConfigRefiner:
     def _decode_cached_config(entry: Any, table_name: str, schema_hash: str | None) -> dict[str, Any] | None:
         """Validate a cache entry's schema hash and preserve legacy-name normalization."""
         if isinstance(entry, dict) and "_meta" in entry:
-            cached_hash = entry["_meta"].get("schema_hash", "")
+            metadata, config = entry["_meta"], entry.get("config")
+            if not isinstance(metadata, dict) or not isinstance(config, dict):
+                return None
+            cached_hash = metadata.get("schema_hash", "")
             if schema_hash and cached_hash != schema_hash:
                 logger.debug(
                     "Cache schema hash mismatch, invalidating",
@@ -906,8 +917,7 @@ class AiConfigRefiner:
                     current_hash=schema_hash,
                 )
                 return None
-            config = entry.get("config")
-            if isinstance(config, dict) and entry["_meta"].get("cache_format") != 2:
+            if metadata.get("cache_format") != 2:
                 _sanitize_names(config)
             return config
         return entry if isinstance(entry, dict) else None

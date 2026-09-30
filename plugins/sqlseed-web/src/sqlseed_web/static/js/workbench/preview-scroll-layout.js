@@ -1,12 +1,13 @@
+const number=value=>Number.parseFloat(value)||0;
+const outerHeight=node=>{
+  const style=getComputedStyle(node);
+  return node.getBoundingClientRect().height+number(style.marginTop)+number(style.marginBottom);
+};
+
 /** Keep one vertical scroll owner; the table stays intact for column alignment. */
 export function createPreviewScrollLayout({dialog,results,inline=false}) {
   const {el,body}=dialog;
   let table=null,closed=false,frame=null;
-  const number=value=>Number.parseFloat(value)||0;
-  const outerHeight=node=>{
-    const style=getComputedStyle(node);
-    return node.getBoundingClientRect().height+number(style.marginTop)+number(style.marginBottom);
-  };
   function captureVertical() {
     if(closed || inline || !table || typeof getComputedStyle!=='function')return null;
     // Store one position per table, independent of the current scroll owner.

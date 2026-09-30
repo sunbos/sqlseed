@@ -18,6 +18,8 @@ from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from typing_extensions import Self
 
+from sqlseed_web._diagnostic_text import diagnostic_text
+
 
 @lru_cache(maxsize=1)
 def catalog() -> dict[str, list[str]]:
@@ -28,14 +30,11 @@ def catalog() -> dict[str, list[str]]:
 
 
 def _safe_parameter(value: Any) -> Any:
-    if isinstance(value, Message) or value is None or isinstance(value, (bool, int, float)):
+    if value is None or isinstance(value, (Message, bool, int, float)):
         return value
     if isinstance(value, (list, tuple)):
         return [_safe_parameter(item) for item in value]
-    # Import lazily: diagnostics also preserves messages originating here.
-    from sqlseed_web.diagnostics import public_error
-
-    return public_error(ValueError(str(value)))
+    return diagnostic_text(str(value))
 
 
 class Message(str):
@@ -139,11 +138,9 @@ def restore_private_message(record: dict[str, Any], field: str) -> Any:
     try:
         restored = {name: restore_parameter(parameter) for name, parameter in params.items()}
         for fallback in (0, 1):
-            candidate = Message(key, _fallback_index=fallback, **restored)
-            if candidate == value:
+            if (candidate := Message(key, _fallback_index=fallback, **restored)) == value:
                 return candidate
-            quoted = key_error_message(candidate)
-            if quoted == value:
+            if (quoted := key_error_message(candidate)) == value:
                 return quoted
     except (KeyError, TypeError, ValueError):
         pass

@@ -199,6 +199,28 @@ test('network failure retains the last result and retries without reporting task
   assert.equal(ui.timers.size, 1);
 });
 
+test('selecting a run waits for its refresh and handles a rejected detail request before retry', async () => {
+  const ui = harness(); await ui.mount();
+  const gate = deferred();
+  ui.routes.set('/api/workbench/runs/B', () => gate.promise);
+  let settled = false;
+  const selected = ui.root().querySelector('[data-run-id="B"]');
+  const pending = selected.click().then(() => {settled = true;});
+  await flush();
+  assert.equal(settled, false);
+  assert.equal(ui.title(), 'Run A');
+  gate.reject(new Error('detail unavailable'));
+  await pending;
+  assert.match(ui.root().querySelector('.wb-notice').textContent, /detail unavailable/);
+  assert.equal(ui.root().querySelector('[data-run-id="B"]').getAttribute('aria-pressed'), 'true');
+  assert.equal([...ui.timers.values()][0].delay, 5000);
+  ui.routes.delete('/api/workbench/runs/B');
+  await ui.fire();
+  assert.equal(ui.title(), 'Run B');
+  assert.equal(ui.root().querySelector('.wb-notice').textContent, '');
+  ui.leave();
+});
+
 test('unmount stops polling and ignores a detail response already in flight', async () => {
   const ui = harness(); await ui.mount();
   const gate = deferred(); ui.routes.set('/api/workbench/runs/A', () => gate.promise);
@@ -444,10 +466,10 @@ test('switching run closes its data viewer and ignores its pending connection lo
 test('old run detail cannot open a data viewer while the selected run is loading',async()=>{
   const ui=harness({runs:[record('A'),record('B')]});await ui.mount();
   const gate=deferred();ui.routes.set('/api/workbench/runs/B',()=>gate.promise);
-  await ui.select('B');await flush();
+  const selecting = ui.select('B');await flush();
   await ui.root().querySelectorAll('button').find(b=>b.textContent==='查看当前数据').click();
   assert.equal(ui.document.querySelector('.wb-table-data'),null);
-  gate.resolve(record('B'));await flush();
+  gate.resolve(record('B'));await selecting;
 });
 
 test('run labels and structured diagnostics translate without replacing snapshot state or polling', async () => {

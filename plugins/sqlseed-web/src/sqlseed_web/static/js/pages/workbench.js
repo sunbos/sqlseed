@@ -117,6 +117,16 @@ function notify(text, error = false, {inputValidation = false} = {}) {
 function notifyPreviewError(error) {
   notify(errorText(error), true, {inputValidation: error.code === 'workbench_invalid_input'});
 }
+function deferPreviewReturn(onReturn, canReturn) {
+  const version = active, owner = session, document = model();
+  // Restore only after the closing modal has released its focus trap. The
+  // returned callback can reopen a preview asynchronously, so observe it too.
+  return Promise.resolve().then(() => {
+    if (canReturn()) return onReturn();
+  }).catch(error => {
+    if (version === active && owner === session && document === model()) notifyPreviewError(error);
+  });
+}
 function reportExecutionCheck(m = model()) {
   const context = executionChecks.get(m);
   if (!context || !notice?.isConnected) return;
@@ -278,11 +288,7 @@ function locateInputIssue(issue) {
   input?.focus();input?.select?.();
   input?.scrollIntoView({block:'nearest'});
 }
-function updateStatus() {
-  if (!status?.isConnected) {
-    return;
-  }
-  const m = model();
+function clearInputValidationMessages(m) {
   if (!m.errors.size) {
     for (const message of root.querySelectorAll('[data-input-validation="true"]')) {
       setText(message, '');
@@ -291,6 +297,13 @@ function updateStatus() {
       else message.classList.remove('wb-error');
     }
   }
+}
+function updateStatus() {
+  if (!status?.isConnected) {
+    return;
+  }
+  const m = model();
+  clearInputValidationMessages(m);
   if (notice?.dataset.execution === 'true') reportExecutionCheck(m);
   if (m.errors.size) {
     setText(status, tr("workbench.status.invalid"));
@@ -309,6 +322,16 @@ function updateStatus() {
   for (const control of root.querySelectorAll('[data-requires-schema]')) {
     setActionDisabled(control, !m.schema.tables.length);
   }
+  updateScopeSummary(m, errors);
+  updateProviderWarning();
+  updateGuidance();
+  syncBusy();
+}
+function dependencySummaryClass(errors, execution, currentExecution) {
+  if (errors.length || currentExecution?.state === 'blocked') return ' needs-attention';
+  return !execution || ['ok', 'reviewed'].includes(currentExecution?.state) ? ' dependency-ok' : '';
+}
+function updateScopeSummary(m, errors) {
   const scope = sidebar?.querySelector('.scope-summary');
   if (scope) {
     const refs = referencedTables();
@@ -328,13 +351,10 @@ function updateStatus() {
       }
     };
     replaceContent(scope, h('div', {}, tr("workbench.scope.summary", {selected: m.document.tables.length, references: refs.size})), h('p', {
-      class: `dependency-summary${errors.length || currentExecution?.state === 'blocked' ? ' needs-attention' : !execution || ['ok','reviewed'].includes(currentExecution?.state) ? ' dependency-ok' : ''}`,
+      class: `dependency-summary${dependencySummaryClass(errors, execution, currentExecution)}`,
       role:'status'
     }, dependencyActionLabel()));
   }
-  updateProviderWarning();
-  updateGuidance();
-  syncBusy();
 }
 function referencedTables() {
   const m = model(),
@@ -358,6 +378,30 @@ export function render() {
     class: 'empty wb-empty'
   }, tr("workbench.schema.loading")));
   return root;
+}
+async function loadMountSchema(connId, cached) {
+  let cachedSchemaNotice = '';
+  const schemaRequest = pendingSchemas.get(connId) || (pendingActions.get(cached)?.has('database') ? cached.model.schema : readSchema(connId));
+  const [schema, metadata] = await Promise.all([Promise.resolve(schemaRequest).catch(error => {
+    if (!cached || error.status !== 409 || error.detail?.code !== 'connection_busy') {
+      throw error;
+    }
+    cachedSchemaNotice = tr("workbench.schema.cached");
+    return cached.model.schema;
+  }), get('/api/workbench/generators')]);
+  return {schema, metadata, cachedSchemaNotice};
+}
+function showMountFailure(error, requestedHash) {
+  const mismatched = error.code === 'workbench_target_mismatch';
+  const actions = mismatched ? [
+    button(tr("workbench.action.returnDatabase"), () => {location.hash = '#/workbench';}, {primary:true}),
+    button(tr("workbench.action.matchDatabase"), () => openConnectionDialog({workbenchRequest:requestedHash}), {glyph:'database'})
+  ] : [button(tr("workbench.action.retry"), mount, {primary:true}), button(tr("workbench.action.selectDatabase"), () => openConnectionDialog({}), {glyph:'database'})];
+  replaceContent(root, h('section', {
+    class: 'wb-welcome'
+  }, h('h2', {}, mismatched ? tr("workbench.welcome.mismatch") : tr("workbench.welcome.failed")), h('p', {
+    role: 'alert'
+  }, errorText(error)), ...(mismatched ? [h('p', {}, tr("workbench.welcome.mismatchHelp"))] : []), h('div', {class:'wb-welcome-actions'}, ...actions)));
 }
 export async function mount() {
   const version = ++active,
@@ -384,15 +428,7 @@ export async function mount() {
     }
     const connId = store.connId;
     const cached = sessions.get(connId);
-    let cachedSchemaNotice = '';
-    const schemaRequest = pendingSchemas.get(connId) || (pendingActions.get(cached)?.has('database') ? cached.model.schema : readSchema(connId));
-    const [schema, metadata] = await Promise.all([Promise.resolve(schemaRequest).catch(error => {
-      if (!cached || error.status !== 409 || error.detail?.code !== 'connection_busy') {
-        throw error;
-      }
-      cachedSchemaNotice = tr("workbench.schema.cached");
-      return cached.model.schema;
-    }), get('/api/workbench/generators')]);
+    const {schema, metadata, cachedSchemaNotice} = await loadMountSchema(connId, cached);
     if (!currentMount() || store.connId !== connId) {
       return;
     }
@@ -412,7 +448,9 @@ export async function mount() {
     draw({
       autoPreview: !previewOrigin
     });
-    loadProviderStatus();
+    loadProviderStatus().catch(error => {
+      if (currentMount()) notify(errorText(error), true);
+    });
     if (cachedSchemaNotice) {
       notify(cachedSchemaNotice, true);
     }
@@ -430,16 +468,7 @@ export async function mount() {
     }
   } catch (error) {
     if (currentMount()) {
-      const mismatched = error.code === 'workbench_target_mismatch';
-      const actions = mismatched ? [
-        button(tr("workbench.action.returnDatabase"), () => {location.hash = '#/workbench';}, {primary:true}),
-        button(tr("workbench.action.matchDatabase"), () => openConnectionDialog({workbenchRequest:requestedHash}), {glyph:'database'})
-      ] : [button(tr("workbench.action.retry"), mount, {primary:true}), button(tr("workbench.action.selectDatabase"), () => openConnectionDialog({}), {glyph:'database'})];
-      replaceContent(root, h('section', {
-        class: 'wb-welcome'
-      }, h('h2', {}, mismatched ? tr("workbench.welcome.mismatch") : tr("workbench.welcome.failed")), h('p', {
-        role: 'alert'
-      }, errorText(error)), ...(mismatched ? [h('p', {}, tr("workbench.welcome.mismatchHelp"))] : []), h('div', {class:'wb-welcome-actions'}, ...actions)));
+      showMountFailure(error, requestedHash);
     }
   }
   async function restoreRequestedDocument(query, connId, schema) {
@@ -455,11 +484,7 @@ export async function mount() {
       if (!currentRequest()) return false;
       // Validate before any autosave or replacement: a foreign link must not
       // write or discard this connection's cached, possibly unsaved document.
-      if (requested.target_key !== schema.target_key) {
-        const error = new UserFacingError(draftId ? tr("workbench.route.draftMismatch") : tr("workbench.route.runMismatch"));
-        error.code = 'workbench_target_mismatch';
-        throw error;
-      }
+      validateRequestedTarget(requested, schema, draftId);
     }
     if (draftId || runId || query.get('new')) {
       if (original.dirty && (original.saved || original.epoch > 0)) await owner.save();
@@ -493,6 +518,12 @@ export async function mount() {
       session.model.saved = null;
     }
   }
+}
+function validateRequestedTarget(requested, schema, draftId) {
+  if (requested.target_key === schema.target_key) return;
+  const error = new UserFacingError(draftId ? tr("workbench.route.draftMismatch") : tr("workbench.route.runMismatch"));
+  error.code = 'workbench_target_mismatch';
+  throw error;
 }
 function newSession(connId, schema) {
   const owner = new WorkbenchSession(connId, schema, send);
@@ -703,23 +734,32 @@ function updateProviderWarning() {
     small: true
   }));
 }
-function updateGuidance({animateStage = false} = {}) {
-  if (!root?.isConnected) {
-    return;
+function guidanceStep(m, recommended) {
+  const selectedStage = m.view.guideEpoch === m.epoch ? m.view.guideStage : null;
+  const stage = selectedStage || recommended.stage;
+  let step = recommended;
+  if (selectedStage && recommended.stage === 1 && ['select','edit','check'].includes(recommended.action)) {
+    let stageName = tr("workbench.guide.rules");
+    if (selectedStage === 2) stageName = tr("workbench.guide.preview");
+    else if (selectedStage === 3) stageName = tr("workbench.guide.confirm");
+    step = {...recommended, body: tr("workbench.guide.beforeStage", {stage: stageName, help: recommended.body})};
+  } else if (selectedStage === 1) {
+    step = {...recommended, title:tr("workbench.guide.editTitle"), body:tr("workbench.guide.editHelp"), action:'edit', label:tr("workbench.guide.editAction")};
+  } else if (selectedStage === 2) {
+    step = {...recommended, title:recommended.stage === 2 ? recommended.title : tr("workbench.guide.previewTitle"), body:tr("workbench.guide.previewHelp"), action:'preview', label:tr("workbench.guide.previewAction")};
+  } else if (selectedStage === 3) {
+    step = {...recommended, title:tr("workbench.guide.confirmTitle"), body:tr("workbench.guide.confirmHelp"), action:'generate', label:tr("workbench.action.viewPlan")};
   }
-  const host = root?.querySelector('.wb-next-step');
-  if (!host || !session) {
-    return;
-  }
-  const m = model(), recommended = nextStep(m, previewResults.get(m));
-  const clearContext = executionChecks.get(m);
+  return {stage, step};
+}
+function showGuidanceRecovery(host, m, clearContext) {
   if (generationLimitations(m.check).length) {
     guidanceIndicator?.destroy(); guidanceIndicator = null;
     host.hidden = false;
     const globalPlan = root.querySelector('[data-plan-entry]');
     if (globalPlan) globalPlan.hidden = true;
     replaceContent(host, generationUnsupportedCard(m.check));
-    return;
+    return true;
   }
   if (clearContext) {
     guidanceIndicator?.destroy();
@@ -739,23 +779,22 @@ function updateGuidance({animateStage = false} = {}) {
       adjust: locateGenerationSelection,
       locate: name => chooseTable(name, 'graph')
     }));
+    return true;
+  }
+  return false;
+}
+function updateGuidance({animateStage = false} = {}) {
+  if (!root?.isConnected) {
     return;
   }
-  const selectedStage = m.view.guideEpoch === m.epoch ? m.view.guideStage : null;
-  const stage = selectedStage || recommended.stage;
-  let step = recommended;
-  if (selectedStage && recommended.stage === 1 && ['select','edit','check'].includes(recommended.action)) {
-    let stageName = tr("workbench.guide.rules");
-    if (selectedStage === 2) stageName = tr("workbench.guide.preview");
-    else if (selectedStage === 3) stageName = tr("workbench.guide.confirm");
-    step = {...recommended, body: tr("workbench.guide.beforeStage", {stage: stageName, help: recommended.body})};
-  } else if (selectedStage === 1) {
-    step = {...recommended, title:tr("workbench.guide.editTitle"), body:tr("workbench.guide.editHelp"), action:'edit', label:tr("workbench.guide.editAction")};
-  } else if (selectedStage === 2) {
-    step = {...recommended, title:recommended.stage === 2 ? recommended.title : tr("workbench.guide.previewTitle"), body:tr("workbench.guide.previewHelp"), action:'preview', label:tr("workbench.guide.previewAction")};
-  } else if (selectedStage === 3) {
-    step = {...recommended, title:tr("workbench.guide.confirmTitle"), body:tr("workbench.guide.confirmHelp"), action:'generate', label:tr("workbench.action.viewPlan")};
+  const host = root?.querySelector('.wb-next-step');
+  if (!host || !session) {
+    return;
   }
+  const m = model(), recommended = nextStep(m, previewResults.get(m));
+  const clearContext = executionChecks.get(m);
+  if (showGuidanceRecovery(host, m, clearContext)) return;
+  const {stage, step} = guidanceStep(m, recommended);
   host.hidden = !m.schema.tables.length || Boolean(m.view.imported);
   const globalPlan = root.querySelector('[data-plan-entry]');
   if (globalPlan) globalPlan.hidden = !host.hidden && !guidanceCollapsed;
@@ -851,6 +890,14 @@ function updateGuidance({animateStage = false} = {}) {
   const description = h('div', {class:'wb-guide-description', 'aria-live':'polite'}, h('h3', {}, step.title), h('p', {}, step.body));
   const heading = h('div', {class:'wb-next-step-heading'},
     h('span', { class: 'wb-guide-heading' }, h('strong', {}, tr("workbench.guide.flow")), step.scope), toggle);
+  renderGuidanceBody(host, previousBody, {heading, stageList, description, actions});
+  guidanceIndicator?.update({animate: animateStage});
+  if (focused) {
+    const target = host.querySelector(`[data-guide-action="${focused}"]`);
+    if (target !== document.activeElement) target?.focus({preventScroll: true});
+  }
+}
+function renderGuidanceBody(host, previousBody, {heading, stageList, description, actions}) {
   if (previousBody) {
     previousBody.hidden = guidanceCollapsed;
     if (guidanceCollapsed) previousBody.setAttribute('hidden', '');
@@ -869,11 +916,6 @@ function updateGuidance({animateStage = false} = {}) {
     replaceContent(host, heading, body);
     guidanceIndicator?.destroy();
     guidanceIndicator = createSegmentIndicator(stageList);
-  }
-  guidanceIndicator?.update({animate: animateStage});
-  if (focused) {
-    const target = host.querySelector(`[data-guide-action="${focused}"]`);
-    if (target !== document.activeElement) target?.focus({preventScroll: true});
   }
 }
 function needsAIDefaultPreflight(m) {
@@ -897,11 +939,7 @@ async function openAI(initialScope = 'current', initialState = null, {
   let suppressReturn = false;
   const returnToPreview = () => {
     if (onReturn) {
-      Promise.resolve().then(() => {
-        if (!suppressReturn && intent === modalIntent) {
-          onReturn();
-        }
-      });
+      return deferPreviewReturn(onReturn, () => !suppressReturn && intent === modalIntent);
     }
   };
   function goAISettings({
@@ -944,7 +982,7 @@ async function openAI(initialScope = 'current', initialState = null, {
         updateGuidance();
         syncBusy();
       }
-      returnToPreview();
+      return returnToPreview();
     },
     onApply: suggestions => {
       if (!current()) {
@@ -978,7 +1016,7 @@ async function openAI(initialScope = 'current', initialState = null, {
       onClose: () => {
         cancelled = true;
         if (!suppressReturn) {
-          returnToPreview();
+          return returnToPreview();
         }
       }
     });
@@ -1417,6 +1455,15 @@ function drawBody({
     'aria-labelledby': `wb-table-tab-${m.view.page}`
   });
   appendContent(content, panel);
+  drawTablePanel(table, viewbar, panel);
+  appendStatus();
+  updateStatus();
+  if (autoPreview && m.view.page === 'preview' && !tablePreview?.cached) {
+    return tablePreview?.refresh();
+  }
+}
+function drawTablePanel(table, viewbar, panel) {
+  const m = model();
   // Leaf renderers append to the same table panel; the page header stays stable.
   const host = content;
   content = panel;
@@ -1428,11 +1475,6 @@ function drawBody({
     drawFields(table, viewbar);
   }
   content = host;
-  appendStatus();
-  updateStatus();
-  if (autoPreview && m.view.page === 'preview' && !tablePreview?.cached) {
-    return tablePreview?.refresh();
-  }
 }
 function appendStatus() {
   notice = h('span', {
@@ -1566,6 +1608,7 @@ function sampleNode(value, allocated = false) {
     title: text
   }, text);
 }
+const previewIssueTables = issue => [issue.table, ...(Array.isArray(issue.tables) ? issue.tables : [])].filter(Boolean);
 function drawFields(table, viewbar) {
   const m = model();
   const rows = h('tbody'),
@@ -1614,12 +1657,11 @@ function drawFields(table, viewbar) {
     scope: 'col'
   }, text)))), rows)));
   function drawRows() {
-    const issueTables = issue => [issue.table, ...(Array.isArray(issue.tables) ? issue.tables : [])].filter(Boolean);
     replaceContent(previewNote, ...(m.previewIssues || []).filter(issue => {
-      const names = issueTables(issue);
+      const names = previewIssueTables(issue);
       return !names.length || names.includes(table.name);
     }).map(issue => {
-      const target = issue.table ? [issue.table, issue.column].filter(Boolean).join('.') : issueTables(issue).join('、');
+      const target = issue.table ? [issue.table, issue.column].filter(Boolean).join('.') : previewIssueTables(issue).join('、');
       return h('p', {
         class: issue.severity === 'error' ? 'wb-error' : 'muted'
       }, joinText([target ? `${target}: ` : '', serverText(issue)]));
@@ -1683,11 +1725,7 @@ function openRule(table, column, initialTab = 'rule', {
     onClose: () => {
       component?.destroy();
       if (onReturn) {
-        Promise.resolve().then(() => {
-          if (intent === modalIntent) {
-            onReturn();
-          }
-        });
+        return deferPreviewReturn(onReturn, () => intent === modalIntent);
       }
     }
   });
@@ -2113,6 +2151,33 @@ function showCapabilityReasons(result = model().check) {
     dialog.close(); inspectorMode = 'dependencies'; chooseTable(name, 'graph');
   }, null, null, result);
 }
+function dependencyEdges(schema, document) {
+  const edges = [...schema.edges];
+  for (const association of document.associations || []) {
+    for (const target of association.target_tables || []) {
+      edges.push({
+        source: association.source_table,
+        target,
+        sourceColumns: [association.source_column || association.column_name],
+        targetColumns: [association.column_name]
+      });
+    }
+  }
+  return edges;
+}
+function cycleRetentionMessage(dialect) {
+  if (dialect === 'sqlite') return 'workbench.cycle.keepSQLite';
+  return dialect === 'postgresql' ? 'workbench.cycle.keepPostgres' : 'workbench.cycle.keepCapabilities';
+}
+function retainedCycleTables(members, edges, tables) {
+  const retained = new Set(members);
+  // A retained child still references its parents after clearing. Preserve the
+  // entire upstream scope in the explanation, never just the cycle members.
+  for (const name of retained) for (const edge of edges) {
+    if (edge.target === name && tables.has(edge.source)) retained.add(edge.source);
+  }
+  return retained;
+}
 function cycleIssueDetails(issue, locate, document = model().document) {
   const m = model(), current = ticket();
   const tables = new Map(m.schema.tables.map(table => [table.name, table]));
@@ -2121,12 +2186,7 @@ function cycleIssueDetails(issue, locate, document = model().document) {
     for (const target of association.target_tables || []) edges.push({source: association.source_table, target});
   }
   const members = (issue.tables || []).filter(name => tables.has(name));
-  const retained = new Set(members);
-  // A retained child still references its parents after clearing. Preserve the
-  // entire upstream scope in the explanation, never just the cycle members.
-  for (const name of retained) for (const edge of edges) {
-    if (edge.target === name && tables.has(edge.source)) retained.add(edge.source);
-  }
+  const retained = retainedCycleTables(members, edges, tables);
   const references = Array.isArray(issue.references) ? issue.references : edges
     .filter(edge => (issue.edge_ids || []).includes(edge.id))
     .map(edge => ({table: edge.target, columns: edge.targetColumns, source_table: edge.source, source_columns: edge.sourceColumns}));
@@ -2149,8 +2209,7 @@ function cycleIssueDetails(issue, locate, document = model().document) {
   const alternatives = h('details', {}, h('summary', {}, tr('workbench.unsupported.otherScope')));
   appendContent(alternatives, h('h4', {}, tr('workbench.cycle.keepTitle')),
     h('p', {}, tr('workbench.cycle.keepHelp', {tables: [...retained].join('、')})),
-    h('p', {}, tr(m.schema.dialect === 'sqlite' ? 'workbench.cycle.keepSQLite'
-      : m.schema.dialect === 'postgresql' ? 'workbench.cycle.keepPostgres' : 'workbench.cycle.keepCapabilities')),
+    h('p', {}, tr(cycleRetentionMessage(m.schema.dialect))),
     h('p', {class: 'muted'}, tr('workbench.cycle.keepLimit')));
   const firstSelected = members.find(name => m.selected(name)) || members[0];
   if (firstSelected) appendContent(alternatives, button(tr('workbench.cycle.locateScope'), () => {
@@ -2165,29 +2224,19 @@ function cycleIssueDetails(issue, locate, document = model().document) {
   appendContent(detail, alternatives);
   return detail;
 }
+const dependencyIssueTables = issue => [...new Set([issue.table, ...(Array.isArray(issue.tables) ? issue.tables : [])]
+  .filter(name => typeof name === 'string' && name))];
 function renderDependencies(out, locate = name => {
   inspectorMode = 'dependencies';
   chooseTable(name, 'graph');
 }, focus = null, onUpdate = null, resultOverride = null) {
   const m = model(),
     result = resultOverride || m.check;
-  const edges = [...m.schema.edges];
-  for (const association of m.document.associations || []) {
-    for (const target of association.target_tables || []) {
-      edges.push({
-        source: association.source_table,
-        target,
-        sourceColumns: [association.source_column || association.column_name],
-        targetColumns: [association.column_name]
-      });
-    }
-  }
+  const edges = dependencyEdges(m.schema, m.document);
   const related = relatedTables();
   const executable = executableTables();
   const upstreamEdges = edges.filter(edge => related.has(edge.target) && related.has(edge.source));
-  const issueTables = issue => [...new Set([issue.table, ...(Array.isArray(issue.tables) ? issue.tables : [])]
-    .filter(name => typeof name === 'string' && name))];
-  const relevantIssues = (result?.issues || []).filter(issue => !focus || !issueTables(issue).length || issueTables(issue).some(name => executable.has(name)));
+  const relevantIssues = (result?.issues || []).filter(issue => !focus || !dependencyIssueTables(issue).length || dependencyIssueTables(issue).some(name => executable.has(name)));
   const sourceCards = upstreamEdges.map(edge => {
     const parent = m.schema.tables.find(t => t.name === edge.source);
     const evidence = result?.sources?.find(source => source.table === edge.target && source.source_table === edge.source && source.column === (edge.targetColumns || []).join(','));
@@ -2269,7 +2318,7 @@ function renderDependencies(out, locate = name => {
   }, h('strong', {}, dependencySummary()), h('p', {}, tr("workbench.dependency.counts", {blockers: blockers.length, warnings: reminders.length}))));
   const issueCard = issue => h('article', {
     class: `dependency-card ${issue.severity}`
-  }, h('strong', {}, issueTables(issue).join('、') || tr("workbench.config.title")), h('p', {}, serverText(issue)), ...(issue.code === 'cross_table_cycle' ? [cycleIssueDetails(issue, locate)] : []), ...(issue.code === 'missing_parent_source' && issue.source_table && m.schema.tables.some(t => t.name === issue.source_table) && !m.selected(issue.source_table) ? [button(tr("workbench.dependency.addSource", {table: issue.source_table, count: m.table(issue.source_table).count}), action(async () => {
+  }, h('strong', {}, dependencyIssueTables(issue).join('、') || tr("workbench.config.title")), h('p', {}, serverText(issue)), ...(issue.code === 'cross_table_cycle' ? [cycleIssueDetails(issue, locate)] : []), ...(issue.code === 'missing_parent_source' && issue.source_table && m.schema.tables.some(t => t.name === issue.source_table) && !m.selected(issue.source_table) ? [button(tr("workbench.dependency.addSource", {table: issue.source_table, count: m.table(issue.source_table).count}), action(async () => {
     m.toggleTable(issue.source_table, true);
     const stillCurrent = ticket();
     if (await check(false)) {
@@ -2284,7 +2333,7 @@ function renderDependencies(out, locate = name => {
     }
   }, tr("workbench.action.checkDependencies")), {
     small: true
-  })] : []), ...issueTables(issue).filter(name => m.schema.tables.some(table => table.name === name)).map(name => button(tr("workbench.action.locate", {target: name === issue.table && issue.column || name}), () => {
+  })] : []), ...dependencyIssueTables(issue).filter(name => m.schema.tables.some(table => table.name === name)).map(name => button(tr("workbench.action.locate", {target: name === issue.table && issue.column || name}), () => {
     locate(name);
     const table = m.schema.tables.find(t => t.name === name),
       column = name === issue.table && table?.columns.find(c => c.name === issue.column);
@@ -2404,7 +2453,7 @@ async function showDependencies() {
       return;
     }
     dialog.close();
-    action(summary)();
+    return action(summary)();
   }, {
     primary: true,
     disabled: !model().check?.ok
@@ -2722,14 +2771,14 @@ async function configSettings() {
     const installed = available.has(draft.provider);
     function providerRequirementHint() {
       if (installed && draft.provider === 'faker') {
-        return tr("workbench.component.bundledSuffix");
+        return [tr("workbench.component.bundledSuffix")];
       } else if (installed && draft.provider === 'mimesis') {
-        return tr("workbench.component.optionalSuffix");
+        return [tr("workbench.component.optionalSuffix")];
       } else {
-        return '';
+        return [];
       }
     }
-    const status = joinText([availabilityLabel(draft.provider), providerRequirementHint()]);
+    const status = joinText([availabilityLabel(draft.provider), ...providerRequirementHint()]);
     apply.disabled = !installed;
     function providerUnavailableHint() {
       if (!installed) {
@@ -2968,11 +3017,15 @@ async function configDocument() {
         setText(error, tr("workbench.yaml.tooLarge"));
         return;
       }
-      const version = textVersion,
-        value = await selected.text();
-      if (dialog.body.isConnected && version === textVersion) {
-        text.value = value;
-        textVersion++;
+      const version = textVersion;
+      try {
+        const value = await selected.text();
+        if (dialog.body.isConnected && version === textVersion) {
+          text.value = value;
+          textVersion++;
+        }
+      } catch (readError) {
+        if (stillCurrent() && dialog.body.isConnected && version === textVersion) setText(error, errorText(readError));
       }
     }
   });
@@ -3147,9 +3200,13 @@ async function importStructure() {
         setText(error, tr("workbench.graph.tooLarge"));
         return;
       }
-      const value = await selected.text();
-      if (dialog.body.isConnected) {
-        text.value = value;
+      try {
+        const value = await selected.text();
+        if (dialog.body.isConnected) {
+          text.value = value;
+        }
+      } catch (readError) {
+        if (current() && dialog.body.isConnected) setText(error, errorText(readError));
       }
     }
   });
@@ -3250,6 +3307,22 @@ function drawImportedStructure(schema) {
   appendContent(section, graph.el, inspect);
   appendContent(content, section);
 }
+function appendClearRecoveryIssues(card, state, context, locate, reset) {
+  if (!state.current) return;
+  for (const issue of state.otherIssues) {
+    appendContent(card, h('p', {}, serverText(issue)));
+    if (issue.table) appendContent(card, button(tr("workbench.action.viewTable", {table: issue.table}), () => locate(issue.table), {plain:true, small:true}));
+    if (issue.code === 'identity_reset_not_supported' && reset) appendContent(card, button(tr("workbench.clear.disableReset"), reset, {small:true}));
+  }
+  if (context.error) appendContent(card, h('p', {}, tr("workbench.clear.retryHelp", {error: context.error})));
+}
+function appendClearRecoveryAction(actions, state, needsScope, review, inspect) {
+  if (needsScope && review) {
+    appendContent(actions, button(tr("workbench.clear.expand"), review, {primary:true, small:true}));
+  } else if (inspect) {
+    appendContent(actions, button(['ok','reviewed'].includes(state.state) ? tr("workbench.action.viewPlan") : tr("workbench.clear.recheck"), inspect, {primary:true, small:true, disabled:state.state==='checking'}));
+  }
+}
 function clearRecoveryCard(m, {inspect, review, append, adjust, locate, reset}) {
   const context = executionChecks.get(m), state = clearRecoveryState(m, context);
   if (state.unsupported.length) return generationUnsupportedCard({issues: state.unsupported});
@@ -3264,20 +3337,12 @@ function clearRecoveryCard(m, {inspect, review, append, adjust, locate, reset}) 
     appendContent(card, h('p', {}, tr("workbench.clear.scopeChanged")));
   }
   const actions = h('div', {class:'wb-clear-recovery-actions'});
-  if (needsScope && review) appendContent(actions, button(tr("workbench.clear.expand"), review, {primary:true, small:true}));
-  else if (inspect) appendContent(actions, button(['ok','reviewed'].includes(state.state) ? tr("workbench.action.viewPlan") : tr("workbench.clear.recheck"), inspect, {primary:true, small:true, disabled:state.state==='checking'}));
+  appendClearRecoveryAction(actions, state, needsScope, review, inspect);
   appendContent(card, actions);
   if (state.externalTables.length) {
     appendContent(card, h('p', {class:'wb-muted'}, state.current ? tr("workbench.clear.relatedTables") : tr("workbench.clear.previousTables")), h('ul', {class:'wb-clear-recovery-tables'}, ...state.externalTables.map(name => h('li', {}, button(name, () => locate(name), {plain:true, small:true})))));
   }
-  if (state.current) {
-    for (const issue of state.otherIssues) {
-      appendContent(card, h('p', {}, serverText(issue)));
-      if (issue.table) appendContent(card, button(tr("workbench.action.viewTable", {table: issue.table}), () => locate(issue.table), {plain:true, small:true}));
-      if (issue.code === 'identity_reset_not_supported' && reset) appendContent(card, button(tr("workbench.clear.disableReset"), reset, {small:true}));
-    }
-    if (context.error) appendContent(card, h('p', {}, tr("workbench.clear.retryHelp", {error: context.error})));
-  }
+  appendClearRecoveryIssues(card, state, context, locate, reset);
   if (!['ok','reviewed','checking'].includes(state.state)) {
     appendContent(card, h('details', {}, h('summary', {}, tr("workbench.clear.alternatives")),
       h('div', {class:'wb-clear-recovery-actions'}, button(tr("workbench.clear.adjustScope"), adjust, {small:true}), button(tr("workbench.clear.switchAppend"), append, {small:true}))));
@@ -3328,7 +3393,8 @@ async function reviewClearScope() {
       }, candidate.document));
       return detail;
     });
-    replaceContent(feedback, h('p', {}, passed ? tr("workbench.clear.candidatePassed") : generationLimitations(result).length ? tr('workbench.unsupported.title') : tr("workbench.clear.candidateFailed")), ...issueDetails);
+    const failedMessage = generationLimitations(result).length ? 'workbench.unsupported.title' : 'workbench.clear.candidateFailed';
+    replaceContent(feedback, h('p', {}, tr(passed ? 'workbench.clear.candidatePassed' : failedMessage)), ...issueDetails);
     if (!passed && !generationLimitations(result).length) {
       const tables = [...new Set(errors.flatMap(issue=>issue.tables || (issue.table ? [issue.table] : [])))].filter(name=>m.schema.tables.some(table=>table.name===name));
       appendContent(feedback, h('div', {class:'wb-clear-recovery-actions'}, ...tables.map(name=>button(tr("workbench.action.locate", {target: name}), ()=>{dialog.close();inspectorMode='dependencies';chooseTable(name,'graph');}, {small:true})), button(tr("workbench.clear.adjust"), adjust, {small:true})));
@@ -3377,7 +3443,7 @@ async function summary() {
       plan = null;
       const context = executionChecks.get(m);
       if (execution.mode === 'replace_selected' && context && context.state !== 'blocked') {
-        executionChecks.set(m, {...context, state:context.state === 'ok' ? 'reviewed' : context.state === 'reviewed' ? 'reviewed' : 'pending'});
+        executionChecks.set(m, {...context, state:['ok', 'reviewed'].includes(context.state) ? 'reviewed' : 'pending'});
       }
       if (version === active && current === session) {
         updateStatus();
@@ -3549,6 +3615,17 @@ async function summary() {
       reset: () => {reset.checked=false;execution.reset_identity=false;return inspectExecution();}
     };
   }
+  function acceptExecutionPlan(response) {
+    plan = response;
+    executionChecks.set(m, {epoch, lifecycle, issues:structuredClone(plan.issues || []), state:plan.ok && plan.atomic ? 'ok' : 'blocked'}); updateStatus();
+    const tables = plan.clear_tables || [];
+    replaceContent(planInfo, clearRecoveryCard(m, recoveryActions()), h('details', {}, h('summary', {}, tr("workbench.execution.clearCounts", {intent: plan.ok && plan.atomic ? tr("workbench.execution.willClear") : tr("workbench.execution.proposedClear"), count: tables.length, tables: formatNumber(tables.length), rows: formatNumber(tables.reduce((sum, t) => sum + t.row_count, 0))})),
+      h('ul', {}, ...tables.map(table => h('li', {}, tr("workbench.execution.tableCount", {table: table.name, count: table.row_count})))),
+      h('p', {}, plan.atomic ? tr("workbench.execution.atomic") : tr("workbench.execution.nonAtomic")),
+      ...(plan.issues || []).filter(issue=>issue.severity!=='error').map(issue=>h('p',{class:'wb-muted'},serverText(issue)))));
+    submit.disabled = !plan.ok || !plan.atomic || !m.canRun();
+    reset.disabled = !plan.reset_identity_supported;
+  }
   async function inspectExecution() {
     if (!isCurrent() || busy || planning && execution.mode !== 'append') {
       return;
@@ -3582,15 +3659,7 @@ async function summary() {
       if (!isCurrent() || request !== sequence) {
         return;
       }
-      plan = response;
-      executionChecks.set(m, {epoch, lifecycle, issues:structuredClone(plan.issues || []), state:plan.ok && plan.atomic ? 'ok' : 'blocked'}); updateStatus();
-      const tables = plan.clear_tables || [];
-      replaceContent(planInfo, clearRecoveryCard(m, recoveryActions()), h('details', {}, h('summary', {}, tr("workbench.execution.clearCounts", {intent: plan.ok && plan.atomic ? tr("workbench.execution.willClear") : tr("workbench.execution.proposedClear"), count: tables.length, tables: formatNumber(tables.length), rows: formatNumber(tables.reduce((sum, t) => sum + t.row_count, 0))})),
-        h('ul', {}, ...tables.map(table => h('li', {}, tr("workbench.execution.tableCount", {table: table.name, count: table.row_count})))),
-        h('p', {}, plan.atomic ? tr("workbench.execution.atomic") : tr("workbench.execution.nonAtomic")),
-        ...(plan.issues || []).filter(issue=>issue.severity!=='error').map(issue=>h('p',{class:'wb-muted'},serverText(issue)))));
-      submit.disabled = !plan.ok || !plan.atomic || !m.canRun();
-      reset.disabled = !plan.reset_identity_supported;
+      acceptExecutionPlan(response);
     } catch (error) {
       if (isCurrent() && request === sequence) {
         executionChecks.set(m, {epoch, lifecycle, error:errorText(error), state:'blocked'}); updateStatus();

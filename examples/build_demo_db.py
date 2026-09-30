@@ -16,6 +16,7 @@ in the notebook — this ensures randomness and better showcases the library's f
 from __future__ import annotations
 
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 # ---------------------------------------------------------------------------
@@ -192,7 +193,7 @@ def ensure_db(db_path: str | Path | None = None) -> Path:
     path = _validate_db_path(Path(db_path) if db_path else _DEFAULT_DB_PATH)
 
     if path.exists():
-        with sqlite3.connect(str(path)) as conn:
+        with closing(sqlite3.connect(str(path))) as conn:
             existing = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
             if _EXPECTED_TABLES.issubset(existing):
                 return path
@@ -203,7 +204,7 @@ def ensure_db(db_path: str | Path | None = None) -> Path:
 
     # Database does not exist — create schema only
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn:
         conn.executescript(SCHEMA_SQL)
         conn.commit()
     return path
@@ -225,7 +226,7 @@ def build(db_path: str | Path | None = None) -> Path:
         path.unlink()
 
     path.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(str(path)) as conn:
+    with closing(sqlite3.connect(str(path))) as conn:
         conn.executescript(SCHEMA_SQL)
         conn.commit()
     return path

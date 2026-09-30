@@ -7,7 +7,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 const deferred = () => {let resolve; const promise = new Promise(done => {resolve = done;}); return {promise, resolve};};
 const connection = (id, target = '/temporary/example.db', group = target) => ({conn_id: id, target, group_key: group});
 
-function harness({connections = [connection('A')], current = 'A', remove, listed, add, select, browse, workbenchRequest = null} = {}) {
+function harness({connections = [connection('A')], current = 'A', remove, listed, add, select, browse, workbenchRequest = null, onConnected} = {}) {
   const document = createDom(), window = new Element('window'), requests = [], remembered = [], changes = [], details = [];
   const store = {connId: current, target: current ? '/temporary/example.db' : null, tables: current ? [{name: 'users'}] : []};
   const invoke = async (url, data, method = 'GET') => {
@@ -30,9 +30,8 @@ function harness({connections = [connection('A')], current = 'A', remove, listed
     Event: class {constructor(type) {this.type = type;}}, get: url => invoke(url),
     send: (url, data, method = 'POST') => invoke(url, data, method),
     rememberConnId: id => remembered.push(id), setConnBadge: () => {},
-    safeTargetLabel: value => value.includes('://') ? new URL(value).hostname + new URL(value).pathname : value.split('/').at(-1),
   });
-  const dialog = context.openConnectionDialog({workbenchRequest});
+  const dialog = context.openConnectionDialog({workbenchRequest, onConnected});
   return {document, store, requests, remembered, changes, details, dialog,
     buttons: label => document.querySelectorAll('button').filter(el => el.textContent === label)};
 }
@@ -242,6 +241,45 @@ test('connection target descriptions omit PostgreSQL credentials and query secre
   assert.match(ui.document.textContent, /host:5432\/app/);
 });
 
+test('target display stays localized while sanitized callback and session identities remain strings', async () => {
+  const document = createDom();
+  const context = loadFrontend('api.js', {document});
+  const fallback = context.safeTargetLabel('postgresql://host/%broken');
+  const target = 'postgresql://alice:secret@host:5432/app?sslpassword=hidden';
+  const named = context.safeTargetLabel(target);
+  const label = context.h('p', {}, fallback), identity = context.h('p', {}, named);
+  document.body.append(label, identity);
+  assert.equal(context.isLocalized(fallback), true);
+  assert.equal(context.isLocalized(named), true);
+  assert.equal(label.textContent, '已连接数据库');
+  assert.equal(identity.textContent, 'host:5432/app');
+  context.setLanguage('en');
+  assert.equal(label.textContent, 'Connected database');
+  assert.equal(identity.textContent, 'host:5432/app');
+  for (const [value, expected] of [[null, 'Connected database'], [false, 'Connected database'], [0, 'Connected database'], [42, '42'], [{toString: () => 'custom.db'}, 'custom.db'], ['/temporary/demo.db', 'demo.db'], ['sqlite://', '']]) {
+    assert.equal(context.safeTargetIdentity(value), expected);
+  }
+  assert.equal(String(context.safeTargetLabel('sqlite://')), '', 'a valid empty URL identity is not a parse failure');
+  const callbacks = [];
+  const ui = harness({current: null, connections: [connection('A', target)], onConnected: result => callbacks.push(result)});
+  await flush();
+  await ui.document.querySelector('.connection-card').click();
+  assert.equal(ui.store.target, 'host:5432/app');
+  assert.equal(callbacks[0].target_label, 'host:5432/app');
+  assert.equal(typeof callbacks[0].target_label, 'string');
+  assert.doesNotMatch(JSON.stringify(ui.store), /alice|secret|hidden|sslpassword/);
+});
+
+test('automatic restore retains non-URL target values and sanitizes URL identities', async () => {
+  for (const target of ['/temporary/demo.db', 0, false, 42, {path: 'opaque.db'}, 'postgresql://alice:secret@host:5432/app?token=hidden']) {
+    const context = loadFrontend('api.js', {fetch: async url => ({ok: true, json: async () => url === '/api/connections'
+      ? {connections: [connection('A')]} : {target, tables: []}})});
+    assert.equal(await context.restoreConnection(), true);
+    const actual = vm.runInContext('store.target', context);
+    assert.equal(actual, typeof target === 'string' && target.includes('://') ? 'host:5432/app' : target);
+  }
+});
+
 test('an explicitly disconnected workspace does not silently restore another live session after refresh', async () => {
   const requests = [];
   const context = loadFrontend('api.js', {
@@ -365,10 +403,57 @@ test('a file response arriving during connection mutation cannot replace the dis
   const files = deferred(), addition = deferred();
   const ui = harness({browse: () => files.promise, add: () => addition.promise}); await flush();
   ui.document.querySelector('[name="db_path"]').value = '/temporary/new.db';
-  await ui.buttons('选择文件')[0].click();
+  const browsing = ui.buttons('选择文件')[0].click(); await flush();
   const pending = ui.buttons('连接数据库')[0].click(); await flush();
-  files.resolve({path:'/temporary',parent:null,entries:[{name:'late.db',path:'/temporary/late.db',is_dir:false}]}); await flush();
+  files.resolve({path:'/temporary',parent:null,entries:[{name:'late.db',path:'/temporary/late.db',is_dir:false}]}); await browsing;
   assert.equal(ui.document.querySelector('.connection-browser').hidden, true);
   assert.equal(ui.buttons('late.db').length, 0);
   addition.resolve({...connection('N'),tables:[]}); await pending;
+});
+
+for (const trigger of ['open', 'enter', 'directory']) test(`file ${trigger} failures stay local and permit returning home`, async () => {
+  let failing = trigger === 'open';
+  const ui = harness({browse: () => {
+    if (failing) throw new Error('directory unavailable');
+    return {path:'/temporary',parent:null,entries:[{name:'folder',path:'/temporary/folder',is_dir:true}]};
+  }});
+  await flush();
+  const before = JSON.stringify(ui.store);
+  await ui.buttons('选择文件')[0].click();
+  if (trigger !== 'open') {
+    failing = true;
+    if (trigger === 'enter') {
+      const input = ui.document.querySelector('.connection-file-path').querySelector('input');
+      input.value = '/missing';
+      await input.dispatchEvent({type:'keydown',key:'Enter'});
+    } else await ui.buttons('folder')[0].click();
+  }
+  const browser = ui.document.querySelector('.connection-browser');
+  assert.match(browser.querySelector('[role="alert"]').textContent, /directory unavailable/);
+  assert.equal(browser.hidden, false);
+  assert.equal(JSON.stringify(ui.store), before);
+  assert.equal(ui.requests.some(request => request.method !== 'GET'), false);
+  failing = false;
+  await ui.buttons('返回主目录')[0].click();
+  assert.equal(browser.querySelector('[role="alert"]'), null);
+  assert.ok(ui.buttons('folder')[0]);
+  ui.dialog.close();
+});
+
+for (const closeEarly of [false, true]) test(`connection list rejection is handled with closed=${closeEarly}`, async () => {
+  const gate = deferred();
+  const ui = harness({listed: async () => {await gate.promise; throw new Error('list unavailable');}});
+  const before = JSON.stringify(ui.store), existing = ui.document.querySelector('.connection-existing');
+  if (closeEarly) ui.dialog.close();
+  gate.resolve(); await flush();
+  assert.equal(JSON.stringify(ui.store), before);
+  assert.deepEqual(ui.changes, []);
+  if (closeEarly) {
+    assert.equal(existing.textContent, '');
+    assert.equal(ui.document.querySelector('[role="dialog"]'), null);
+  } else {
+    assert.match(existing.textContent, /list unavailable/);
+    assert.equal(ui.buttons('连接数据库')[0].disabled, false);
+    ui.dialog.close();
+  }
 });

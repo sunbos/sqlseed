@@ -27,16 +27,8 @@ sqlseed.fill(
     url: str | None = None,
     table: str,
     count: int = 1000,
-    columns: dict[str, Any] | None = None,
-    provider: str = "mimesis",
-    locale: str = "en_US",
-    seed: int | None = None,
-    batch_size: int = 5000,
-    clear_before: bool = False,
-    optimize_pragma: bool = True,
-    enrich: bool = False,
-    transform: str | None = None,
-    skip_ai: bool = True,
+    options: sqlseed.FillOptions | None = None,
+    **overrides: Unpack[_FillOverrides],
 ) -> GenerationResult
 ```
 
@@ -48,6 +40,7 @@ sqlseed.fill(
 | `url` | `str \| None` | `None` | Database URL (e.g. `postgresql+psycopg://user:pass@host/db`). Mutually exclusive with `db_path`. |
 | `table` | `str` | — | Target table name. **Required.** |
 | `count` | `int` | `1000` | Number of rows to generate. |
+| `options` | `FillOptions \| None` | `None` | Reusable generation settings. Individual keywords below override this object's values. |
 | `columns` | `dict[str, Any] \| None` | `None` | Per-column generation config. Keys are column names; values are generator names (`"email"`) or full dicts (`{"type": "integer", "min_value": 18}`). |
 | `provider` | `str` | `"mimesis"` | Data provider: `mimesis`, `faker`, or `base`. |
 | `locale` | `str` | `"en_US"` | Locale for localized generators (names, addresses, etc.). |
@@ -58,6 +51,12 @@ sqlseed.fill(
 | `enrich` | `bool` | `False` | Infer column distributions from existing data. |
 | `transform` | `str \| None` | `None` | Path to a Python transform script applied per row. |
 | `skip_ai` | `bool` | `True` | Skip AI-powered schema analysis. |
+
+`columns` through `skip_ai` remain accepted as individually typed keywords with
+the same defaults. Unknown keywords (including `snapshot`) raise `TypeError`
+before a connection is opened. Introspection now shows the grouped `options`
+argument and typed `overrides`, rather than listing these generation keywords
+as separate parameters.
 
 **Returns**
 
@@ -101,6 +100,21 @@ result = sqlseed.fill(
     locale="en_US",
     seed=42,
 )
+```
+
+### `FillOptions`
+
+Use this frozen, keyword-only dataclass to reuse the generation settings in the
+table above across calls. It has those ten fields with the same defaults;
+database target, table and count belong to each `fill()` call. Explicit keywords
+take precedence even when their value is `False`, `0` or `None`, and do not modify
+the supplied options. The `columns` dictionary itself remains mutable.
+
+```python
+settings = sqlseed.FillOptions(provider="faker", seed=42, batch_size=500)
+result = sqlseed.fill("app.db", table="users", count=100, options=settings)
+# Override the shared seed for this call only.
+result = sqlseed.fill("app.db", table="users", count=100, options=settings, seed=None)
 ```
 
 ---
@@ -686,6 +700,7 @@ The top-level `sqlseed` package exports:
 __all__ = [
     "ColumnConfig",
     "DataOrchestrator",
+    "FillOptions",
     "GenerationResult",
     "GeneratorConfig",
     "ProviderType",

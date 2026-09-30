@@ -143,11 +143,14 @@ delimiters, including inside code fences, but never fills missing values or stri
 An output-limit response is rejected even if its prefix parses, including a streaming
 length marker in a separate empty terminal chunk. Both methods default to
 `strict_json=False`; enabling this optional mode adds no model requests. The CLI's
-direct path opts in, without changing verification/refiner defaults. Parsed suggestions
-still require scope and rule validation.
+direct path and both refiner modes opt in while keeping their existing retry budgets.
+Strict tool calling also rejects arrays, scalars and `null` arguments as `invalid_json`;
+compatibility mode may still fall back to response text. Parsed suggestions still
+require scope and rule validation.
 
 AI configuration caches include schema hashes. Schema changes invalidate cached
-suggestions; `--no-cache` bypasses them. Review model output before writing data.
+suggestions; `--no-cache` bypasses them. Malformed cache metadata or configuration
+containers are treated as cache misses. Review model output before writing data.
 
 ## Current development requirements
 

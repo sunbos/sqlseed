@@ -7,21 +7,25 @@ from typing import TYPE_CHECKING
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from tests._helpers import clear_llm_env
 from tests.sqlite_helpers import sqlite_connection
 
-if TYPE_CHECKING:
-    from pathlib import Path
+try:
+    from sqlseed_ai import AIBackend, AIConfig, SchemaAnalyzer
+    from sqlseed_ai._json_utils import JSONResponseError
+    from sqlseed_ai.cli.ai_commands import ai_suggest
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai is not installed", allow_module_level=True)
 
-pytest.importorskip("sqlseed_ai")
-
-from sqlseed_ai import AIBackend, AIConfig, SchemaAnalyzer
-from sqlseed_ai._json_utils import JSONResponseError
-from sqlseed_ai.cli.ai_commands import ai_suggest
+from click.testing import CliRunner
 
 from .test_refiner_json_recovery import _completion_server
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _VALID_JSON = json.dumps(
     {
@@ -180,5 +184,28 @@ def test_streaming_strict_mode_checks_the_empty_terminal_chunk_without_changing_
             assert result == json.loads(_VALID_JSON)
     assert len(requests) == 1
     assert requests[0]["stream"] is True
+    assert output.read_text(encoding="utf-8") == "user-owned output"
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("split_finish_chunk", [False, True])
+@pytest.mark.parametrize("content", [_VALID_JSON, _VALID_JSON[:-1]])
+def test_verified_streaming_rejects_output_limit_without_overwriting_existing_files(
+    files: tuple[Path, Path, bytes], monkeypatch: pytest.MonkeyPatch, content: str, split_finish_chunk: bool
+) -> None:
+    database, output, before = files
+    monkeypatch.setenv("SQLSEED_AI_BACKEND", "openai_compat")
+    monkeypatch.setenv("SQLSEED_AI_API_KEY", "fixed-test-key")
+    monkeypatch.setenv("SQLSEED_AI_TOOL_CALLING_PROTOCOL", "none")
+    requests: list[dict[str, object]] = []
+    with _completion_server([(content, "length")], requests, split_finish_chunk=split_finish_chunk) as base_url:
+        result = CliRunner().invoke(
+            ai_suggest, _arguments(database, output, base_url, ["--verify", "--max-retries", "1"])
+        )
+
+    assert result.exit_code == 1, result.output
+    assert "output limit before completion" in result.output
+    assert len(requests) == 2  # One initial attempt and the configured single retry.
+    assert all(request["stream"] is True for request in requests)
     assert output.read_text(encoding="utf-8") == "user-owned output"
     assert database.read_bytes() == before

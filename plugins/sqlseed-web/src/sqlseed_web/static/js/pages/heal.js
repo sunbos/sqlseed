@@ -65,14 +65,11 @@ export function mount() {
 
 let aiState = null; // /api/ai/config 响应
 
-async function loadAiConfig() {
-  try {
-    aiState = await get('/api/ai/config');
-  } catch {
-    aiState = null;
-  }
-  const holder = document.getElementById('ai-panel-body');
-  if (holder) renderAiBody(holder);
+async function loadAiConfig(holder) {
+  const config = await get('/api/ai/config');
+  if (!holder.isConnected) return;
+  aiState = config;
+  renderAiBody(holder);
 }
 function renderAiPanel() {
   const body = h('div', {
@@ -80,7 +77,12 @@ function renderAiPanel() {
   }, h('div', {
     class: 'loading'
   }, '加载 AI 配置…'));
-  loadAiConfig().then(() => renderAiBody(body));
+  loadAiConfig(body).catch(error => {
+    if (body.isConnected) {
+      clear(body);
+      body.append(msg(`AI 配置读取失败：${error.message}`));
+    }
+  });
   return h('div', {
     class: 'panel'
   }, h('div', {

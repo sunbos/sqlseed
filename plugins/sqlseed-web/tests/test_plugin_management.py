@@ -277,12 +277,13 @@ def test_new_plan_recovers_from_installer_probe_drift(
         old_plan = manager.plan(management.PlanRequest(component_id="mimesis", action="install"))
         clock[0] = 181.0
         pip_available[0] = not initial_pip
+        request = management.ExecuteRequest(plan_id=old_plan["plan_id"])
         with pytest.raises(HTTPException) as error:
-            manager.execute(management.ExecuteRequest(plan_id=old_plan["plan_id"]))
+            manager.execute(request)
         assert error.value.status_code == 409
         assert manager.status()["active_task"] is None
         assert environment.installed_packages(tmp_path) == before
-        assert invocations == []
+        assert not invocations
 
         new_plan = manager.plan(management.PlanRequest(component_id="mimesis", action="install"))
         assert new_plan["plan_id"] != old_plan["plan_id"]

@@ -125,6 +125,7 @@ def test_invalid_date_range_returns_tool_error_without_appending(tmp_path: Path)
     )
     result = sqlseed_execute_fill(str(database), "events", count=5, yaml_config=document)
     assert set(result) == {"error"}
-    assert "created_at" in result["error"] and "date" in result["error"]
+    assert "created_at" in result["error"]
+    assert "date" in result["error"]
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT * FROM events").fetchall() == [("2020-01-01",)]

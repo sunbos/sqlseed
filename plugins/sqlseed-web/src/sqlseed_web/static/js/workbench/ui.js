@@ -151,6 +151,16 @@ export function download(name, text, type = 'application/json') {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+const summaryOf = details => [...details.children].find(child => child.tagName === 'SUMMARY');
+const tabOrder = el => el.tabIndex ?? (el.getAttribute('tabindex') === null ? 0 : Number.parseInt(el.getAttribute('tabindex'), 10));
+function ancestorBlocksFocus(ancestor, el) {
+  if (ancestor.hidden || ancestor.getAttribute('hidden') !== null || ancestor.inert || ancestor.getAttribute('inert') !== null) return true;
+  if (ancestor.tagName === 'FIELDSET' && ancestor.disabled && ['BUTTON','INPUT','SELECT','TEXTAREA'].includes(el.tagName)
+    && ![...ancestor.children].find(child => child.tagName === 'LEGEND')?.contains(el)) return true;
+  if (ancestor.tagName === 'DETAILS' && !ancestor.open && !summaryOf(ancestor)?.contains(el)) return true;
+  return typeof getComputedStyle === 'function' && getComputedStyle(ancestor).display === 'none';
+}
+
 let activeModalClose = null;
 export function modal(title, {
   onClose,
@@ -217,36 +227,21 @@ export function modal(title, {
       close();
     }
   };
+  function canFocus(el) {
+    if (el.disabled || el.type === 'hidden' || !Number.isFinite(tabOrder(el)) || tabOrder(el) < 0) return false;
+    if (el.tagName === 'SUMMARY' && (el.parentElement?.tagName !== 'DETAILS' || summaryOf(el.parentElement) !== el)) return false;
+    for (let ancestor = el; ancestor && ancestor !== overlay; ancestor = ancestor.parentElement) {
+      if (ancestorBlocksFocus(ancestor, el)) return false;
+    }
+    return typeof getComputedStyle !== 'function' || !['hidden','collapse'].includes(getComputedStyle(el).visibility);
+  }
   function key(event) {
     if (event.key === 'Escape') {
       close();
     }
     if (event.key === 'Tab') {
-      const summaryOf = details => [...details.children].find(child => child.tagName === 'SUMMARY');
-      const tabOrder = el => el.tabIndex ?? (el.getAttribute('tabindex') === null ? 0 : Number.parseInt(el.getAttribute('tabindex'), 10));
-      const controls = [...overlay.querySelectorAll('button,input,textarea,select,a[href],summary,[tabindex]')].filter(el => {
-        if (el.disabled || el.type === 'hidden' || !Number.isFinite(tabOrder(el)) || tabOrder(el) < 0) {
-          return false;
-        }
-        if (el.tagName === 'SUMMARY' && (el.parentElement?.tagName !== 'DETAILS' || summaryOf(el.parentElement) !== el)) {
-          return false;
-        }
-        for (let ancestor = el; ancestor && ancestor !== overlay; ancestor = ancestor.parentElement) {
-          if (ancestor.hidden || ancestor.getAttribute('hidden') !== null || ancestor.inert || ancestor.getAttribute('inert') !== null) {
-            return false;
-          }
-          if (ancestor.tagName === 'FIELDSET' && ancestor.disabled && ['BUTTON','INPUT','SELECT','TEXTAREA'].includes(el.tagName)
-            && ![...ancestor.children].find(child => child.tagName === 'LEGEND')?.contains(el)) {
-            return false;
-          }
-          if (ancestor.tagName === 'DETAILS' && !ancestor.open && !summaryOf(ancestor)?.contains(el)) {
-            return false;
-          }
-          if (typeof getComputedStyle === 'function' && getComputedStyle(ancestor).display === 'none') return false;
-        }
-        if (typeof getComputedStyle === 'function' && ['hidden','collapse'].includes(getComputedStyle(el).visibility)) return false;
-        return true;
-      }).sort((a, b) => (tabOrder(a) || Infinity) - (tabOrder(b) || Infinity));
+      const controls = [...overlay.querySelectorAll('button,input,textarea,select,a[href],summary,[tabindex]')]
+        .filter(canFocus).sort((a, b) => (tabOrder(a) || Infinity) - (tabOrder(b) || Infinity));
       cycleFocus(event, controls);
     }
   }

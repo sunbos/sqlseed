@@ -1,10 +1,5 @@
 /* Pure graph-view projection; implemented independently from DOM and layout. */
-(function (root, factory) {
-  'use strict';
-  const api = factory();
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.SqlseedDependencyView = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+(function (root) {
   'use strict';
   const MODES = new Set(['paths', 'upstream', 'downstream', 'neighbors']);
 
@@ -47,6 +42,14 @@
       nodes: data.nodes.filter(node => visible.has(node.id)),
       edges: data.edges.filter(edge => visible.has(edge.source) && visible.has(edge.target)),
     };
+  }
+
+  function nodeRole(id, focusId, upstream, downstream) {
+    if (id === focusId) return 'focus';
+    if (upstream.has(id) && downstream.has(id)) return 'cycle';
+    if (upstream.has(id)) return 'upstream';
+    if (downstream.has(id)) return 'downstream';
+    return 'relatedSource';
   }
 
   /** Browse the actual generation plan and its already-resolved read sources.
@@ -101,10 +104,7 @@
     for (const node of data.nodes) {
       const id = node.id;
       if (!visible.has(id)) continue;
-      roles[id] = id === focusId ? 'focus'
-        : upstream.has(id) && downstream.has(id) ? 'cycle'
-          : upstream.has(id) ? 'upstream'
-            : downstream.has(id) ? 'downstream' : 'relatedSource';
+      roles[id] = nodeRole(id, focusId, upstream, downstream);
     }
     const orderedIds = set => data.nodes.filter(node => node.id !== focusId && set.has(node.id)).map(node => node.id);
     return {
@@ -132,5 +132,7 @@
       upstreamIds: data.nodes.filter(node => visible.has(node.id) && !targets.has(node.id)).map(node => node.id),
     };
   }
-  return { selectGraph, selectPlanGraph, dependencyClosure };
-});
+  const api = { selectGraph, selectPlanGraph, dependencyClosure };
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.SqlseedDependencyView = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);

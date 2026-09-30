@@ -25,6 +25,7 @@
 - 未指定 driver 的 `postgresql://` 在创建 engine 时选择 `postgresql+psycopg`，与 `sqlseed[postgres]` 的 psycopg3 依赖一致；保留显式 driver、原始连接目标与配置 URL，不增加协议别名。
 - SQLite 连接统一经 `connection_url()` 构造 SQLAlchemy URL；普通文件路径用 `URL.create()` 保留字面 `%`、`?` 等字符，显式 SQLite URI 的 database 部分保留原始编码，由 SQLite 解码一次。SQLAlchemy 2.0/2.1 的 URL 解码差异不能使 `%41` 文件误开为 `A` 或使无效 UTF-8 被替换成另一文件；query 选项仍由 dialect 解释，不手动丢弃 `uri`、`mode`、`timeout`。Web 身份复用此解析器，但 Web 的 URI 准入规则留在插件，不能反向导入 Web。
 - 重新连接先关闭旧 engine 并清除 inspector/table cache；连接初始化失败必须释放部分初始化状态。事务中不能 close/reconnect，避免复用上一个数据库的反射结果。
+- `sqlite` / `sqlite+pysqlite` URL 的 `mode=memory` 显式使用 `SingletonThreadPool`，保留 SQLAlchemy 2.0/2.1 既有的每线程连接策略；不要为消除弃用警告改成 `QueuePool`，也不要改写 `uri` 或 `check_same_thread`。普通文件、普通 `:memory:`、其他 driver 和 PostgreSQL 沿用 dialect 默认值。未来改变共享内存的 pool 策略需单独验证连接寿命、事务隔离及跨线程行为；缺少 `uri=true` 的负向测试应局部精确断言预期警告，不做宽泛过滤。
 
 ## metadata 与类型
 

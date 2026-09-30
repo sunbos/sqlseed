@@ -12,6 +12,8 @@ import pytest
 
 from sqlseed_web.plugin_environment import EnvironmentLock, _WindowsEnvironmentHandle
 
+from .component_test_support import bounded_process
+
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Win32 handle sharing semantics")
 
 
@@ -53,26 +55,31 @@ def test_worker_holds_environment_after_spawning_parent_exits(tmp_path: Path) ->
         "    finally: os.close(descriptor)\n"
         "if __name__=='__main__':\n"
         "    root=Path(sys.argv[1]); lock=EnvironmentLock(root,exclusive=True); lock.acquire()\n"
-        "    child=multiprocessing.get_context('spawn').Process(target=hold,args=(InheritedEnvironmentLock(lock.fileno()),str(root)))\n"
+        "    child=multiprocessing.get_context('spawn').Process(\n"
+        "        target=hold,args=(InheritedEnvironmentLock(lock.fileno()),str(root)))\n"
         "    child.start()\n"
         "    while not (root/'ready').exists(): time.sleep(.01)\n"
         "    os._exit(0)\n",
         encoding="utf-8",
     )
     contender = EnvironmentLock(tmp_path, exclusive=True)
-    process = subprocess.Popen(
-        [sys.executable, "-I", str(script), str(tmp_path)], creationflags=subprocess.CREATE_NO_WINDOW
-    )
     try:
-        assert process.wait(timeout=10) == 0
-        assert ready.exists()
-        with pytest.raises(RuntimeError):
-            contender.acquire()
+        with bounded_process(
+            [sys.executable, "-I", str(script), str(tmp_path)], creationflags=subprocess.CREATE_NO_WINDOW
+        ) as process:
+            try:
+                # Readiness includes two interpreter imports and a Windows spawn.
+                # Measure the parent's hard exit only after the child owns the handle.
+                deadline = time.monotonic() + 30
+                while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert ready.exists()
+                assert process.wait(timeout=5) == 0
+                with pytest.raises(RuntimeError):
+                    contender.acquire()
+            finally:
+                finish.touch()
     finally:
-        finish.touch()
-        if process.poll() is None:
-            process.kill()
-            process.wait()
         deadline = time.monotonic() + 5
         while True:
             try:

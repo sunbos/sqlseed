@@ -8,11 +8,11 @@ function temporalText(value, type) {
   if (typeof value !== 'string' || !/^(?:DATETIME|TIMESTAMP|TIME)(?:\(\d+\))?(?: (?:WITH|WITHOUT) TIME ZONE)?$/.test(String(type || '').trim().toUpperCase())) {
     return valueText(value);
   }
-  const time = '(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d';
-  const zone = '(?:Z|[+-]\\d{2}:\\d{2}(?::\\d{2}(?:\\.\\d+)?)?)?';
+  const time = String.raw`(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d`;
+  const zone = String.raw`(?:Z|[+-]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?`;
   const isTime = /^TIME(?:\(| |$)/.test(String(type).trim().toUpperCase());
-  const pattern = isTime ? `^(${time})(\\.\\d+)?(${zone})$` : `^(\\d{4}-\\d{2}-\\d{2})[ T](${time})(\\.\\d+)?(${zone})$`;
-  const match = value.match(new RegExp(pattern));
+  const pattern = isTime ? String.raw`^(${time})(\.\d+)?(${zone})$` : String.raw`^(\d{4}-\d{2}-\d{2})[ T](${time})(\.\d+)?(${zone})$`;
+  const match = new RegExp(pattern).exec(value);
   if (!match) return value;
   const fraction = match[isTime ? 2 : 3] || '';
   const suffix = /^\.0+$/.test(fraction) ? '' : fraction;

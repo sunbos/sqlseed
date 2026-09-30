@@ -137,6 +137,9 @@ jobs:
     needs: lint
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -151,8 +154,28 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Test
+      - name: Test (macOS)
+        if: matrix.os == 'macos-latest'
         run: pytest --tb=short -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+
+      - name: Test with coverage (Windows)
+        if: matrix.os == 'windows-latest'
+        run: >-
+          pytest
+          --cov=sqlseed --cov=sqlseed_ai --cov=sqlseed_cli --cov=mcp_server_sqlseed --cov=sqlseed_web
+          --cov-report=xml:coverage-windows.xml --cov-report=term-missing
+          -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+          --tb=short -q
+
+      - name: Upload Windows coverage
+        if: matrix.os == 'windows-latest'
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        with:
+          files: coverage-windows.xml
+          disable_search: true
+          name: windows-python-3.12
+          use_oidc: true
+          fail_ci_if_error: true
 
   # ── Integration tests: PostgreSQL 16 (real DB) ──────────────
   integration:

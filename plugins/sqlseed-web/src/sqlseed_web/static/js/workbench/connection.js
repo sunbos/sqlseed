@@ -1,7 +1,7 @@
-import {tr, setText, setAttr, replaceContent, UserFacingError, errorText, appendContent, liveText} from '../i18n.js';
+import {tr, joinText, setText, setAttr, replaceContent, UserFacingError, errorText, appendContent, liveText} from '../i18n.js';
 import '../i18n/messages/flow.js';
 import { cycleFocus } from "./focus.js";
-import { h, get, send, store, rememberConnId, setConnBadge, safeTargetLabel } from '../api.js';
+import { h, get, send, store, rememberConnId, setConnBadge, safeTargetLabel, safeTargetIdentity } from '../api.js';
 import { lockPageScroll } from './scroll-lock.js';
 import { createSegmentIndicator } from '../segment-motion.js';
 let activeDialog = null;
@@ -175,7 +175,7 @@ export function openConnectionDialog({
         class: 'btn',
         onclick: () => {
           browser.hidden = false;
-          browseFiles();
+          return browseFiles();
         }
       }, tr("flow.connection.chooseFile")));
       setAttr(fields.db_path, 'placeholder', '/path/to/database.sqlite3');
@@ -224,7 +224,7 @@ export function openConnectionDialog({
   function publish(connection) {
     store.connId = connection.conn_id;
     const target = connection.target_label || connection.target;
-    store.target = String(target || '').includes('://') ? safeTargetLabel(target) : target;
+    store.target = String(target || '').includes('://') ? safeTargetIdentity(target) : target;
     store.tables = connection.tables || [];
     rememberConnId(connection.conn_id);
     setConnBadge();
@@ -234,7 +234,7 @@ export function openConnectionDialog({
     }));
     onConnected?.({
       conn_id: store.connId,
-      target_label: safeTargetLabel(store.target),
+      target_label: safeTargetIdentity(store.target),
       tables: store.tables
     });
   }
@@ -420,20 +420,13 @@ export function openConnectionDialog({
       }, pendingOperation?.kind === 'disconnect' && pendingOperation.connId === connection.conn_id ? tr("flow.connection.disconnecting") : tr("flow.connection.disconnect")))));
     }));
   }
-  async function loadExisting() {
-    const expected = ++existingSequence;
-    try {
-      const response = await get('/api/connections');
-      if (closed || expected !== existingSequence) {
-        return;
-      }
-      connections = response.connections || [];
-      renderExisting();
-    } catch (error_) {
-      if (!closed && expected === existingSequence) replaceContent(existing, h('p', {
-        class: 'muted'
-      }, tr("flow.connection.listUnavailable", {detail: connectionError(errorText(error_))})));
+  async function loadExisting(expected) {
+    const response = await get('/api/connections');
+    if (closed || expected !== existingSequence) {
+      return;
     }
+    connections = response.connections || [];
+    renderExisting();
   }
   async function browseFiles(path) {
     if (closed || busy) {
@@ -458,7 +451,7 @@ export function openConnectionDialog({
       pathInput.addEventListener('keydown', event => {
         if (event.key === 'Enter') {
           event.preventDefault();
-          go();
+          return go();
         }
       });
       replaceContent(browser, h('div', {
@@ -479,7 +472,7 @@ export function openConnectionDialog({
         class: `connection-file${entry.is_dir ? ' directory' : ''}`,
         onclick: () => {
           if (entry.is_dir) {
-            browseFiles(entry.path);
+            return browseFiles(entry.path);
           } else {
             fields.db_path.value = entry.path;
             clearFieldError(fields.db_path);
@@ -521,17 +514,22 @@ export function openConnectionDialog({
   activeDialog = {
     close
   };
-  loadExisting();
+  const initialSequence = ++existingSequence;
+  loadExisting(initialSequence).catch(error_ => {
+    if (!closed && initialSequence === existingSequence) replaceContent(existing, h('p', {
+      class: 'muted'
+    }, tr("flow.connection.listUnavailable", {detail: connectionError(errorText(error_))})));
+  });
   return activeDialog;
 }
 function targetDescription(target) {
   const text = String(target || '');
   if (!text.includes('://')) {
-    return text;
+    return joinText([text]);
   }
   try {
     const url = new URL(text);
-    return `${url.protocol}//${url.host}${decodeURIComponent(url.pathname)}`;
+    return joinText([`${url.protocol}//${url.host}${decodeURIComponent(url.pathname)}`]);
   } catch {
     return tr("flow.connection.title");
   }

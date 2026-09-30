@@ -3,12 +3,14 @@ from __future__ import annotations
 import sqlite3
 from typing import Any
 
+import pytest
 import yaml
 
 import sqlseed
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.core.result import GenerationResult
 from tests._helpers import fill_from_config_and_verify_fk
+from tests.sqlite_helpers import sqlite_connection
 
 
 class TestPublicAPI:
@@ -35,6 +37,74 @@ class TestPublicAPI:
     def test_fill_with_seed(self, tmp_db) -> None:
         result = sqlseed.fill(tmp_db, table="users", count=5, provider="base", seed=42)
         assert result.count == 5
+
+    @pytest.mark.parametrize("provider", ["base", "faker"])
+    def test_fill_options_preserve_keyword_results(self, tmp_path, provider: str) -> None:
+        paths = [tmp_path / "keywords.db", tmp_path / "options.db"]
+        for path in paths:
+            with sqlite_connection(path) as connection:
+                connection.execute("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT, email TEXT)")
+        settings = sqlseed.FillOptions(provider=provider, seed=42, batch_size=2, optimize_pragma=False)
+
+        keyword_result = sqlseed.fill(
+            str(paths[0]), table="users", count=5, provider=provider, seed=42, batch_size=2, optimize_pragma=False
+        )
+        options_result = sqlseed.fill(str(paths[1]), table="users", count=5, options=settings)
+
+        assert not keyword_result.errors
+        assert not options_result.errors
+        assert keyword_result.count == options_result.count == 5
+        with sqlite_connection(paths[0]) as first, sqlite_connection(paths[1]) as second:
+            assert (
+                first.execute("SELECT * FROM users ORDER BY id").fetchall()
+                == second.execute("SELECT * FROM users ORDER BY id").fetchall()
+            )
+
+    def test_fill_options_explicit_overrides_preserve_shared_settings(self, tmp_path) -> None:
+        path = tmp_path / "overrides.db"
+        with sqlite_connection(path) as connection:
+            connection.execute("CREATE TABLE users(id INTEGER PRIMARY KEY, name TEXT)")
+        transform = tmp_path / "transform.py"
+        transform.write_text(
+            "def transform_row(row, ctx):\n    row['name'] += '-transformed'\n    return row\n", encoding="utf-8"
+        )
+        settings = sqlseed.FillOptions(
+            provider="base",
+            columns={"name": {"type": "choice", "choices": ["shared"]}},
+            seed=42,
+            clear_before=True,
+            transform=str(transform),
+        )
+        first = sqlseed.fill(str(path), table="users", count=2, options=settings)
+        second = sqlseed.fill(
+            str(path),
+            table="users",
+            count=1,
+            options=settings,
+            clear_before=False,
+            columns=None,
+            seed=None,
+            transform=None,
+        )
+
+        assert not first.errors
+        assert not second.errors
+        with sqlite_connection(path) as connection:
+            names = [row[0] for row in connection.execute("SELECT name FROM users ORDER BY id")]
+        assert names[:2] == ["shared-transformed", "shared-transformed"]
+        assert len(names) == 3
+        assert names[-1] != "shared-transformed"
+        assert settings.clear_before is True
+        assert settings.seed == 42
+        assert settings.columns == {"name": {"type": "choice", "choices": ["shared"]}}
+        assert settings.transform == str(transform)
+
+    def test_fill_rejects_unknown_keyword_before_opening_database(self, tmp_path) -> None:
+        path = tmp_path / "must-not-create.db"
+        unsupported: dict[str, Any] = {"snapshot": True}
+        with pytest.raises(TypeError, match="snapshot"):
+            sqlseed.fill(str(path), table="users", **unsupported)
+        assert not path.exists()
 
     def test_connect(self, tmp_db) -> None:
         db = sqlseed.connect(tmp_db, provider="base")
