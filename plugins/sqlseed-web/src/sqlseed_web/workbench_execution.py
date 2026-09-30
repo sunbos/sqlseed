@@ -116,7 +116,8 @@ def _association_replacement_issues(
                         _plan_issue(
                             "external_incoming_association",
                             tr(
-                                "backend.workbench_execution.unselected_table_references_through_a_configured_association",
+                                "backend.workbench_execution."
+                                "unselected_table_references_through_a_configured_association",
                                 p1=name,
                                 p2=association.source_table,
                             ),

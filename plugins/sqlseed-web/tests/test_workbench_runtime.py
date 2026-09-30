@@ -221,7 +221,7 @@ def test_association_cycle_identifies_exact_fields_without_physical_foreign_keys
         "tables": [{"name": "assoc_a"}, {"name": "assoc_b"}],
         "associations": [
             {"source_table": source, "source_column": "id", "column_name": "link,value", "target_tables": [target]}
-            for source, target in [("assoc_a", "assoc_b"), ("assoc_b", "assoc_a")]
+            for source, target in (("assoc_a", "assoc_b"), ("assoc_b", "assoc_a"))
         ],
     }
     checked = check_document(connection, config, inspect_connection(connection)["schema_hash"])
@@ -231,7 +231,7 @@ def test_association_cycle_identifies_exact_fields_without_physical_foreign_keys
     assert cycle["edge_ids"] == []
     assert cycle["references"] == [
         {"table": target, "columns": ["link,value"], "source_table": source, "source_columns": ["id"]}
-        for source, target in [("assoc_a", "assoc_b"), ("assoc_b", "assoc_a")]
+        for source, target in (("assoc_a", "assoc_b"), ("assoc_b", "assoc_a"))
     ]
 
 

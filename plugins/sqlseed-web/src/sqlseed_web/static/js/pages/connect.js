@@ -86,8 +86,14 @@ export function render() {
   }, '语言与地区决定生成的姓名、地址、电话等数据的语言和格式。')), h('div', {
     id: 'tables-out'
   }));
-  loadLocales();
-  refreshExisting();
+  loadLocales(root).catch(error => {
+    if (!root.isConnected) return;
+    localeDd.setOptions([{value: form.locale, label: form.locale}], form.locale);
+    root.append(msg(`无法读取语言列表，保留当前语言与地区：${error.message}`, 'warn'));
+  });
+  refreshExisting(root).catch(error => {
+    if (root.isConnected) root.append(msg(`无法读取已有连接：${error.message}`, 'warn'));
+  });
   return root;
 }
 function renderKind(mountedBody) {
@@ -178,15 +184,14 @@ function renderKind(mountedBody) {
     })));
   }
 }
-async function loadLocales() {
-  try {
-    const res = await get('/api/meta/locales');
-    localeDd.setOptions(res.locales.map(l => ({
-      value: l.code,
-      label: l.label
-    })), res.default);
-    form.locale = res.default;
-  } catch {/* keep the loading placeholder; connection still works */}
+async function loadLocales(root) {
+  const res = await get('/api/meta/locales');
+  if (!root.isConnected) return;
+  localeDd.setOptions(res.locales.map(l => ({
+    value: l.code,
+    label: l.label
+  })), res.default);
+  form.locale = res.default;
 }
 function buildPayload() {
   if (form.kind === 'sqlite') {
@@ -258,17 +263,16 @@ function renderTables(out, res) {
     monoCols: [0]
   })));
 }
-async function refreshExisting() {
-  try {
-    const res = await get('/api/connections');
-    if (!res.connections.length) {
-      return;
-    }
-    const out = document.getElementById('tables-out');
-    if (!out || out.children.length) {
-      return;
-    }
-    out.append(h('h3', {}, '已有连接'), h('div', {
+async function refreshExisting(root) {
+  const res = await get('/api/connections');
+  if (!root.isConnected || !res.connections.length) {
+    return;
+  }
+  const out = root.querySelector('#tables-out');
+  if (!out || out.children.length) {
+    return;
+  }
+  out.append(h('h3', {}, '已有连接'), h('div', {
       class: 'table-scroll'
     }, table(['连接编号', '数据库', '分组', '数据生成引擎', '数据语言与地区', '操作'], res.connections.map(c => [c.conn_id, c.target, groupBadge(c), c.provider, c.locale, h('div', {
       class: 'row'
@@ -290,15 +294,18 @@ async function refreshExisting() {
     }, '进入工作台'), h('button', {
       class: 'small',
       onclick: async () => {
-        await del(`/api/connections/${c.conn_id}`);
-        if (store.connId === c.conn_id) {
-          store.connId = null;
-          setConnBadge();
+        try {
+          await del(`/api/connections/${c.conn_id}`);
+          if (store.connId === c.conn_id) {
+            store.connId = null;
+            setConnBadge();
+          }
+          if (root.isConnected) location.reload();
+        } catch (error) {
+          if (root.isConnected) out.append(msg(`无法断开连接：${error.message}`));
         }
-        location.reload();
       }
     }, '断开'))]))));
-  } catch {/* server not reachable — ignore */}
 }
 
 // 同一物理数据库的多个连接（合法且支持并发写，见 state.py 归一化说明）：

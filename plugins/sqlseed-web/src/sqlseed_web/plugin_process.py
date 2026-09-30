@@ -98,6 +98,27 @@ def _read_installer_output(stream: IO[bytes], output: Callable[[str], None]) -> 
             output(tr("backend.plugin_process.the_output_length_limit_was_reached_further"))
 
 
+def _wait_installer(
+    process: subprocess.Popen[bytes],
+    reader: DaemonTask[None],
+    arguments: list[str],
+    output: Callable[[str], None],
+    timeout: float,
+) -> int:
+    """Bound process and output completion by the same deadline."""
+    deadline = time.monotonic() + timeout
+    try:
+        result = process.wait(timeout=timeout)
+        if not reader.wait(max(0, deadline - time.monotonic())):
+            raise subprocess.TimeoutExpired(arguments, timeout)
+    except subprocess.TimeoutExpired:
+        output(tr("backend.plugin_process.the_installer_timed_out_and_is_being"))
+        return -1
+    if (error := reader.exception()) is not None:
+        raise RuntimeError(tr("backend.plugin_process.cannot_read_installer_output")) from error
+    return result
+
+
 def run_installer(
     arguments: list[str], output: Callable[[str], None], *, timeout: float = 300, lock_descriptor: int | None = None
 ) -> int:
@@ -138,17 +159,7 @@ def run_installer(
             if (stream := process.stdout) is None:
                 raise RuntimeError(tr("backend.plugin_process.cannot_read_installer_output"))
             reader = DaemonTask(lambda: _read_installer_output(stream, output), name="sqlseed-plugin-output")
-            deadline = time.monotonic() + timeout
-            try:
-                result = process.wait(timeout=timeout)
-                if not reader.wait(max(0, deadline - time.monotonic())):
-                    raise subprocess.TimeoutExpired(arguments, timeout)
-            except subprocess.TimeoutExpired:
-                output(tr("backend.plugin_process.the_installer_timed_out_and_is_being"))
-                return -1
-            if (error := reader.exception()) is not None:
-                raise RuntimeError(tr("backend.plugin_process.cannot_read_installer_output")) from error
-            return result
+            return _wait_installer(process, reader, arguments, output, timeout)
         finally:
             # Startup and output failures own the same cleanup as timeouts.
             # Terminate before Popen.__exit__ waits, including inherited pipes.

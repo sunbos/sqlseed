@@ -21,11 +21,12 @@
   function apply(next) {
     const previous = preference;
     preference = next;
-    const color = preference === 'system' ? media?.matches ? 'dark' : 'light' : preference;
+    const systemColor = media?.matches ? 'dark' : 'light';
+    const color = preference === 'system' ? systemColor : preference;
     const changed = previous !== preference || resolved !== color;
     resolved = color;
-    document.documentElement.setAttribute('data-theme', resolved);
-    document.documentElement.setAttribute('data-theme-preference', preference);
+    document.documentElement.dataset.theme = resolved;
+    document.documentElement.dataset.themePreference = preference;
     document.documentElement.style.colorScheme = resolved;
     if (changed) window.dispatchEvent(new CustomEvent('sqlseed:theme-changed', {detail: snapshot()}));
     return snapshot();
@@ -53,7 +54,18 @@
   const systemChanged = () => {
     if (preference === 'system') apply(preference);
   };
-  if (media?.addEventListener) media.addEventListener('change', systemChanged);
-  else if (media?.addListener) media.addListener(systemChanged);
+  function observeSystemChanges(query, listener) {
+    if (!query) return;
+    // Older MediaQueryList implementations expose only the one-argument API.
+    // Detect the callable capability and preserve its receiver in either case.
+    const register = query.addEventListener;
+    if (typeof register === 'function') {
+      register.call(query, 'change', listener);
+      return;
+    }
+    const legacyRegister = Reflect.get(query, 'addListener');
+    if (typeof legacyRegister === 'function') legacyRegister.call(query, listener);
+  }
+  observeSystemChanges(media, systemChanged);
   apply(preference);
 })();

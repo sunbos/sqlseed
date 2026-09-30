@@ -149,7 +149,6 @@ def test_multiple_cycles_report_only_internal_edges_not_bridges_or_descendants(t
 
 
 def test_retaining_cycle_and_upstream_removes_only_the_cycle_not_remaining_clear_checks(tmp_path: Path) -> None:
-    from sqlseed_web.state import UIState
     from sqlseed_web.workbench_execution import build_execution_plan
     from sqlseed_web.workbench_runtime import bind_document, check_document
 

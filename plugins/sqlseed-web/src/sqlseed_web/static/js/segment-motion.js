@@ -21,8 +21,8 @@ export function createSegmentIndicator(group, {selected} = {}) {
     const box = target?.getBoundingClientRect();
     if (!group.isConnected || !target || !group.contains(target) || !box ||
         !Number.isFinite(box.width) || !Number.isFinite(box.height) || box.width <= 0 || box.height <= 0) {
-      group.removeAttribute('data-segment-ready');
-      group.removeAttribute('data-segment-slide');
+      delete group.dataset.segmentReady;
+      delete group.dataset.segmentSlide;
       geometry = null;
       return;
     }
@@ -36,13 +36,13 @@ export function createSegmentIndicator(group, {selected} = {}) {
     if (!resized && geometry && Object.keys(next).every(key => next[key] === geometry[key])) return;
     // CSS transitions continue from their current painted position on reversal.
     // Resizing, restoring a hidden group and first layout align immediately.
-    group.setAttribute('data-segment-slide', String(Boolean(animate && !preference?.matches &&
-      geometry && next.target !== geometry.target)));
+    group.dataset.segmentSlide = String(Boolean(animate && !preference?.matches &&
+      geometry && next.target !== geometry.target));
     Object.assign(indicator.style, {
       transform: `translate(${next.x}px, ${next.y}px)`,
       width: `${next.width}px`, height: `${next.height}px`
     });
-    group.setAttribute('data-segment-ready', '');
+    group.dataset.segmentReady = '';
     geometry = next;
   }
   const align = () => update({resized: true});
@@ -62,8 +62,8 @@ export function createSegmentIndicator(group, {selected} = {}) {
       preference?.removeEventListener?.('change', align);
       indicator.remove();
       group.classList.remove('segment-motion');
-      group.removeAttribute('data-segment-ready');
-      group.removeAttribute('data-segment-slide');
+      delete group.dataset.segmentReady;
+      delete group.dataset.segmentSlide;
     }
   };
 }

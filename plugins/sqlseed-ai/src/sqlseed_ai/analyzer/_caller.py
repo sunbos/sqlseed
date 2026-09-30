@@ -409,6 +409,30 @@ class LLMCallerMixin(_InteractionLoggingMixin):
             )
             self._handle_llm_api_exception(e, model, streaming=False)
 
+        return self._parse_llm_completion(
+            response,
+            messages=messages,
+            model=model or self._config.model,
+            stage=stage,
+            table_name=table_name,
+            elapsed=time.time() - start_time,
+            strict_json=strict_json,
+            preserve_names=preserve_names,
+        )
+
+    def _parse_llm_completion(
+        self,
+        response: Any,
+        *,
+        messages: list[dict[str, str]],
+        model: str | None,
+        stage: str,
+        table_name: str,
+        elapsed: float,
+        strict_json: bool,
+        preserve_names: bool,
+    ) -> dict[str, Any]:
+        """Decode and log a completion without changing request or retry policy."""
         if isinstance(response, dict):
             # Tool calls return already-parsed arguments or their text fallback.
             return response
@@ -416,20 +440,17 @@ class LLMCallerMixin(_InteractionLoggingMixin):
         if not response.choices:
             if strict_json:
                 raise JSONResponseError("empty_response")
-            raise RuntimeError(
-                f"LLM returned no choices (model={model or self._config.model}). The API key or model may be invalid."
-            )
+            raise RuntimeError(f"LLM returned no choices (model={model}). The API key or model may be invalid.")
         message = response.choices[0].message
         content = message.content
         if strict_json and response.choices[0].finish_reason == "length":
             raise JSONResponseError("truncated_response")
 
-        actual_model = model or self._config.model
         if hasattr(message, "reasoning_content") and message.reasoning_content:
             logger.debug(
                 "Model used chain-of-thought reasoning",
                 reasoning_chars=len(message.reasoning_content),
-                model=actual_model,
+                model=model,
             )
 
         if content is None:
@@ -438,10 +459,10 @@ class LLMCallerMixin(_InteractionLoggingMixin):
             self._log_llm_interaction(
                 messages=messages,
                 response="(empty response)",
-                model=actual_model,
+                model=model,
                 stage=stage,
                 table_name=table_name,
-                elapsed=time.time() - start_time,
+                elapsed=elapsed,
             )
             return {}
 
@@ -449,17 +470,17 @@ class LLMCallerMixin(_InteractionLoggingMixin):
         self._log_llm_interaction(
             messages=messages,
             response=content,
-            model=actual_model,
+            model=model,
             stage=stage,
             table_name=table_name,
-            elapsed=time.time() - start_time,
+            elapsed=elapsed,
         )
 
         logger.debug(
             "LLM raw response",
             content_length=len(content),
             content_preview=content[:200],
-            model=actual_model,
+            model=model,
         )
 
         if strict_json:

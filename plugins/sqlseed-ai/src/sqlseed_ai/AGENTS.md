@@ -49,11 +49,11 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - `AIConfig.resolve_*()` 返回解析值，不能改写公开配置字段；调用方必须使用返回值。`timeout=0` 和 `max_tokens=0` 表示自动解析，不能作为真实请求的零预算。
 - `gemma4` 协议仅 Google AI Studio 支持；`openai` 支持 Google AI Studio / OpenAI-compatible；LM Studio / Ollama 或不支持的请求协议回退 `none`。两个工具协议共用 [_tools.py](_tools.py) 的 `GEMMA_TOOLS`。
 - 工具调用失败回退 JSON / text；非结构化 LLM 文本交给 [_json_utils.py](_json_utils.py) 的 `parse_json_response()`，保留 channel / fence / raw-decode 兼容处理。
-- JSON 容错仅按括号嵌套补齐末尾最多 8 个 `}` / `]`，包括围栏内的 JSON；不补业务值、字符串、逗号或字段。`SchemaAnalyzer.call_llm(strict_json=True)` 和 `call_llm_streaming(strict_json=True)` 用不含原文的 `JSONResponseError.code` 区分 `empty_response` / `invalid_json` / `truncated_response`，其中 `finish_reason=length` 即使含可解析前缀也必须拒绝；流式还要检查无正文的独立终止帧。该参数默认 `False`，保持既有 Python 调用与 verification/refiner 的返回行为，不增加模型请求；解析成功仍须由调用方验证业务契约与修改范围。
+- JSON 容错仅按括号嵌套补齐末尾最多 8 个 `}` / `]`，包括围栏内的 JSON；不补业务值、字符串、逗号或字段。`SchemaAnalyzer.call_llm(strict_json=True)` 和 `call_llm_streaming(strict_json=True)` 用不含原文的 `JSONResponseError.code` 区分 `empty_response` / `invalid_json` / `truncated_response`，其中 `finish_reason=length` 即使含可解析前缀也必须拒绝；流式还要检查无正文的独立终止帧。该参数默认 `False`，保持既有直接 Python 调用行为；CLI 直接分析与 refiner 的普通、流式路径均显式启用，保留现有重试预算。严格工具调用同样要求参数为 JSON 对象，数组、标量与 `null` 返回 `invalid_json`；兼容模式仍可回退到正文。解析成功仍须由调用方验证业务契约与修改范围。
 - [_prompts.py](_prompts.py) 的 full → compact → ultra-compact 提供上下文降级，选择优先级是 ultra-compact > compact > full；本地 E2B / E4B 使用 ultra-compact 并关闭 streaming。模板值使用独立 `TEMPLATE_SYSTEM_PROMPT`。
 - `APITimeoutError` / `APIConnectionError` 的模型 fallback 由 `_model_selector.py` 和 `_caller.py` 管理；本地 fallback 必须先验证模型可用，保留有界重试和最终错误。
 - [refiner.py](refiner.py) 的单表建议使用 `TableConfig` 校验、live schema 列名检查和小批 preview，再由 [errors.py](errors.py) 汇总失败供下一次提示；不要用完整 `GeneratorConfig` 替换单表校验。
-- Refiner 缓存文件名使用完整表名的 SHA-256，不能把 SQL 标识符直接用作文件路径。只兼容读取缓存目录内的旧 basename 文件，拒绝越界路径和指向目录外的链接；`no_cache=True` 同时禁止读写缓存。
+- Refiner 缓存文件名使用完整表名的 SHA-256，不能把 SQL 标识符直接用作文件路径。只兼容读取缓存目录内的旧 basename 文件，拒绝越界路径和指向目录外的链接；`no_cache=True` 同时禁止读写缓存。带 `_meta` 的缓存必须具有对象类型的元数据和 `config`，无效容器视为缓存未命中，不能以 `AttributeError` 中断分析。
 - Refiner 两个生成入口在读缓存或调用模型前验证目标列集合；缺表或零列目标直接报输入错误，不交给模型修复。沿用 adapter 的标识符解析，不能通过表名精确枚举破坏 SQLite 大小写与特殊名称兼容；零行但有列的合法空表仍可分析。
 - Refiner 候选与缓存必须属于请求的同一张表；SQLite 复用 ASCII 大小写匹配的 catalog 解析，不能用 Unicode casefold 混淆不同表，其他方言保留严格名称比较。模型目标错误返回可重试 `table_mismatch`，错误目标缓存忽略后重新生成；不静默改名或把其他表配置交付调用者。
 - Refiner 的普通与流式模型调用显式保留标识符原文；合法的前导 `.` / `:` 表列名不能被历史清洗逻辑映射到另一张真实表。CLI 可复用 `validate_table_target()` 只校验目标身份，不能复制方言规则。

@@ -36,7 +36,7 @@ from sqlseed.core.stream import GenerationBudgetExceededError, GenerationCancell
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
 from sqlseed.generators._dispatch import GeneratorDispatchMixin
 
-from sqlseed_web.diagnostics import CREDENTIAL_KEY_PATTERN
+from sqlseed_web._diagnostic_text import CREDENTIAL_KEY_PATTERN
 from sqlseed_web.diagnostics import public_error as _public_error
 from sqlseed_web.messages import message as tr
 from sqlseed_web.messages import message_list
@@ -191,14 +191,10 @@ def _layers(dependencies: dict[str, set[str]]) -> tuple[list[str], list[list[str
     return [name for layer in layers for name in layer], layers
 
 
-def _cyclic_components(dependencies: dict[str, set[str]]) -> list[set[str]]:
-    """Find actual cross-table SCCs, excluding descendants merely blocked by them."""
+def _dependency_finish_order(dependencies: dict[str, set[str]]) -> list[str]:
+    """Postorder DFS without recursion, including graphs deeper than Python's stack."""
     visited: set[str] = set()
     finished: list[str] = []
-    children: dict[str, list[str]] = {name: [] for name in dependencies}
-    for name, parents in dependencies.items():
-        for parent in parents:
-            children[parent].append(name)
     for start in dependencies:
         stack = [(start, False)]
         while stack:
@@ -209,14 +205,22 @@ def _cyclic_components(dependencies: dict[str, set[str]]) -> list[set[str]]:
                 visited.add(name)
                 stack.append((name, True))
                 stack.extend((parent, False) for parent in sorted(dependencies[name], reverse=True))
-    visited.clear()
+    return finished
+
+
+def _cyclic_components(dependencies: dict[str, set[str]]) -> list[set[str]]:
+    """Find actual cross-table SCCs, excluding descendants merely blocked by them."""
+    children: dict[str, list[str]] = {name: [] for name in dependencies}
+    for name, parents in dependencies.items():
+        for parent in parents:
+            children[parent].append(name)
+    visited: set[str] = set()
     components: list[set[str]] = []
-    for start in reversed(finished):
+    for start in reversed(_dependency_finish_order(dependencies)):
         pending = [start]
         component: set[str] = set()
         while pending:
-            name = pending.pop()
-            if name not in visited:
+            if (name := pending.pop()) not in visited:
                 visited.add(name)
                 component.add(name)
                 pending.extend(children[name])

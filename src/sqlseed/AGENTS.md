@@ -21,11 +21,12 @@
 [__init__.py](__init__.py) 是用户入口；保留参数兼容性并通过现有 orchestrator 委托实现。
 
 - `fill(db_path, *, url, table, count, ...)`：向单表写入数据。
+- `FillOptions`：复用单表生成参数；`fill(options=...)` 的显式关键字优先，保留旧关键字调用与默认值。
 - `connect(db_path, *, url, ...)`：返回支持 context manager 的 `DataOrchestrator`。
 - `preview(db_path, *, url, table, count, ...)`：生成预览，不写入数据库。
 - `fill_from_config(config_path)`：加载配置并按关联顺序批量生成。
 - `load_config(path)`：读取 `GeneratorConfig`。
-- 前三者的 `db_path` 与 `url` 互斥；后两者接收配置路径，没有数据库连接参数。
+- `fill`、`connect`、`preview` 的 `db_path` 与 `url` 互斥；`fill_from_config`、`load_config` 接收配置路径，没有数据库连接参数。
 - `fill()` 管理单次连接生命周期；`connect()` 返回由调用方关闭的 orchestrator。`fill_from_config()` 先预检所有请求表并拒绝重复 catalog 身份，再按 FK 顺序逐表生成；不要把预检描述成多表事务。
 
 ## 包边界

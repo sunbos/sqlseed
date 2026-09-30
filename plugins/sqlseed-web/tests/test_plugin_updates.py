@@ -27,8 +27,10 @@ from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest
 from sqlseed_web.plugin_process import run_installer
 from sqlseed_web.supervised_plugins import SupervisedPluginManager
 
+from .component_test_support import HTTPExchange, RecordingController, acquired_with_timeout
 
-def package(version: str = "1.0", *requirements: str) -> environment.InstalledPackage:
+
+def package(version: str, *requirements: str) -> environment.InstalledPackage:
     return environment.InstalledPackage(version, tuple(sorted(requirements)))
 
 
@@ -82,11 +84,12 @@ def test_plan_checks_target_and_reverse_dependencies_and_downloads_only_metadata
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _, calls = official_wheel(monkeypatch, "shared>=1", "optional; extra == 'feature'")
-    packages = {"mimesis": package(), "shared": package("1.5"), "consumer": package("1", "mimesis<3")}
+    packages = {"mimesis": package("1.0"), "shared": package("1.5"), "consumer": package("1", "mimesis<3")}
     result = updates.prepare_update("mimesis", packages)
     assert result.package == package("2.0", "shared>=1", "optional; extra == 'feature'")
     assert result.dependencies == ("shared==1.5",)
-    assert len(calls) == 1 and calls[0].endswith(".metadata")
+    assert len(calls) == 1
+    assert calls[0].endswith(".metadata")
     assert packages["mimesis"].version == "1.0"
 
 
@@ -98,16 +101,18 @@ def test_plan_checks_target_and_reverse_dependencies_and_downloads_only_metadata
         ((), {"consumer": package("1", "mimesis<2")}, "consumer 需要 mimesis<2"),
         (("shared[extra]",), {"shared": package("1", "missing; extra == 'extra'")}, "shared 需要 missing"),
         (("optional; extra == 'feature'",), {"consumer": package("1", "mimesis[feature]")}, "optional"),
-        (("shared @ https://example.test/private.whl",), {"shared": package()}, "指定来源"),
+        (("shared @ https://example.test/private.whl",), {"shared": package("1.0")}, "指定来源"),
     ],
 )
 def test_dependency_changes_are_blocked_before_download_or_install(
     monkeypatch: pytest.MonkeyPatch, requirements: tuple[str, ...], extra_packages: dict[str, Any], expected: str
 ) -> None:
     _, calls = official_wheel(monkeypatch, *requirements)
+    packages = {"mimesis": package("1.0"), **extra_packages}
     with pytest.raises(ValueError, match=expected):
-        updates.prepare_update("mimesis", {"mimesis": package(), **extra_packages})
-    assert len(calls) == 1 and calls[0].endswith(".metadata")
+        updates.prepare_update("mimesis", packages)
+    assert len(calls) == 1
+    assert calls[0].endswith(".metadata")
 
 
 @pytest.mark.parametrize("current", ["2.0", "2.1.dev1", "2.0+local", "3.0"])
@@ -115,15 +120,17 @@ def test_latest_stable_cannot_downgrade_current_or_development_versions(
     monkeypatch: pytest.MonkeyPatch, current: str
 ) -> None:
     _, calls = official_wheel(monkeypatch)
+    packages = {"mimesis": package(current)}
     with pytest.raises(ValueError, match="不会降级"):
-        updates.prepare_update("mimesis", {"mimesis": package(current)})
-    assert calls == []
+        updates.prepare_update("mimesis", packages)
+    assert not calls
 
 
 def test_missing_target_and_protected_distributions_are_rejected() -> None:
     for target in ("sqlseed", "sqlseed-web", "faker", "arbitrary", "mimesis"):
+        packages = {"sqlseed": package("1.0")}
         with pytest.raises(ValueError, match="可选组件"):
-            updates.prepare_update(target, {"sqlseed": package()})
+            updates.prepare_update(target, packages)
 
 
 @pytest.mark.parametrize(
@@ -141,8 +148,9 @@ def test_unsupported_or_unverified_release_never_becomes_an_update_plan(
     _, calls = official_wheel(monkeypatch)
     payload = updates.settings_updates._fetch_index("mimesis")
     payload["files"][0].update(change)
+    packages = {"mimesis": package("1.0")}
     with pytest.raises(ValueError, match=expected):
-        updates.prepare_update("mimesis", {"mimesis": package()})
+        updates.prepare_update("mimesis", packages)
     assert all(address.endswith(".metadata") for address in calls)
 
 
@@ -166,12 +174,14 @@ def test_download_checks_both_published_wheel_hash_and_reviewed_metadata(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _, calls = official_wheel(monkeypatch)
-    planned = updates.prepare_update("mimesis", {"mimesis": package()})
+    planned = updates.prepare_update("mimesis", {"mimesis": package("1.0")})
+    invalid_wheel_hash = replace(planned, sha256="0" * 64)
     with pytest.raises(ValueError, match="SHA256"):
-        updates.download_update(replace(planned, sha256="0" * 64), tmp_path)
+        updates.download_update(invalid_wheel_hash, tmp_path)
     assert not list(tmp_path.iterdir())
+    invalid_metadata_hash = replace(planned, metadata_sha256="0" * 64)
     with pytest.raises(ValueError, match="依赖与确认计划不一致"):
-        updates.download_update(replace(planned, metadata_sha256="0" * 64), tmp_path)
+        updates.download_update(invalid_metadata_hash, tmp_path)
     path = updates.download_update(planned, tmp_path)
     assert path.name == planned.filename
     assert hashlib.sha256(path.read_bytes()).hexdigest() == planned.sha256
@@ -216,41 +226,15 @@ def test_update_api_preserves_origin_token_and_component_allowlist() -> None:
 def test_download_transport_rejects_redirect_oversize_and_expiry(
     monkeypatch: pytest.MonkeyPatch, status: int, body: bytes, timeout: float, expected: str
 ) -> None:
-    calls = []
-    closed = []
-
-    class Response:
-        def __init__(self) -> None:
-            self.status = status
-            self.remaining = body
-
-        def read1(self, size: int) -> bytes:
-            result, self.remaining = self.remaining[:size], self.remaining[size:]
-            return result
-
-    class Connection:
-        sock = None
-
-        def __init__(self, host: str, timeout: float) -> None:
-            calls.append((host, timeout))
-
-        def request(self, method: str, path: str, headers: dict[str, str]) -> None:
-            calls.append((method, path, headers))
-
-        def getresponse(self) -> Response:
-            return Response()
-
-        def close(self) -> None:
-            closed.append(True)
-
-    monkeypatch.setattr(updates.http.client, "HTTPSConnection", Connection)
+    exchange = HTTPExchange(status=status, body=body)
+    monkeypatch.setattr(updates.http.client, "HTTPSConnection", exchange.connection)
     with pytest.raises((ValueError, TimeoutError), match=expected):
         updates._read_artifact("https://files.pythonhosted.org/packages/a.whl", limit=32, timeout=timeout)
-    assert calls == [
+    assert exchange.calls == [
         ("files.pythonhosted.org", timeout),
         ("GET", "/packages/a.whl", {"User-Agent": "sqlseed-component-update"}),
     ]
-    assert closed == [True]
+    assert exchange.closed == [True]
 
 
 @pytest.fixture(name="update_manager")
@@ -271,24 +255,10 @@ def fixture_update_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> A
     events: list[str] = []
     installs: list[Any] = []
 
-    class Controller:
-        def pause(self) -> None:
-            events.append("pause")
-
-        def resume(self) -> None:
-            events.append("resume")
-
-        def enter_maintenance(self) -> None:
-            events.append("maintenance")
-
-        def restore_business(self) -> dict[str, Any]:
-            events.append("restore")
-            return {}
-
     monkeypatch.setattr(
         "sqlseed_web.plugin_management.run_installer", lambda *args, **kwargs: installs.append(args) or 0
     )
-    manager = SupervisedPluginManager(Controller())
+    manager = SupervisedPluginManager(RecordingController(restored={}, calls=events))
     manager.start()
     yield manager, site, events, installs
     manager.stop()
@@ -298,11 +268,13 @@ def test_update_plan_metadata_snapshot_is_rechecked_before_maintenance(update_ma
     manager, site, events, installs = update_manager
     plan = manager.plan(PlanRequest(component_id="mimesis", action="update"))
     (site / "shared-1.0.dist-info/METADATA").write_text("Metadata-Version: 2.1\nName: shared\nVersion: 1.1\n")
+    request = ExecuteRequest(plan_id=plan["plan_id"])
     with pytest.raises(HTTPException) as caught:
-        manager.execute(ExecuteRequest(plan_id=plan["plan_id"]))
+        manager.execute(request)
     assert caught.value.status_code == 409
     assert "环境已发生变化" in caught.value.detail["message"]
-    assert installs == [] and events == ["pause", "resume"]
+    assert not installs
+    assert events == ["pause", "resume"]
 
 
 def test_slow_plan_has_total_budget_and_late_result_cannot_publish_a_plan(
@@ -320,20 +292,23 @@ def test_slow_plan_has_total_budget_and_late_result_cannot_publish_a_plan(
     monkeypatch.setattr(updates.settings_updates, "_fetch_index", slow)
     monkeypatch.setattr(updates, "_PLAN_TIMEOUT", 0.01)
     try:
+        request = PlanRequest(component_id="mimesis", action="update")
         with pytest.raises(HTTPException) as caught:
-            manager.plan(PlanRequest(component_id="mimesis", action="update"))
+            manager.plan(request)
         assert started.is_set()
         assert "超时" in caught.value.detail["message"]
         assert manager._plan is None
         assert manager.status()["available"] is True
+        retry_request = PlanRequest(component_id="mimesis", action="update")
         with pytest.raises(HTTPException) as next_request:
-            manager.plan(PlanRequest(component_id="mimesis", action="update"))
+            manager.plan(retry_request)
         assert "上一次更新查询" in next_request.value.detail["message"]
-        assert events == [] and installs == []
+        assert not events
+        assert not installs
     finally:
         release.set()
-        assert updates._NETWORK_SLOT.acquire(timeout=5)
-        updates._NETWORK_SLOT.release()
+        with acquired_with_timeout(updates._NETWORK_SLOT, timeout=5):
+            pass
     assert manager._plan is None, "late read-only completion cannot publish a previously timed-out plan"
 
 
@@ -363,15 +338,17 @@ def test_timed_out_wheel_read_cannot_write_after_service_recovery(
         manager._worker.join(5)
         result = manager.task_snapshot(task["task_id"])
         assert started.is_set()
-        assert result["status"] == "failed" and result["service_ready"] is True
+        assert result["status"] == "failed"
+        assert result["service_ready"] is True
         assert any("超时" in line for line in result["output"])
         assert events == ["pause", "maintenance", "restore"]
-        assert installs == []
-        assert len(directories) == 1 and not directories[0].exists()
+        assert not installs
+        assert len(directories) == 1
+        assert not directories[0].exists()
     finally:
         release.set()
-        assert updates._NETWORK_SLOT.acquire(timeout=5)
-        updates._NETWORK_SLOT.release()
+        with acquired_with_timeout(updates._NETWORK_SLOT, timeout=5):
+            pass
     assert not directories[0].exists(), "late bytes must never recreate a cleaned-up download directory"
 
 
@@ -429,10 +406,12 @@ def test_update_download_failure_or_environment_race_never_invokes_installer_and
     task = manager.execute(ExecuteRequest(plan_id=plan["plan_id"]))
     manager._worker.join(5)
     result = manager.task_snapshot(task["task_id"])
-    assert result["status"] == "failed" and result["service_ready"] is True
+    assert result["status"] == "failed"
+    assert result["service_ready"] is True
     assert events == ["pause", "maintenance", "restore"]
-    assert installs == []
-    assert len(directories) == 1 and not directories[0].exists()
+    assert not installs
+    assert len(directories) == 1
+    assert not directories[0].exists()
 
 
 @pytest.mark.parametrize("tool", ["pip", "uv"])
@@ -456,13 +435,13 @@ def test_real_confirmed_update_only_changes_selected_package_in_temporary_venv(
     wheels = tmp_path / "wheels"
     wheels.mkdir()
     paths = []
-    for name, requirements in [
+    for name, requirements in (
         ("sqlseed", ("Faker>=1",)),
         ("sqlseed-web", ("sqlseed>=1",)),
         ("Faker", ()),
         ("mimesis", ("shared>=1",)),
         ("shared", ()),
-    ]:
+    ):
         filename, content, _ = wheel(name, "1.0", *requirements)
         path = wheels / filename
         path.write_bytes(content)
@@ -481,33 +460,18 @@ def test_real_confirmed_update_only_changes_selected_package_in_temporary_venv(
     before = environment.installed_packages(prefix)
     _, reads = official_wheel(monkeypatch, "shared>=1")
 
-    class Controller:
-        def __init__(self) -> None:
-            self.calls: list[str] = []
-
-        def pause(self) -> None:
-            self.calls.append("pause")
-
-        def resume(self) -> None:
-            self.calls.append("resume")
-
-        def enter_maintenance(self) -> None:
-            self.calls.append("maintenance")
-
-        def restore_business(self) -> dict[str, Any]:
-            self.calls.append("restore")
-            return {"restored_connections": 0}
-
-    controller = Controller()
+    controller = RecordingController(restored={"restored_connections": 0})
     manager = SupervisedPluginManager(controller)
     manager.start()
     try:
         plan = manager.plan(PlanRequest(component_id="mimesis", action="update"))
-        assert plan["version"] == "1.0" and plan["target_version"] == "2.0"
-        assert "_update" not in plan and "url" not in plan["artifact"]
+        assert plan["version"] == "1.0"
+        assert plan["target_version"] == "2.0"
+        assert "_update" not in plan
+        assert "url" not in plan["artifact"]
         assert len(reads) == 1
         assert environment.installed_packages(prefix) == before
-        assert controller.calls == []
+        assert not controller.calls
         task = manager.execute(ExecuteRequest(plan_id=plan["plan_id"]))
         assert manager._worker is not None
         manager._worker.join(45)
@@ -520,8 +484,9 @@ def test_real_confirmed_update_only_changes_selected_package_in_temporary_venv(
         assert {name: item for name, item in after.items() if name != "mimesis"} == {
             name: item for name, item in before.items() if name != "mimesis"
         }
+        repeated_request = ExecuteRequest(plan_id=plan["plan_id"])
         with pytest.raises(HTTPException):
-            manager.execute(ExecuteRequest(plan_id=plan["plan_id"]))
+            manager.execute(repeated_request)
     finally:
         manager.stop()
     assert host_before == sorted((item.metadata["Name"], item.version) for item in metadata.distributions())

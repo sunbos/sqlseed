@@ -23,7 +23,7 @@ from sqlseed_web import plugin_environment, plugin_updates
 from sqlseed_web.diagnostics import public_error
 from sqlseed_web.messages import MessageRoute
 from sqlseed_web.messages import message as tr
-from sqlseed_web.plugin_environment import COMPONENT_DISTRIBUTIONS, EnvironmentLock, InstalledPackage
+from sqlseed_web.plugin_environment import COMPONENT_DISTRIBUTIONS, Environment, EnvironmentLock, InstalledPackage
 from sqlseed_web.plugin_process import InstallerCleanupPending, run_installer
 
 router = APIRouter(route_class=MessageRoute, prefix="/api/settings/plugins", tags=["plugin-maintenance"])
@@ -195,80 +195,101 @@ class PluginManager:
         with self._lock:
             if reason := self._reason():
                 raise _reject(reason)
-            environment = plugin_environment._environment()
-            if environment.prefix != self.environment.prefix or environment.executable != self.environment.executable:
-                raise _reject(tr("backend.plugin_management.the_python_environment_has_changed_review_and"))
-            if environment.reason:
-                raise _reject(environment.reason)
-            try:
-                packages = plugin_environment.installed_packages(self.environment.prefix)
-            except RuntimeError as exc:
-                raise _reject(public_error(exc)) from exc
-            distribution = COMPONENT_DISTRIBUTIONS[body.component_id]
-            package = packages.get(distribution)
-            if body.action == "install" and package is not None:
-                raise _reject(tr("backend.plugin_management.this_component_is_already_installed_use_the"))
-            if body.action == "uninstall":
-                if package is None:
-                    raise _reject(tr("backend.plugin_management.this_component_is_not_installed"))
-                if users := plugin_environment.required_by(distribution, packages):
-                    raise _reject(
-                        tr(
-                            "backend.plugin_management.required_by_uninstall_those_optional_components_first",
-                            p1=", ".join(users),
-                        )
-                    )
-            update = None
-            if body.action == "update":
-                if package is None:
-                    raise _reject(tr("backend.plugin_management.this_component_is_not_installed_install_it"))
-                try:
-                    update = plugin_updates.prepare_update(distribution, packages)
-                except ValueError as exc:
-                    raise _reject(public_error(exc), "plugin_update_blocked") from exc
+            environment, packages = self._review_environment()
+            update = self._review_action(body, packages)
+            reviewed_plan = self._plan_details(body, packages, update)
+            # Bind a complete new plan atomically; a rejected review leaves the
+            # prior installer identity and snapshot untouched.
             self._snapshot = packages
-            action_label = {
-                "install": tr("backend.plugin_management.install"),
-                "uninstall": tr("backend.plugin_management.uninstall"),
-                "update": tr("backend.plugin_management.update"),
-            }[body.action]
-            self._plan = {
-                "plan_id": secrets.token_urlsafe(24),
-                "component_id": body.component_id,
-                "action": body.action,
-                "distribution": distribution,
-                "version": package.version if package else None,
-                "summary": tr(
-                    "backend.plugin_management.in_the_python_environment_currently_running_web",
-                    p1=action_label,
-                    p2=distribution,
-                ),
-                "warnings": [
-                    tr("backend.plugin_management.installation_accesses_the_package_source_and_freezes")
-                    if body.action == "install"
-                    else tr("backend.plugin_management.only_the_selected_component_is_uninstalled_without"),
+            self._plan = reviewed_plan
+            self.environment = environment
+            return {
+                key: value for key, value in reviewed_plan.items() if key != "expires_at" and not key.startswith("_")
+            }
+
+    def _review_environment(self) -> tuple[Environment, dict[str, InstalledPackage]]:
+        environment = plugin_environment._environment()
+        if environment.prefix != self.environment.prefix or environment.executable != self.environment.executable:
+            raise _reject(tr("backend.plugin_management.the_python_environment_has_changed_review_and"))
+        if environment.reason:
+            raise _reject(environment.reason)
+        try:
+            packages = plugin_environment.installed_packages(self.environment.prefix)
+        except RuntimeError as exc:
+            raise _reject(public_error(exc)) from exc
+        return environment, packages
+
+    @staticmethod
+    def _review_action(
+        body: PlanRequest, packages: dict[str, InstalledPackage]
+    ) -> plugin_updates.PreparedUpdate | None:
+        distribution = COMPONENT_DISTRIBUTIONS[body.component_id]
+        package = packages.get(distribution)
+        if body.action == "install" and package is not None:
+            raise _reject(tr("backend.plugin_management.this_component_is_already_installed_use_the"))
+        if body.action == "uninstall":
+            if package is None:
+                raise _reject(tr("backend.plugin_management.this_component_is_not_installed"))
+            if users := plugin_environment.required_by(distribution, packages):
+                raise _reject(
+                    tr(
+                        "backend.plugin_management.required_by_uninstall_those_optional_components_first",
+                        p1=", ".join(users),
+                    )
+                )
+        if body.action != "update":
+            return None
+        if package is None:
+            raise _reject(tr("backend.plugin_management.this_component_is_not_installed_install_it"))
+        try:
+            return plugin_updates.prepare_update(distribution, packages)
+        except ValueError as exc:
+            raise _reject(public_error(exc), "plugin_update_blocked") from exc
+
+    @staticmethod
+    def _plan_details(
+        body: PlanRequest, packages: dict[str, InstalledPackage], update: plugin_updates.PreparedUpdate | None
+    ) -> dict[str, Any]:
+        distribution = COMPONENT_DISTRIBUTIONS[body.component_id]
+        package = packages.get(distribution)
+        action_label = {
+            "install": tr("backend.plugin_management.install"),
+            "uninstall": tr("backend.plugin_management.uninstall"),
+            "update": tr("backend.plugin_management.update"),
+        }[body.action]
+        reviewed_plan: dict[str, Any] = {
+            "plan_id": secrets.token_urlsafe(24),
+            "component_id": body.component_id,
+            "action": body.action,
+            "distribution": distribution,
+            "version": package.version if package else None,
+            "summary": tr(
+                "backend.plugin_management.in_the_python_environment_currently_running_web",
+                p1=action_label,
+                p2=distribution,
+            ),
+            "warnings": [
+                tr("backend.plugin_management.installation_accesses_the_package_source_and_freezes")
+                if body.action == "install"
+                else tr("backend.plugin_management.only_the_selected_component_is_uninstalled_without"),
+                tr("backend.plugin_management.after_success_or_failure_stop_maintenance_mode"),
+            ],
+            "expires_in": 300,
+            "expires_at": time.monotonic() + 300,
+        }
+        if update is not None:
+            reviewed_plan.update(
+                target_version=update.package.version,
+                dependencies=list(update.dependencies),
+                artifact={"filename": update.filename, "sha256": update.sha256, "source": "https://pypi.org"},
+                warnings=[
+                    tr("backend.plugin_management.only_the_selected_component_is_updated_dependencies"),
+                    tr("backend.plugin_management.only_a_verified_official_wheel_is_installed"),
                     tr("backend.plugin_management.after_success_or_failure_stop_maintenance_mode"),
                 ],
-                "expires_in": 300,
-                "expires_at": time.monotonic() + 300,
-            }
-            if update is not None:
-                self._plan.update(
-                    target_version=update.package.version,
-                    dependencies=list(update.dependencies),
-                    artifact={"filename": update.filename, "sha256": update.sha256, "source": "https://pypi.org"},
-                    warnings=[
-                        tr("backend.plugin_management.only_the_selected_component_is_updated_dependencies"),
-                        tr("backend.plugin_management.only_a_verified_official_wheel_is_installed"),
-                        tr("backend.plugin_management.after_success_or_failure_stop_maintenance_mode"),
-                    ],
-                    _update=update,
-                )
-            # Installer discovery is a bounded probe, not a lifetime identity.
-            # Bind its current result only after a new plan has been accepted;
-            # execution and update downloads still revalidate the whole snapshot.
-            self.environment = environment
-            return {key: value for key, value in self._plan.items() if key != "expires_at" and not key.startswith("_")}
+                _update=update,
+            )
+        return reviewed_plan
 
     def execute(self, body: ExecuteRequest) -> dict[str, Any]:
         with self._lock:
@@ -326,6 +347,70 @@ class PluginManager:
             if self._task is not None and len(self._task["output"]) < 200:
                 self._task["output"].append(text if len(text) <= 2000 else text[:2000])
 
+    def _installation_arguments(
+        self, operation_plan: dict[str, Any], before: dict[str, InstalledPackage], directory: Path
+    ) -> list[str]:
+        constraints = directory / "constraints.txt"
+        constraints.write_text(
+            "".join(
+                f"{name}=={package.version}\n"
+                for name, package in sorted(before.items())
+                if operation_plan["action"] != "update" or name != operation_plan["distribution"]
+            ),
+            encoding="utf-8",
+        )
+        if operation_plan["action"] != "update":
+            return plugin_environment.installer_arguments(
+                self.environment, operation_plan["action"], operation_plan["distribution"], constraints
+            )
+        update = operation_plan.get("_update")
+        if not isinstance(update, plugin_updates.PreparedUpdate):
+            # This is invalid runtime plan data, retaining the operation's ValueError contract.
+            raise ValueError(tr("backend.plugin_management.the_update_plan_lacks_a_verified_package"))  # noqa: TRY004
+        self._output(tr("backend.plugin_management.downloading_and_verifying_the_confirmed_update_other"))
+        try:
+            wheel = plugin_updates.download_update(update, directory)
+        except ValueError as exc:
+            self._output(public_error(exc))
+            raise
+        # Network time is outside the metadata snapshot's trust boundary.
+        if (
+            plugin_environment.installed_packages(self.environment.prefix) != before
+            or plugin_environment._environment() != self.environment
+        ):
+            self._output(tr("backend.plugin_management.the_python_environment_changed_during_download_no"))
+            raise ValueError(tr("backend.plugin_management.the_environment_changed_during_download_check_for"))
+        return plugin_updates.update_arguments(self.environment, wheel, constraints)
+
+    def _operation_preserved_environment(
+        self, operation_plan: dict[str, Any], before: dict[str, InstalledPackage]
+    ) -> bool:
+        after = plugin_environment.installed_packages(self.environment.prefix)
+        target = operation_plan["distribution"]
+        expected_target = target in after if operation_plan["action"] == "install" else target not in after
+        preserved = all(after.get(name) == package for name, package in before.items() if name != target)
+        if isinstance(update := operation_plan.get("_update"), plugin_updates.PreparedUpdate):
+            expected_target = after.get(target) == update.package
+            preserved = preserved and set(after) == set(before)
+        return expected_target and preserved
+
+    def _finish_operation(self, cleanup: ExitStack, succeeded: bool, message: str, result: int | None) -> None:
+        cleaned = False
+        try:
+            cleanup.close()
+            cleaned = True
+        except OSError:
+            # A Windows file lock or permissions failure must not strand the
+            # task in running after its installer has already been reaped.
+            message = tr("backend.plugin_management.temporary_file_cleanup_failed")
+            self._output(message)
+        finally:
+            with self._lock:
+                if self._task is not None:
+                    self._task.update(
+                        status="succeeded" if succeeded and cleaned else "failed", message=message, returncode=result
+                    )
+
     def _run(self, operation_plan: dict[str, Any], before: dict[str, InstalledPackage]) -> None:
         result = None
         succeeded = False
@@ -333,37 +418,7 @@ class PluginManager:
         cleanup = ExitStack()
         try:
             directory = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="sqlseed-plugin-plan-"))
-            constraints = Path(directory) / "constraints.txt"
-            constraints.write_text(
-                "".join(
-                    f"{name}=={package.version}\n"
-                    for name, package in sorted(before.items())
-                    if operation_plan["action"] != "update" or name != operation_plan["distribution"]
-                ),
-                encoding="utf-8",
-            )
-            update = operation_plan.get("_update")
-            if operation_plan["action"] == "update":
-                if not isinstance(update, plugin_updates.PreparedUpdate):
-                    raise ValueError(tr("backend.plugin_management.the_update_plan_lacks_a_verified_package"))
-                self._output(tr("backend.plugin_management.downloading_and_verifying_the_confirmed_update_other"))
-                try:
-                    wheel = plugin_updates.download_update(update, Path(directory))
-                except ValueError as exc:
-                    self._output(public_error(exc))
-                    raise
-                # Network time is outside the metadata snapshot's trust boundary.
-                if (
-                    plugin_environment.installed_packages(self.environment.prefix) != before
-                    or plugin_environment._environment() != self.environment
-                ):
-                    self._output(tr("backend.plugin_management.the_python_environment_changed_during_download_no"))
-                    raise ValueError(tr("backend.plugin_management.the_environment_changed_during_download_check_for"))
-                arguments = plugin_updates.update_arguments(self.environment, wheel, constraints)
-            else:
-                arguments = plugin_environment.installer_arguments(
-                    self.environment, operation_plan["action"], operation_plan["distribution"], constraints
-                )
+            arguments = self._installation_arguments(operation_plan, before, Path(directory))
             with self._lock:
                 self.restart_required = True
                 if self._task is not None:
@@ -374,14 +429,8 @@ class PluginManager:
             if self._environment_lock is None:
                 raise RuntimeError(tr("backend.plugin_management.the_environment_lock_is_no_longer_valid"))
             result = run_installer(arguments, self._output, lock_descriptor=self._environment_lock.fileno())
-            after = plugin_environment.installed_packages(self.environment.prefix)
-            target = operation_plan["distribution"]
-            expected_target = target in after if operation_plan["action"] == "install" else target not in after
-            preserved = all(after.get(name) == package for name, package in before.items() if name != target)
-            if isinstance(update, plugin_updates.PreparedUpdate):
-                expected_target = after.get(target) == update.package
-                preserved = preserved and set(after) == set(before)
-            if succeeded := result == 0 and expected_target and preserved:
+            preserved = self._operation_preserved_environment(operation_plan, before)
+            if succeeded := result == 0 and preserved:
                 message = tr("backend.plugin_management.component_operation_completed_stop_maintenance_mode_and")
             elif result == 0:
                 message = tr("backend.plugin_management.the_installer_exited_but_component_metadata_verification")
@@ -393,10 +442,7 @@ class PluginManager:
         except (OSError, RuntimeError, ValueError, subprocess.SubprocessError):
             self._output(tr("backend.plugin_management.cannot_complete_the_environment_operation_check_it"))
         finally:
-            cleanup.close()
-            with self._lock:
-                if self._task is not None:
-                    self._task.update(status="succeeded" if succeeded else "failed", message=message, returncode=result)
+            self._finish_operation(cleanup, succeeded, message, result)
 
     def _finish_installer_cleanup(self) -> None:
         if self._installer_cleanup is not None:

@@ -480,7 +480,9 @@ function renderStep3() {
     id: 'preview-out'
   });
   wrap.append(previewOut);
-  doPreviews(selectedTables, previewOut);
+  doPreviews(selectedTables, previewOut).catch(error => {
+    if (previewOut.isConnected) previewOut.append(msg(`预览失败：${error.message}`));
+  });
   wrap.append(h('div', {
     class: 'row',
     style: 'margin-top:16px'
@@ -529,13 +531,26 @@ function tableRequest(tm, count) {
     columns: buildColumnsFor(tm)
   };
 }
+async function* tablePreviewResults(connId, requests) {
+  // The connection owns one orchestrator: start the next preview only after
+  // the consumer handles this result. A failed table does not end the stream.
+  for (const request of requests) {
+    try {
+      yield post(`/api/connections/${connId}/preview`, request).then(response => ({request, response}));
+    } catch (error) {
+      yield {request, error};
+    }
+  }
+}
 async function doPreviews(selectedTables, out) {
   const connId = store.connId;
   const requests = selectedTables.map(tm => tableRequest(tm, 5));
   clear(out);
-  for (const request of requests) {
+  for await (const result of tablePreviewResults(connId, requests)) {
+    const {request} = result;
     try {
-      const res = await post(`/api/connections/${connId}/preview`, request);
+      if ('error' in result) throw result.error;
+      const res = result.response;
       const cols = Object.keys(res.rows[0] || {});
       out.append(h('div', {
         class: 'panel',
@@ -551,6 +566,16 @@ async function doPreviews(selectedTables, out) {
     } catch (e) {
       out.append(msg(`${request.table} 预览失败：${e.message}`));
     }
+  }
+}
+async function* tableGenerationResults(connId, order, requests, startTable) {
+  // Finishing the job is part of this table's result: dependent children must
+  // not be submitted until the consumer accepts their parent's outcome.
+  for (const tname of order) {
+    const progress = startTable(tname);
+    yield post(`/api/connections/${connId}/fill`, requests.get(tname))
+      .then(res => pollJob(res.job_id))
+      .then(job => ({tname, progress, job}));
   }
 }
 async function doGenerate(selectedTables) {
@@ -581,13 +606,14 @@ async function doGenerate(selectedTables) {
     if (order.length !== names.length || new Set(order).size !== names.length || order.some(n => !requests.has(n))) {
       throw new Error('返回的表生成顺序与所选表不一致，请重新加载向导');
     }
-    for (const tname of order) {
+    const startTable = tname => {
       const progress = h('div', {
         class: 'muted'
       }, `生成 ${tname} …`);
       out.append(progress);
-      const res = await post(`/api/connections/${connId}/fill`, requests.get(tname));
-      const job = await pollJob(res.job_id);
+      return progress;
+    };
+    for await (const {tname, progress, job} of tableGenerationResults(connId, order, requests, startTable)) {
       const errors = job.result?.errors;
       if (job.status !== 'done' || errors?.length) {
         const details = job.error || (Array.isArray(errors) ? errors.join('; ') : errors) || '失败';
@@ -614,10 +640,15 @@ async function doGenerate(selectedTables) {
     }
   }
 }
+async function* jobStatuses(jobId, maxTries) {
+  // Pulling the next status initiates exactly one request, with no prefetch.
+  for (let i = 0; i < maxTries; i++) {
+    yield get(`/api/jobs/${jobId}`);
+  }
+}
 async function pollJob(jobId, maxTries = 120) {
   // 默认 120*400ms=48s 足够 fill；AI 全流程自愈可能要几分钟，调用方传更大 maxTries。
-  for (let i = 0; i < maxTries; i++) {
-    const j = await get(`/api/jobs/${jobId}`);
+  for await (const j of jobStatuses(jobId, maxTries)) {
     if (j.status !== 'running') return j;
     await new Promise(r => setTimeout(r, 400));
   }

@@ -13,7 +13,7 @@
 - [test_runtime.py](test_runtime.py) 覆盖非交互工厂与 client 关闭；[test_healer_candidate_contract.py](test_healer_candidate_contract.py) 覆盖候选配置拒绝；[test_quality_error_boundaries.py](test_quality_error_boundaries.py) 区分无效模型输入与编程错误。
 - [test_auto_heal_sonar_boundaries.py](test_auto_heal_sonar_boundaries.py) 用子进程超时验证长畸形状态子句的解析边界；保留其隔离方式，避免回归时卡住整个 pytest 进程。
 - [property/test_matrix_completeness.py](property/test_matrix_completeness.py) 使用 Hypothesis 与内存 SQLite；`hypothesis` 来自本包 `[dev]` extra，不是 Core 的运行时依赖。
-- 新增依赖插件可选安装的测试入口使用 `pytest.importorskip("sqlseed_ai")`，或沿用所在文件已有的 module-level ImportError skip；不要伪造缺失依赖。
+- 新增依赖插件可选安装的测试入口使用可选包导入边界：`try` 导入，只在 `ModuleNotFoundError.name == "sqlseed_ai"` 时 module-level skip；SDK 导入位于此边界之后。已有 `pytest.importorskip("sqlseed_ai")` 可沿用，不用内部子模块 skip 掩盖损坏安装；不要伪造缺失依赖。
 
 ## Fixtures 与断言
 
@@ -28,7 +28,7 @@
 
 ## 真实 LLM 与验证命令
 
-- [healer/conftest.py](healer/conftest.py) 的 `llm_client` 检查 LM Studio；服务不可用时 skip。模型可用 `SQLSEED_TEST_LLM_MODEL` 指定。
+- [healer/conftest.py](healer/conftest.py) 的 `llm_client` 检查 LM Studio 及 `/v1/models` 是否列出所选模型；服务不可用或缺少所选模型时 skip。模型可用 `SQLSEED_TEST_LLM_MODEL` 指定。模型列表协议错误仍报错；列表可用不等于真实推理通过，completion 失败不能转换成 skip。
 - 保持 healer `*_real.py` 的真实 LLM 合同：使用真实环境或 skip，不能用 mock LLM 伪装通过。该限制针对真实 LLM 测试，不把其中用于隔离调度的 deterministic validator stub 当作真实修复证据。
 - 部分集成测试通过根 `available_llm_backend` / `pg_url` 使用真实后端或 PostgreSQL；报告结果时区分 pass 与因环境缺失而 skip。
 - [test_mcp_stdio.py](test_mcp_stdio.py) 启动真实 MCP 子进程，使用本地固定 completion HTTP 响应和真实 SQLite 验证 JSON-RPC、无 stdout 污染与实际行值；它验证协议集成，不证明真实模型能力。修改 MCP 时与 [test_mcp.py](test_mcp.py) 一起运行。

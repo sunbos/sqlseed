@@ -81,7 +81,8 @@ def test_invalid_date_config_is_an_actionable_cli_error_without_appending(tmp_pa
     config.write_text(yaml.safe_dump(document), encoding="utf-8")
     result = CliRunner().invoke(cli, ["fill", "--config", str(config), "--no-ai"])
     assert result.exit_code == 2, result.output
-    assert "created_at" in result.output and "YYYY-MM-DD" in result.output
+    assert "created_at" in result.output
+    assert "YYYY-MM-DD" in result.output
     assert "Traceback" not in result.output
     with sqlite_connection(database) as conn:
         assert conn.execute("SELECT * FROM events").fetchall() == [("2020-01-01",)]

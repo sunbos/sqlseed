@@ -28,6 +28,9 @@ from sqlseed_web import api, settings_environment, workbench_ai
 from sqlseed_web.app import create_app
 from sqlseed_web.state import UIState
 
+_WINDOWS_COMMAND_STARTUP_SECONDS = 60
+_INTERPRETER_STARTED = "SQLSEED_TEST_INTERPRETER_STARTED"
+
 
 def _record_model_requests(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     requests: list[str] = []
@@ -370,7 +373,9 @@ def test_windows_manual_commands_reach_the_exact_interpreter_and_preserve_argume
     # Only exercise the shell/interpreter boundary. This local module reports
     # its argv; no installer runs and no package in the user's environment changes.
     (tmp_path / "pip.py").write_text(
-        "import json, sys\nprint(json.dumps([sys.executable, *sys.argv[1:]]))\n", encoding="utf-8"
+        f"import sys\nprint({_INTERPRETER_STARTED!r}, file=sys.stderr, flush=True)\n"
+        "import json\nprint(json.dumps([sys.executable, *sys.argv[1:]]))\n",
+        encoding="utf-8",
     )
     installer = settings_environment._Installer("pip", str(executable), None, "powershell")
     command = next(
@@ -381,8 +386,24 @@ def test_windows_manual_commands_reach_the_exact_interpreter_and_preserve_argume
         if shell == "powershell"
         else f'cmd.exe /d /s /c "{command}"'
     )
-    completed = subprocess.run(invocation, cwd=tmp_path, capture_output=True, text=True, timeout=20, check=True)
+    # This bounds cold shell + temporary interpreter startup on shared CI hosts,
+    # not installation speed or the production installer's one-second probe.
+    # Keep a stage marker so a timeout distinguishes startup from stub completion.
+    try:
+        completed = subprocess.run(
+            invocation,
+            cwd=tmp_path,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=_WINDOWS_COMMAND_STARTUP_SECONDS,
+            check=True,
+        )
+    except subprocess.TimeoutExpired as error:
+        stage = "stub interpreter started" if _INTERPRETER_STARTED in str(error.stderr) else "before stub startup"
+        pytest.fail(f"Real {shell} command exceeded {_WINDOWS_COMMAND_STARTUP_SECONDS}s {stage}: {error}")
     assert json.loads(completed.stdout) == [str(executable), "install", "sqlseed[mimesis]"]
+    assert completed.stderr.strip() == _INTERPRETER_STARTED
 
 
 def test_tool_probe_timeout_is_redacted_and_never_produces_an_install_command(

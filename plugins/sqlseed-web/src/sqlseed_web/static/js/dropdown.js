@@ -192,13 +192,7 @@ export function createDropdown({
   function onKey(e) {
     // 浮层已移出宿主容器；宿主异步禁用或移除入口后，不能继续提交旧选项。
     if (destroyed || btn.disabled || !el.isConnected) {
-      if (el.classList.contains('open')) {
-        if (e.key === 'Escape') {
-          e.preventDefault();
-          e.stopImmediatePropagation();
-        }
-        close();
-      }
+      dismissUnavailablePopup(e);
       return;
     }
     if (!acceptsKeyEvent(e)) {
@@ -245,6 +239,14 @@ export function createDropdown({
       }
       return true;
     }
+  }
+  function dismissUnavailablePopup(event) {
+    if (!el.classList.contains('open')) return;
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    }
+    close();
   }
   function enabledIndices() {
     return state.options.flatMap((option, index) => option.disabled ? [] : [index]);
@@ -308,7 +310,7 @@ export function createDropdown({
     el.classList.add('open');
     btn.setAttribute('aria-expanded', 'true');
     panel.hidden = false;
-    popup.insertBefore(panel, scrollControls);
+    scrollControls.before(panel);
     (el.closest('.overlay') || document.body).append(popup);
     panel.classList.add('dropdown-floating');
     panel.addEventListener('scroll', updateScrollButtons, {passive: true});

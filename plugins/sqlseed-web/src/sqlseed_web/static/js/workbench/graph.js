@@ -4,8 +4,29 @@ import './graph-layout.js';
 import './dependency-view.js';
 import { createSegmentIndicator } from '../segment-motion.js';
 const SVG_NS = 'http://www.w3.org/2000/svg';
-const GRAPH_MODES = ['plan', 'all', 'paths', 'issues'];
+const GRAPH_MODES = new Set(['plan', 'all', 'paths', 'issues']);
 let graphSequence = 0;
+const nonnegative = value => Number.isFinite(value) && value >= 0 ? value : 0;
+function zoomPercent(scale) {
+  return Number((scale * 100).toFixed(2));
+}
+function parseGraphZoomInput(value) {
+  const trimmed = value.trim();
+  const raw = trimmed.endsWith('%') ? trimmed.slice(0, -1).trim() : trimmed;
+  return /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) ? Number(raw) : Number.NaN;
+}
+function wheelDeltaUnit(mode, viewportHeight) {
+  if (mode === 1) return 16;
+  return mode === 2 ? viewportHeight : 1;
+}
+function restoredPathMode(restored, pathMode) {
+  const value = restored.pathMode || pathMode;
+  return ['complete', 'upstream', 'downstream', 'neighbors'].includes(value) ? value : 'complete';
+}
+function issueColumns(issue) {
+  if (Array.isArray(issue.columns)) return issue.columns;
+  return issue.column ? String(issue.column).split(',').map(column => column.trim()) : null;
+}
 function html(tag, attributes = {}, text = '') {
   const el = document.createElement(tag);
   for (const [key, value] of Object.entries(attributes)) {
@@ -30,6 +51,36 @@ function relationText(edge) {
   const source = (edge.sourceColumns || []).join(' + ');
   const target = (edge.targetColumns || []).join(' + ');
   return `${edge.source}${source ? '.' + source : ''} → ${edge.target}${target ? '.' + target : ''}`;
+}
+function createGraphLegend() {
+  const legend = html('div', {
+    class: 'graph-state-legend',
+    'data-graph-legend': '',
+    role: 'group',
+    'aria-label': tr('graph.legend')
+  });
+  for (const [state, label] of [['chosen', tr('graph.plan')], ['referenced', tr('graph.referenced')], ['unused', tr('graph.unused')], ['current', tr('graph.current')], ['blocked', tr('graph.problemTable')]]) {
+    const item = html('span', {
+      class: 'graph-legend-item'
+    });
+    if (state === 'blocked') setAttr(item, 'title', tr('graph.problemTableHint'));
+    item.append(html('i', {
+      class: `graph-legend-swatch ${state}`,
+      'aria-hidden': 'true'
+    }), html('span', {}, label));
+    legend.append(item);
+  }
+  let relatedLegendLabel;
+  for (const [state, label] of [['normal', tr('graph.otherRelations')], ['related', tr('graph.relatedPaths')], ['focused', tr('graph.selectedRelation')], ['problem', tr('graph.problemRelation')]]) {
+    const swatch = html('i', {class: `graph-legend-line ${state}`, 'aria-hidden': 'true'});
+    const caption = html('span', {}, label);
+    if (state === 'related') relatedLegendLabel = caption;
+    const item = html('span', {class: 'graph-legend-item'});
+    if (state === 'problem') setAttr(item, 'title', tr('graph.problemRelationHint'));
+    item.append(swatch, caption);
+    legend.append(item);
+  }
+  return {legend, relatedLegendLabel};
 }
 function nodeTitle(text) {
   let shortened = '',
@@ -103,20 +154,13 @@ export function createSchemaGraph({
   const tableByName = new Map((schema.tables || []).map(table => [table.name, table]));
   const nodeIds = new Set(data.nodes.map(node => node.id));
   const restored = initialView && typeof initialView === 'object' ? initialView : {};
-  const nonnegative = value => Number.isFinite(value) && value >= 0 ? value : 0;
   const requestedFocus = focus ?? restored.focus;
   let currentFocus = nodeIds.has(requestedFocus) ? requestedFocus : data.nodes[0]?.id;
   // Inspecting a node keeps the drawing stable; only an explicit path action
   // changes its anchor. Older snapshots used focus for both purposes.
   let pathFocus = nodeIds.has(restored.pathFocus) ? restored.pathFocus : currentFocus;
   let currentMode = restoredMode();
-  let currentPath = restored.pathMode || pathMode;
-  if (currentPath === 'paths') {
-    currentPath = 'complete';
-  }
-  if (!['complete', 'upstream', 'downstream', 'neighbors'].includes(currentPath)) {
-    currentPath = 'complete';
-  }
+  let currentPath = restoredPathMode(restored, pathMode);
   let labels = restored.labels === true,
     expanded = restored.expanded === true;
   let selectedEdge = data.edges.some(edge => edge.id === restored.edgeId) ? restored.edgeId : null;
@@ -139,7 +183,7 @@ export function createSchemaGraph({
   const markerId = `wb-schema-arrow-${++graphSequence}`;
   const listeners = [],
     drawingListeners = [];
-  const listen = (el, type, callback, drawing = false, options) => {
+  const listen = (el, type, callback, drawing = false, options = undefined) => {
     el.addEventListener(type, callback, options);
     (drawing ? drawingListeners : listeners).push(() => el.removeEventListener(type, callback, options));
   };
@@ -394,33 +438,7 @@ export function createSchemaGraph({
     applyViewport();
   }), 'aria-pressed', String(expanded));
   tools.append(summary, zoomTools);
-  const legend = html('div', {
-    class: 'graph-state-legend',
-    'data-graph-legend': '',
-    role: 'group',
-    'aria-label': tr('graph.legend')
-  });
-  for (const [state, label] of [['chosen', tr('graph.plan')], ['referenced', tr('graph.referenced')], ['unused', tr('graph.unused')], ['current', tr('graph.current')], ['blocked', tr('graph.problemTable')]]) {
-    const item = html('span', {
-      class: 'graph-legend-item'
-    });
-    if (state === 'blocked') setAttr(item, 'title', tr('graph.problemTableHint'));
-    item.append(html('i', {
-      class: `graph-legend-swatch ${state}`,
-      'aria-hidden': 'true'
-    }), html('span', {}, label));
-    legend.append(item);
-  }
-  let relatedLegendLabel;
-  for (const [state, label] of [['normal', tr('graph.otherRelations')], ['related', tr('graph.relatedPaths')], ['focused', tr('graph.selectedRelation')], ['problem', tr('graph.problemRelation')]]) {
-    const swatch = html('i', {class: `graph-legend-line ${state}`, 'aria-hidden': 'true'});
-    const caption = html('span', {}, label);
-    if (state === 'related') relatedLegendLabel = caption;
-    const item = html('span', {class: 'graph-legend-item'});
-    if (state === 'problem') setAttr(item, 'title', tr('graph.problemRelationHint'));
-    item.append(swatch, caption);
-    legend.append(item);
-  }
+  const {legend, relatedLegendLabel} = createGraphLegend();
   const canvas = html('div', {
     class: 'graph-canvas sg-canvas',
     'data-graph-canvas': '',
@@ -455,8 +473,7 @@ export function createSchemaGraph({
     if (issue.table !== edge.target || issue.source_table && issue.source_table !== edge.source) return false;
     // Structured column groups preserve identifiers containing commas. Older
     // responses joined a composite FK with commas; compare the complete set.
-    const columns = Array.isArray(issue.columns) ? issue.columns
-      : issue.column ? String(issue.column).split(',').map(column => column.trim()) : null;
+    const columns = issueColumns(issue);
     if (!columns) return true;
     const expected = new Set(columns), actual = new Set(edge.targetColumns || []);
     return expected.size === actual.size && [...expected].every(column => actual.has(column));
@@ -502,19 +519,20 @@ export function createSchemaGraph({
   function searchData() {
     return currentMode === 'plan' ? globalThis.SqlseedDependencyView.selectPlanGraph(data) : data;
   }
-  function projection() {
-    if (searchText) {
-      const matches = searchMatches();
-      const source = searchData();
-      const visible = new Set();
-      for (const match of matches) {
-        const paths = globalThis.SqlseedDependencyView.selectGraph(source, match.id, 'paths');
-        for (const node of paths.nodes) {
-          visible.add(node.id);
-        }
+  function searchProjection() {
+    const matches = searchMatches();
+    const source = searchData();
+    const visible = new Set();
+    for (const match of matches) {
+      const paths = globalThis.SqlseedDependencyView.selectGraph(source, match.id, 'paths');
+      for (const node of paths.nodes) {
+        visible.add(node.id);
       }
-      return visibleGraph(visible, source);
     }
+    return visibleGraph(visible, source);
+  }
+  function projection() {
+    if (searchText) return searchProjection();
     if (currentMode === 'all') {
       return data;
     }
@@ -593,6 +611,12 @@ export function createSchemaGraph({
     setText(pathTitle, pathFocus ? tr('graph.pathTitle', {table: pathFocus}) : tr('graph.noTable'));
     setText(inspectedTable, currentFocus ? tr('graph.inspecting', {table: currentFocus}) : '');
     inspectedTable.hidden = !currentFocus || currentFocus === pathFocus;
+    setText(scopeNote, scopeNoteText());
+    const read = controls.get('focus-readable');
+    read.disabled = !nodeIds.has(currentFocus);
+    setAttr(read, 'aria-label', tr('graph.readLabel', {table: currentFocus || tr('graph.currentTable')}));
+  }
+  function scopeNoteText() {
     const notes = {
       complete: tr('graph.completeNote'),
       upstream: tr('graph.upstreamNote'),
@@ -600,25 +624,22 @@ export function createSchemaGraph({
       neighbors: tr('graph.neighborsNote')
     };
     if (searchText) {
-      setText(scopeNote, currentMode === 'plan'
+      return currentMode === 'plan'
         ? tr('graph.searchPlan', {query: searchText})
-        : tr('graph.searchAll', {query: searchText}));
+        : tr('graph.searchAll', {query: searchText});
     } else if (currentMode === 'plan') {
-      setText(scopeNote, tr('graph.planNote'));
+      return tr('graph.planNote');
     } else if (currentMode === 'paths') {
-      setText(scopeNote, joinText([pathFocus || tr('graph.noTable'), notes[currentPath]], ' · '));
+      return joinText([pathFocus || tr('graph.noTable'), notes[currentPath]], ' · ');
     } else if (currentMode === 'issues') {
       let hint = emptyIssuesHint();
       if (issues.length) {
         hint = unlocatedIssues.length ? tr('graph.unlocatedNote') : tr('graph.issuesNote');
       }
-      setText(scopeNote, hint);
+      return hint;
     } else {
-      setText(scopeNote, tr('graph.allNote'));
+      return tr('graph.allNote');
     }
-    const read = controls.get('focus-readable');
-    read.disabled = !nodeIds.has(currentFocus);
-    setAttr(read, 'aria-label', tr('graph.readLabel', {table: currentFocus || tr('graph.currentTable')}));
   }
   function emptyIssuesHint() {
     const key = checked ? 'graph.noIssues' : 'graph.notChecked';
@@ -697,7 +718,7 @@ export function createSchemaGraph({
     const target = selected.getBoundingClientRect();
     if (!scopes.isConnected || !Number.isFinite(target.width) || !Number.isFinite(target.height)
       || target.width <= 0 || target.height <= 0) {
-      scopes.removeAttribute('data-indicator-ready');
+      delete scopes.dataset.indicatorReady;
       scopeGeometry = null;
       return;
     }
@@ -718,6 +739,46 @@ export function createSchemaGraph({
     });
     setAttr(scopes, 'data-indicator-ready', '');
     scopeGeometry = next;
+  }
+  function drawEmptyGraph() {
+    svg = null;
+    stage = null;
+    layout = null;
+    setText(zoomLabel, '—');
+    syncZoomInput();
+    for (const action of ['zoom-in', 'zoom-out', 'fit', 'readable']) {
+      controls.get(action).disabled = true;
+    }
+    const emptyGraphHint = () => {
+      if (searchText) {
+        return tr('graph.emptySearch');
+      } else if (currentMode === 'all') {
+        return tr('graph.emptyDatabase');
+      } else if (currentMode === 'plan') {
+        return tr('graph.emptyPlan');
+      } else if (currentMode === 'issues') {
+        return issues.length
+          ? tr('graph.emptyIssues')
+          : emptyIssuesHint();
+      } else {
+        return tr('graph.emptyScope');
+      }
+    };
+    const empty = html('div', {
+      class: 'graph-empty sg-empty'
+    }, emptyGraphHint());
+    if (currentMode === 'plan' && !searchText) {
+      const showAll = html('button', {type: 'button', class: 'wb-button graph-empty-action'}, tr('graph.showAll'));
+      listen(showAll, 'click', () => {
+        currentMode = 'all';
+        draw(false, true);
+        controls.get('all').focus({preventScroll: true});
+      }, true);
+      empty.append(showAll);
+    }
+    canvas.append(empty);
+    pendingViewport = null;
+    publishView();
   }
   function draw(preserveViewport = false, animateScope = false, animatePath = false) {
     if (destroyed) {
@@ -743,44 +804,7 @@ export function createSchemaGraph({
     canvas.replaceChildren();
     frame = null;
     if (!visible.nodes.length) {
-      svg = null;
-      stage = null;
-      layout = null;
-      setText(zoomLabel, '—');
-      syncZoomInput();
-      for (const action of ['zoom-in', 'zoom-out', 'fit', 'readable']) {
-        controls.get(action).disabled = true;
-      }
-      const emptyGraphHint = () => {
-        if (searchText) {
-          return tr('graph.emptySearch');
-        } else if (currentMode === 'all') {
-          return tr('graph.emptyDatabase');
-        } else if (currentMode === 'plan') {
-          return tr('graph.emptyPlan');
-        } else if (currentMode === 'issues') {
-          return issues.length
-            ? tr('graph.emptyIssues')
-            : emptyIssuesHint();
-        } else {
-          return tr('graph.emptyScope');
-        }
-      };
-      const empty = html('div', {
-        class: 'graph-empty sg-empty'
-      }, emptyGraphHint());
-      if (currentMode === 'plan' && !searchText) {
-        const showAll = html('button', {type: 'button', class: 'wb-button graph-empty-action'}, tr('graph.showAll'));
-        listen(showAll, 'click', () => {
-          currentMode = 'all';
-          draw(false, true);
-          controls.get('all').focus({preventScroll: true});
-        }, true);
-        empty.append(showAll);
-      }
-      canvas.append(empty);
-      pendingViewport = null;
-      publishView();
+      drawEmptyGraph();
       return;
     }
     layout = globalThis.SqlseedGraphLayout.layoutGraph(visible.nodes, visible.edges);
@@ -1046,6 +1070,15 @@ export function createSchemaGraph({
     }
     setAttr(controls.get('fit'), 'aria-pressed', String(!manualZoom && !actualSize && Math.abs(zoom - 1) < .001));
     controls.get('readable').disabled = Math.abs(frame.scale - 1) < .001;
+    restoreViewportPosition({width, height, centerX, centerY}, reset, anchor);
+    // A new graph may be built before its host is attached. Restore again on
+    // the first measured resize instead of committing fallback dimensions.
+    if (canvas.clientWidth > 0 && canvas.clientHeight > 0) {
+      pendingViewport = null;
+    }
+    publishView();
+  }
+  function restoreViewportPosition({width, height, centerX, centerY}, reset, anchor) {
     if (pendingViewport) {
       canvas.scrollLeft = pendingViewport.scrollLeft;
     } else if (reset) {
@@ -1063,12 +1096,7 @@ export function createSchemaGraph({
       canvas.scrollTop = Math.max(0, Math.min(frame.stageHeight - height, frame.top + anchor.y * frame.scale - anchor.viewportY));
     } else {
       canvas.scrollTop = Math.max(0, frame.top + centerY * frame.scale - height / 2);
-    } // A new graph may be built before its host is attached. Restore again on
-    // the first measured resize instead of committing fallback dimensions.
-    if (canvas.clientWidth > 0 && canvas.clientHeight > 0) {
-      pendingViewport = null;
     }
-    publishView();
   }
   function centerFocus() {
     const node = layout?.nodes.find(item => item.id === currentFocus);
@@ -1088,9 +1116,6 @@ export function createSchemaGraph({
   // Percentages describe actual node size, while stored zoom remains relative
   // to fit. Round the input bounds like the displayed value; changeZoom still
   // enforces the exact existing limits for buttons, wheel and typed values.
-  function zoomPercent(scale) {
-    return Number((scale * 100).toFixed(2));
-  }
   function zoomRange() {
     return {min: zoomPercent(.25 * frame.fitScale), max: zoomPercent(Math.max(8 * frame.fitScale, 2))};
   }
@@ -1117,8 +1142,7 @@ export function createSchemaGraph({
   }
   function commitZoom() {
     if (destroyed || !frame || !zoomDraft) return;
-    const raw = zoomInput.value.trim().replace(/\s*%$/, '');
-    const percentage = /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(raw) ? Number(raw) : NaN;
+    const percentage = parseGraphZoomInput(zoomInput.value);
     const {min, max} = zoomRange();
     if (!Number.isFinite(percentage) || percentage <= 0 || percentage < min || percentage > max) {
       setAttr(zoomInput, 'aria-invalid', 'true');
@@ -1145,7 +1169,7 @@ export function createSchemaGraph({
       viewportX,
       viewportY
     };
-    const unit = event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? frame.viewportHeight : 1;
+    const unit = wheelDeltaUnit(event.deltaMode, frame.viewportHeight);
     const delta = Math.max(-100, Math.min(100, event.deltaY * unit));
     pendingViewport = null;
     changeZoom(zoom * Math.exp(-delta * .002), anchor);
@@ -1265,9 +1289,9 @@ export function createSchemaGraph({
   };
   function restoredMode() {
     let currentMode;
-    if (GRAPH_MODES.includes(restored.mode)) {
+    if (GRAPH_MODES.has(restored.mode)) {
       currentMode = restored.mode;
-    } else if (GRAPH_MODES.includes(mode)) {
+    } else if (GRAPH_MODES.has(mode)) {
       currentMode = mode;
     } else {
       currentMode = 'all';

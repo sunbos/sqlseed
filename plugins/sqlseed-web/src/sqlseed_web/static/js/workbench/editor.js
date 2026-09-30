@@ -8,6 +8,17 @@ import { genLabel, paramLabel, genGuide } from '../labels.js';
 import { createDatePicker } from './date-picker.js';
 const copy = value => structuredClone(value);
 const isObject = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+const validTimeInput = value => {
+  if (!value.trim()) {
+    return undefined;
+  }
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value)) {
+    throw new UserFacingError(tr('editor.timeError'));
+  }
+  return value;
+};
+
+const labelFor = item => genLabel(item.id) === item.id ? serverText(item, 'label') || item.id : genLabel(item.id);
 let editorSequence = 0;
 function normalizeRule(value, name) {
   const rule = copy(value || {});
@@ -246,26 +257,13 @@ export function createRuleEditor({
   }
   function validateRanges() {
     const controls = new Map([...el.querySelectorAll('input[data-field]')].map(input => [input.dataset.field, input]));
-    for (const field of rangeErrors.keys()) {
-      const input = controls.get(field);
-      if (input && !errors.has(field)) input.removeAttribute('aria-invalid');
-      if (input?.getAttribute('aria-describedby') === errorId) input.removeAttribute('aria-describedby');
-    }
-    rangeErrors.clear();
+    clearRangeErrors(controls);
     if (mode !== 'source' || current.faker_method || current.mimesis_method) return;
     const parameters = new Map((entries.get(current.generator)?.params || []).map(parameter => [parameter.name, parameter]));
     const value = name => current.params[name] ?? parameters.get(name)?.default;
     for (const [low, high] of [['min_value','max_value'], ['min_length','max_length'], ['start_time','end_time']]) {
-      if (!parameters.has(low) || !parameters.has(high) || !controls.has(low) || !controls.has(high) || errors.has(low) || errors.has(high)) continue;
-      const time = low === 'start_time';
-      if (time && value('all_day')) continue;
-      const seconds = text => {
-        const parts = String(text).split(':').map(Number);
-        return parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
-      };
-      const start = time ? seconds(value(low) ?? dateDefault(low)) : value(low);
-      const end = time ? seconds(value(high) ?? dateDefault(high)) : value(high);
-      if (!Number.isFinite(start) || !Number.isFinite(end) || start <= end) continue;
+      if (![low, high].every(name => parameters.has(name) && controls.has(name) && !errors.has(name))) continue;
+      if (!rangeReversed(low, high, value)) continue;
       const message = tr('editor.rangeError', {minimum: paramLabel(low), maximum: paramLabel(high)});
       for (const name of [low, high]) {
         rangeErrors.set(name, message);
@@ -273,6 +271,25 @@ export function createRuleEditor({
         setAttr(controls.get(name), 'aria-describedby', errorId);
       }
     }
+  }
+  function clearRangeErrors(controls) {
+    for (const field of rangeErrors.keys()) {
+      const input = controls.get(field);
+      if (input && !errors.has(field)) input.removeAttribute('aria-invalid');
+      if (input?.getAttribute('aria-describedby') === errorId) input.removeAttribute('aria-describedby');
+    }
+    rangeErrors.clear();
+  }
+  function rangeReversed(low, high, value) {
+    const time = low === 'start_time';
+    if (time && value('all_day')) return false;
+    const seconds = text => {
+      const parts = String(text).split(':').map(Number);
+      return parts[0] * 3600 + parts[1] * 60 + (parts[2] || 0);
+    };
+    const start = time ? seconds(value(low) ?? dateDefault(low)) : value(low);
+    const end = time ? seconds(value(high) ?? dateDefault(high)) : value(high);
+    return Number.isFinite(start) && Number.isFinite(end) && start > end;
   }
   function emit() {
     if (disposed) {
@@ -453,23 +470,14 @@ export function createRuleEditor({
       ready = true;
       return picker.el;
     }
-    const valid = value => {
-      if (!value.trim()) {
-        return undefined;
-      }
-      if (!/^(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(value)) {
-        throw new UserFacingError(tr('editor.timeError'));
-      }
-      return value;
-    };
     // Keep invalid imported time text visible instead of erasing it.
     let malformed = false;
     try {
-      valid(String(raw));
+      validTimeInput(String(raw));
     } catch {
       malformed = true;
     }
-    const input = textControl(name, String(raw), valid, value => {
+    const input = textControl(name, String(raw), validTimeInput, value => {
       if (value === undefined) {
         delete current.params[name];
       } else {
@@ -722,7 +730,6 @@ export function createRuleEditor({
   }
   function renderSource() {
     const entry = entries.get(current.generator);
-    const labelFor = item => genLabel(item.id) === item.id ? serverText(item, 'label') || item.id : genLabel(item.id);
     const chooser = h('div', {
       class: 'generator-chooser',
       'data-field': 'generator'

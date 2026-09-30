@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import sqlite3
 import sys
+import warnings
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
@@ -14,6 +16,9 @@ from urllib.parse import quote
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from packaging.version import Version
+from sqlalchemy import __version__ as sqlalchemy_version
+from sqlalchemy.exc import SAWarning
 from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web import workbench
@@ -150,12 +155,30 @@ def test_memory_query_without_uri_mode_still_identifies_the_real_disk_database(
     registry: UIState, database: Path
 ) -> None:
     plain = registry.add_connection(str(database), provider="base")
-    ignored_options = registry.add_connection(f"sqlite:///{database}?mode=memory&cache=shared", provider="base")
-    assert ignored_options.orchestrator.query("SELECT value FROM items") == [{"value": 7}]
-    assert inspect_connection(ignored_options)["target_key"] == inspect_connection(plain)["target_key"]
-    registry.create_job(plain.conn_id, "workbench", "first")
-    with pytest.raises(ConnectionBusyError, match="此数据库"):
-        registry.create_job(ignored_options.conn_id, "workbench", "alias")
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always", SAWarning)
+        ignored_options = registry.add_connection(f"sqlite:///{database}?mode=memory&cache=shared", provider="base")
+        try:
+            assert ignored_options.orchestrator.query("SELECT value FROM items") == [{"value": 7}]
+            assert inspect_connection(ignored_options)["target_key"] == inspect_connection(plain)["target_key"]
+            registry.create_job(plain.conn_id, "workbench", "first")
+            with pytest.raises(ConnectionBusyError, match="此数据库"):
+                registry.create_job(ignored_options.conn_id, "workbench", "alias")
+        finally:
+            registry.close_connection(ignored_options.conn_id)
+    # SQLAlchemy 2.1 warns during engine creation and each identity resolution.
+    # This negative case deliberately omits uri=true; no other warning is expected.
+    expected_origins = (
+        {"sqlite_target.py", "sqlalchemy_adapter.py"} if Version(sqlalchemy_version).release[:2] >= (2, 1) else set()
+    )
+    assert {Path(warning.filename).name for warning in recorded} == expected_origins
+    for warning in recorded:
+        assert warning.category is SAWarning
+        assert warning.message.code == "squa"
+        assert re.match(
+            r"Query string argument\(s\) 'cache', 'mode'.*ignored.*require.*'uri=true'",
+            str(warning.message),
+        )
 
 
 def test_differently_named_shared_memory_databases_remain_independent(registry: UIState) -> None:

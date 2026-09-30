@@ -9,15 +9,19 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
-
-pytest.importorskip("sqlseed_ai")
+try:
+    from sqlseed_ai import AIBackend, AIConfig, SchemaAnalyzer
+    from sqlseed_ai._json_utils import JSONResponseError, parse_json_response
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai is not installed", allow_module_level=True)
 
 import httpx
 from openai import OpenAI
-from sqlseed_ai import AIBackend, AIConfig, SchemaAnalyzer
-from sqlseed_ai._json_utils import JSONResponseError, parse_json_response
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 _CONFIG = {
     "name": ".events",
@@ -258,3 +262,99 @@ def test_strict_tool_text_fallback_does_not_hide_empty_or_invalid_response(
         analyzer.call_llm(_MESSAGES, strict_json=True, preserve_names=preserve_names)
     assert captured.value.code == code
     assert str(captured.value) == code
+
+
+@pytest.mark.parametrize("arguments", ["[]", '[{"name":"events"}]', "17", '"PRIVATE_RESPONSE_MARKER"', "null", "true"])
+def test_strict_tool_arguments_require_an_object_without_retrying(
+    monkeypatch: pytest.MonkeyPatch, arguments: str
+) -> None:
+    requests = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        message = _tool_message()
+        message["tool_calls"][0]["function"]["arguments"] = arguments
+        return _completion(message, finish_reason="tool_calls")
+
+    with (
+        _analyzer_http(monkeypatch, handle, tools=True) as analyzer,
+        pytest.raises(JSONResponseError) as captured,
+    ):
+        analyzer.call_llm(_MESSAGES, strict_json=True, preserve_names=True)
+
+    assert captured.value.code == "invalid_json"
+    assert str(captured.value) == "invalid_json"
+    assert len(requests) == 1
+
+
+@pytest.mark.parametrize("preserve_names", [False, True])
+def test_legacy_tool_arguments_can_fall_back_to_valid_text(
+    monkeypatch: pytest.MonkeyPatch, preserve_names: bool
+) -> None:
+    message = _tool_message()
+    message["tool_calls"][0]["function"]["arguments"] = "[]"
+    message["content"] = _JSON
+    with _analyzer_http(monkeypatch, lambda _request: _completion(message), tools=True) as analyzer:
+        result = analyzer.call_llm(_MESSAGES, preserve_names=preserve_names)
+    assert result == _expected(preserved=preserve_names)
+
+
+@pytest.mark.parametrize(
+    "calls,expected,strict_error",
+    [
+        pytest.param(
+            [
+                ("unrelated", "[]"),
+                ("analyze_schema", ""),
+                ("analyze_schema", "malformed JSON"),
+                ("analyze_schema", _JSON),
+                ("analyze_schema", '{"name":"later"}'),
+            ],
+            _CONFIG,
+            False,
+            id="skip-unrelated-empty-and-malformed-before-first-object",
+        ),
+        pytest.param(
+            [("analyze_schema", "{}"), ("analyze_schema", _JSON)],
+            {},
+            False,
+            id="empty-object-still-wins",
+        ),
+        pytest.param(
+            [("analyze_schema", "[]"), ("analyze_schema", _JSON)],
+            _CONFIG,
+            True,
+            id="nonobject-before-object-rejected-only-in-strict-mode",
+        ),
+    ],
+)
+@pytest.mark.parametrize("strict", [False, True])
+def test_tool_response_order_keeps_first_object_and_strict_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    calls: list[tuple[str, str]],
+    expected: dict[str, Any],
+    strict_error: bool,
+    strict: bool,
+) -> None:
+    """Decode real SDK tool messages; neither later tools nor text replace a result."""
+    requests = []
+    message = {
+        "content": '{"name":"text-fallback"}',
+        "tool_calls": [
+            {"id": f"tool-{index}", "type": "function", "function": {"name": name, "arguments": arguments}}
+            for index, (name, arguments) in enumerate(calls)
+        ],
+    }
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return _completion(message, finish_reason="tool_calls")
+
+    with _analyzer_http(monkeypatch, handle, tools=True) as analyzer:
+        if strict and strict_error:
+            with pytest.raises(JSONResponseError) as captured:
+                analyzer.call_llm(_MESSAGES, strict_json=True, preserve_names=True)
+            assert captured.value.code == "invalid_json"
+        else:
+            assert analyzer.call_llm(_MESSAGES, strict_json=strict, preserve_names=True) == expected
+    assert len(requests) == 1

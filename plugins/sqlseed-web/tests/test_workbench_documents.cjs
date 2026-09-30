@@ -204,6 +204,31 @@ test('reading a file changes only visible text and a late read never replaces ne
   assert.equal(ui.modelState().document.tables.length,0);
 });
 
+for (const label of ['编辑 YAML', '导入关系图 JSON']) {
+  test(`${label} reports file-read failure without losing text and ignores a failure after closing`, async () => {
+    const ui = harness(); await ui.mount(); await ui.button(label).click();
+    const dialog = ui.document.querySelector('[role="dialog"]');
+    const file = dialog.querySelector('input[type="file"]'), text = dialog.querySelector('textarea');
+    const before = plain(ui.modelState().document);
+    text.value = 'keep this draft';
+    file.files = [{size: 20, text: async () => {throw new Error('file unavailable');}}];
+    await file.dispatchEvent('change');
+    assert.match(dialog.querySelector('[role="alert"]').textContent, /file unavailable/);
+    assert.equal(text.value, 'keep this draft');
+    assert.deepEqual(plain(ui.modelState().document), before);
+    let rejectRead;
+    file.files = [{size: 20, text: () => new Promise((_, reject) => {rejectRead = reject;})}];
+    const pending = file.dispatchEvent('change');
+    await ui.button('取消', dialog).click();
+    await ui.button(label).click();
+    rejectRead(new Error('obsolete file failure'));
+    await pending;
+    assert.doesNotMatch(ui.document.querySelector('[role="dialog"]').textContent, /obsolete file failure/);
+    assert.deepEqual(plain(ui.modelState().document), before);
+    ui.leave();
+  });
+}
+
 test('a parse response cannot replace newer visible configuration text', async () => {
   const ui = harness(); await ui.mount(); await ui.button('编辑 YAML').click();
   const before = plain(ui.modelState().document);

@@ -131,34 +131,8 @@ def _configure_middleware(
         return response
 
 
-def create_app(
-    *,
-    manage_plugins: bool = False,
-    management_service: ManagementService | None = None,
-    supervised_worker: bool = False,
-) -> FastAPI:
-    """Build the sqlseed-web application (API + static frontend)."""
-    manager: ManagementService = management_service or PluginManager(enabled=manage_plugins)
-
-    @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        if isinstance(manager, PluginManager):
-            manager.start()
-        try:
-            yield
-        finally:
-            if isinstance(manager, PluginManager):
-                manager.stop()
-
-    app = FastAPI(
-        title="sqlseed-web",
-        version="0.1.0",
-        description="Web workbench and acceptance cockpit for the sqlseed test-data toolkit.",
-        lifespan=lifespan,
-    )
-    app.state.plugin_manager = manager
-    app.state.metadata_only = manage_plugins
-    _configure_middleware(app, manager, manage_plugins, supervised_worker)
+def _configure_exception_handlers(app: FastAPI) -> None:
+    """Register sanitized validation and structured HTTP error responses."""
 
     @app.exception_handler(HTTPException)
     async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
@@ -190,6 +164,38 @@ def create_app(
             for error in exc.errors()
         ]
         return JSONResponse(status_code=422, content={"detail": details})
+
+
+def create_app(
+    *,
+    manage_plugins: bool = False,
+    management_service: ManagementService | None = None,
+    supervised_worker: bool = False,
+) -> FastAPI:
+    """Build the sqlseed-web application (API + static frontend)."""
+    manager: ManagementService = management_service or PluginManager(enabled=manage_plugins)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if isinstance(manager, PluginManager):
+            manager.start()
+        try:
+            yield
+        finally:
+            if isinstance(manager, PluginManager):
+                manager.stop()
+
+    app = FastAPI(
+        title="sqlseed-web",
+        version="0.1.0",
+        description="Web workbench and acceptance cockpit for the sqlseed test-data toolkit.",
+        lifespan=lifespan,
+    )
+    app.state.plugin_manager = manager
+    app.state.metadata_only = manage_plugins
+    _configure_middleware(app, manager, manage_plugins, supervised_worker)
+
+    _configure_exception_handlers(app)
 
     app.include_router(settings_router)
     app.include_router(updates_router)

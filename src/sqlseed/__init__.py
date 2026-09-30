@@ -1,11 +1,14 @@
 """sqlseed — declarative SQLite/multi-database test data generation toolkit.
 
-Public API: fill, connect, fill_from_config, preview, load_config.
+Public API: fill, FillOptions, connect, fill_from_config, preview, load_config.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from dataclasses import dataclass, replace
+from typing import Any, TypedDict
+
+from typing_extensions import Unpack
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._version import __version__
@@ -22,6 +25,7 @@ from sqlseed.core.result import GenerationResult
 __all__ = [
     "ColumnConfig",
     "DataOrchestrator",
+    "FillOptions",
     "GenerationResult",
     "GeneratorConfig",
     "ProviderType",
@@ -37,22 +41,63 @@ __all__ = [
 logger = get_logger(__name__)
 
 
+@dataclass(frozen=True, kw_only=True)
+class FillOptions:
+    """Reusable single-table generation settings; individual keywords override these values.
+
+    The database target, table and row count remain arguments to ``fill`` so the
+    same settings can be used with different tables and connections. Columns
+    retain their existing dictionary contract; freezing this object does not
+    freeze the dictionaries supplied by the caller.
+
+    Attributes:
+        columns: Optional column overrides (column name → generator params).
+        provider: Data provider name (``"mimesis"``, ``"faker"``, or ``"base"``).
+        locale: Locale for localized data (e.g. ``"en_US"``, ``"zh_CN"``).
+        seed: Random seed for reproducible generation.
+        batch_size: Rows per batch insert.
+        clear_before: If True, delete existing rows before filling.
+        optimize_pragma: If True, apply SQLite PRAGMA optimizations during fill.
+        enrich: If True, apply local enum enrichment to column mapping.
+        transform: Optional path to a user transform script.
+        skip_ai: If True, skip AI-suggested column mapping.
+    """
+
+    columns: dict[str, Any] | None = None
+    provider: str = "mimesis"
+    locale: str = "en_US"
+    seed: int | None = None
+    batch_size: int = 5000
+    clear_before: bool = False
+    optimize_pragma: bool = True
+    enrich: bool = False
+    transform: str | None = None
+    skip_ai: bool = True
+
+
+class _FillOverrides(TypedDict, total=False):
+    """Typed compatibility keywords accepted by ``fill`` alongside grouped settings."""
+
+    columns: dict[str, Any] | None
+    provider: str
+    locale: str
+    seed: int | None
+    batch_size: int
+    clear_before: bool
+    optimize_pragma: bool
+    enrich: bool
+    transform: str | None
+    skip_ai: bool
+
+
 def fill(
     db_path: str | None = None,
     *,
     url: str | None = None,
     table: str,
     count: int = 1000,
-    columns: dict[str, Any] | None = None,
-    provider: str = "mimesis",
-    locale: str = "en_US",
-    seed: int | None = None,
-    batch_size: int = 5000,
-    clear_before: bool = False,
-    optimize_pragma: bool = True,
-    enrich: bool = False,
-    transform: str | None = None,
-    skip_ai: bool = True,
+    options: FillOptions | None = None,
+    **overrides: Unpack[_FillOverrides],
 ) -> GenerationResult:
     """Fill a single table with zero configuration.
 
@@ -65,37 +110,36 @@ def fill(
         url: Database URL, e.g. ``postgresql://user:pass@host/db`` (mutually exclusive with ``db_path``).
         table: Target table name to fill.
         count: Number of rows to generate.
-        columns: Optional column overrides (column name → generator params).
-        provider: Data provider name (``"mimesis"``, ``"faker"``, or ``"base"``).
-        locale: Locale for localized data (e.g. ``"en_US"``, ``"zh_CN"``).
-        seed: Random seed for reproducible generation.
-        batch_size: Rows per batch insert.
-        clear_before: If True, delete existing rows before filling.
-        optimize_pragma: If True, apply SQLite PRAGMA optimizations during fill.
-        enrich: If True, apply local enum enrichment to column mapping.
-        transform: Optional path to a user transform script.
-        skip_ai: If True, skip AI-suggested column mapping.
+        options: Reusable generation settings. Individual keywords below take precedence.
+        **overrides: Per-call keywords matching the ten ``FillOptions`` fields,
+            including ``columns``, ``provider``, ``locale``, ``seed``, ``batch_size``,
+            ``clear_before``, ``optimize_pragma``, ``enrich``, ``transform`` and ``skip_ai``.
+
+    Existing keyword calls remain supported with the same defaults. Use
+    ``options=FillOptions(provider="faker", seed=42)`` to share settings across
+    calls. Unknown keywords raise ``TypeError`` before a database is opened.
 
     Raises:
         ValueError: If neither ``db_path`` nor ``url`` is provided, or if both are provided.
     """
+    settings = replace(FillOptions() if options is None else options, **overrides)
     target = _resolve_db_target(db_path, url)
     with DataOrchestrator(
         db_path=target,
-        provider_name=provider,
-        locale=locale,
-        optimize_pragma=optimize_pragma,
+        provider_name=settings.provider,
+        locale=settings.locale,
+        optimize_pragma=settings.optimize_pragma,
     ) as orch:
         return orch.fill_table(
             table_name=table,
             count=count,
-            columns=columns,
-            seed=seed,
-            batch_size=batch_size,
-            clear_before=clear_before,
-            enrich=enrich,
-            transform=transform,
-            skip_ai=skip_ai,
+            columns=settings.columns,
+            seed=settings.seed,
+            batch_size=settings.batch_size,
+            clear_before=settings.clear_before,
+            enrich=settings.enrich,
+            transform=settings.transform,
+            skip_ai=settings.skip_ai,
         )
 
 

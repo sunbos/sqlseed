@@ -120,13 +120,14 @@
 .wb-schema-graph .graph-edge .edge-line {
   vector-effect: non-scaling-stroke;
   pointer-events: none;
+  stroke: var(--graph-edge-stroke);
 }
 .wb-schema-graph .graph-node .graph-node-body,
 .wb-schema-graph .graph-label rect { pointer-events: fill; }
 .wb-schema-graph .graph-node text,
 .wb-schema-graph .graph-label text { pointer-events: none; }
 .wb-schema-graph .graph-edge { --graph-edge-stroke: var(--graph-edge-default, var(--graph-chosen-edge)); }
-.wb-schema-graph .graph-edge .edge-line { stroke: var(--graph-edge-stroke); }
+
 .wb-schema-graph .graph-edge.path-related { --graph-edge-stroke: var(--teal); }
 .wb-schema-graph .graph-edge.focused { --graph-edge-stroke: var(--graph-inspect); }
 .wb-schema-graph .graph-edge.problem { --graph-edge-stroke: var(--warning); }
