@@ -480,7 +480,9 @@ function renderStep3() {
     id: 'preview-out'
   });
   wrap.append(previewOut);
-  doPreviews(selectedTables, previewOut);
+  doPreviews(selectedTables, previewOut).catch(error => {
+    if (previewOut.isConnected) previewOut.append(msg(`预览失败：${error.message}`));
+  });
   wrap.append(h('div', {
     class: 'row',
     style: 'margin-top:16px'

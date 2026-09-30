@@ -119,7 +119,7 @@ function drawList(runs) {
       selectedId = run.id;
       dataViewer?.close();
       dataViewer = null;
-      refresh(version);
+      return refresh(version);
     });
     card.dataset.runId = run.id;
     card.className = `run-card wb-run-card${run.id === selectedId ? ' active' : ''}`;

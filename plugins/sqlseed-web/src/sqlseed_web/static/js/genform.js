@@ -151,6 +151,7 @@ export function createGenForm({
   // 旧的 scroll/mousedown 监听会残留在 document 上（面板开着被丢弃时）。
   let dropdowns = [];
   const paramErrors = new Map(); // 无效编辑草稿不写入 form.params，也不用于预览。
+  let previewRequest = 0;
 
   // 防抖自动预览：生成器/参数/NULL/唯一任一变化后 400ms 刷新例值。
   // 之前只在选中列和手动「刷新」时预览，改参数后一直显示旧值（实测发现）。
@@ -158,7 +159,7 @@ export function createGenForm({
     if (previewTimer) clearTimeout(previewTimer);
     previewTimer = setTimeout(() => {
       previewTimer = null;
-      if (current && previewBox?.isConnected) doPreview(previewBox);
+      if (current && previewBox?.isConnected) startPreview(previewBox);
     }, 400);
   }
   function cleanParams() {
@@ -333,9 +334,9 @@ export function createGenForm({
         class: 'row genform-inline'
       }, previewOut, h('button', {
         class: 'small',
-        onclick: () => doPreview(previewOut)
+        onclick: () => doPreview(previewOut).catch(error => showPreviewError(previewOut, error))
       }, '刷新')))));
-      if (preview) doPreview(previewOut);
+      if (preview) startPreview(previewOut);
     }
 
     // ⑤ 通用区
@@ -365,7 +366,7 @@ export function createGenForm({
       el.append(h('div', {
         class: 'genform-section'
       }, formRow('预览', out)));
-      if (preview) doPreview(out);
+      if (preview) startPreview(out);
       el.append(h('div', {
         class: 'genform-section'
       }, h('button', {
@@ -452,9 +453,9 @@ export function createGenForm({
       class: 'row genform-inline'
     }, out, h('button', {
       class: 'small',
-      onclick: () => doPreview(out)
+      onclick: () => doPreview(out).catch(error => showPreviewError(out, error))
     }, '刷新')))));
-    if (preview) doPreview(out);
+    if (preview) startPreview(out);
     if (!dbNotNull()) {
       const pct = h('input', {
         type: 'number',
@@ -940,8 +941,18 @@ export function createGenForm({
     });
     return missing.length ? missing : null;
   }
+  function showPreviewError(out, error) {
+    if (out !== previewBox || !out.isConnected) return;
+    clear(out);
+    out.append(msg(`预览失败：${error.message}`));
+  }
+  function startPreview(out) {
+    doPreview(out).catch(error => showPreviewError(out, error));
+  }
   async function doPreview(out) {
     if (!current) return;
+    const column = current;
+    const request = ++previewRequest;
     if (paramErrors.size) {
       clear(out);
       out.append(msg('请先修正参数中的 JSON 格式错误。'));
@@ -964,20 +975,20 @@ export function createGenForm({
       // 预览必须带 NULL/唯一，否则勾选后预览永远显示不出空值（实测发现）。
       const cfg = buildCfg();
       const res = await post(`/api/connections/${connId}/preview`, {
-        table: current.table,
+        table: column.table,
         count: 3,
         columns: {
-          [current.col]: cfg
+          [column.col]: cfg
         }
       });
+      if (request !== previewRequest || column !== current || out !== previewBox || !out.isConnected) return;
       clear(out);
-      const vals = res.rows.map(r => r[current.col]);
+      const vals = res.rows.map(r => r[column.col]);
       out.append(h('span', {
         class: 'genform-preview-val'
       }, vals.map(String).join('、') || '（空）'));
     } catch (e) {
-      clear(out);
-      out.append(msg(`预览失败：${e.message}`));
+      if (request === previewRequest && column === current) showPreviewError(out, e);
     }
   }
 

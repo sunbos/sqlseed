@@ -420,3 +420,24 @@ test('mount updates the wizard target after restoring a connection on refresh', 
   assert.equal(c.store.connId, 'B');
   assert.equal(target.textContent, '/tmp/beta.db');
 });
+
+for (const leave of [false, true]) {
+  test(`preview setup failures are contained${leave ? ' after the wizard is replaced' : ' in the current wizard'}`, async () => {
+    const {createDom} = require('./frontend_helpers.cjs');
+    const document = createDom(), api = loadFrontend('api.js', {document});
+    const requests = [];
+    const f = fixture({document, h: api.h, msg: api.msg, clear: api.clear,
+      structuredClone: () => { throw new Error('preview snapshot unavailable'); },
+      post: async path => { requests.push(path); return {rows: []}; },
+    });
+    const screen = f.run('renderStep3()'); document.body.append(screen);
+    const preview = screen.querySelector('#preview-out');
+    if (leave) document.body.replaceChildren(api.h('div', {}, 'another page'));
+    await new Promise(resolve => setImmediate(resolve));
+    if (leave) {
+      assert.equal(document.body.textContent, 'another page');
+      assert.equal(preview.textContent, '');
+    } else assert.match(preview.textContent, /预览失败：preview snapshot unavailable/);
+    assert.deepEqual(requests, []);
+  });
+}

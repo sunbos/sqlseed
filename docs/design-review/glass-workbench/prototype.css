@@ -370,7 +370,7 @@ p {
 .database-symbol {
     height: 36px;
     width: 36px;
-    background: #38644913;
+    background: #e3ebe5;
     border: 1px solid #67866e22;
     border-radius: 10px;
     color: #365449;
@@ -1011,7 +1011,7 @@ h1 {
 .summary-icon {
     height: 31px;
     width: 31px;
-    background: #5c895310;
+    background: #edf2e9;
     color: #365449;
     border-radius: 8px;
 }

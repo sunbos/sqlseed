@@ -15,7 +15,7 @@ export function render() {
   return root;
 }
 export function mount() {
-  load();
+  return load();
 }
 async function load() {
   const out = document.getElementById('meta-out');
