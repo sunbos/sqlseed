@@ -441,3 +441,174 @@ for (const leave of [false, true]) {
     assert.deepEqual(requests, []);
   });
 }
+
+const flush = () => new Promise(resolve => setImmediate(resolve));
+
+test('previews consume one connection at a time in selection order and isolate table failures', async () => {
+  const first = deferred(), calls = [];
+  let pending = 0, peak = 0;
+  const f = fixture({post: async (path, payload) => {
+    calls.push({path, payload: plain(payload)});
+    pending++; peak = Math.max(peak, pending);
+    try {
+      if (payload.table === 'table_0') await first.promise;
+      if (payload.table === 'table_3') throw new Error('preview request failed');
+      return {rows: payload.table === 'table_8' ? null : []};
+    } finally { pending--; }
+  }});
+  f.run(`tablesMeta = Array.from({length:26}, (_, i) => ({name:'table_' + i, columns:[{name:'value'}]}));`);
+  const previewing = f.run(`doPreviews(tablesMeta, document.getElementById('preview-out'))`);
+  assert.equal(calls.length, 1, 'the first request starts immediately without prefetching other tables');
+  await flush(); assert.equal(calls.length, 1);
+  first.resolve(); await previewing;
+  assert.equal(peak, 1);
+  assert.equal(calls.length, 26);
+  assert.ok(calls.every(call => call.path === '/api/connections/A/preview' && call.payload.count === 5));
+  const displayed = f.out.children.map(textOf);
+  assert.equal(displayed.length, 26);
+  displayed.forEach((text, index) => assert.match(text, new RegExp(`^table_${index}(?: | 预览失败)`)));
+  assert.match(displayed[3], /preview request failed/);
+  assert.match(displayed[8], /预览失败/);
+  assert.doesNotMatch(displayed[25], /预览失败/);
+});
+
+test('a synchronous API serialization failure is isolated to its preview table', async () => {
+  const requests = [];
+  const api = loadFrontend('api.js', {fetch: async (path, options) => {
+    requests.push({path, body: JSON.parse(options.body)});
+    return {ok:true, json:async () => ({rows:[]})};
+  }});
+  const f = fixture({post:api.post});
+  f.run(`cfg.get('one').get('value').params.min_value = 1n;`);
+  await f.run(`doPreviews(tablesMeta, document.getElementById('preview-out'))`);
+  assert.match(textOf(f.out.children[0]), /one 预览失败/);
+  assert.match(textOf(f.out.children[1]), /^two/);
+  assert.deepEqual(requests.map(request => request.body.table), ['two']);
+  assert.equal(f.run(`cfg.get('one').get('value').params.min_value`), 1n);
+});
+
+test('polling starts immediately and waits after every running status including the final timeout attempt', async () => {
+  const events = [], waiting = [];
+  const f = fixture({
+    get: async path => {events.push(['get',path]); return {status:'running'};},
+    setTimeout: (resume, delay) => {events.push(['wait',delay]); waiting.push(resume);},
+  });
+  let settled = false;
+  const polling = f.run(`pollJob('job', 2)`).then(result => {settled = true; return result;});
+  assert.deepEqual(events, [['get','/api/jobs/job']]);
+  await flush();
+  assert.deepEqual(events, [['get','/api/jobs/job'],['wait',400]]);
+  waiting.shift()(); await flush();
+  assert.deepEqual(events, [['get','/api/jobs/job'],['wait',400],['get','/api/jobs/job'],['wait',400]]);
+  assert.equal(settled, false, 'the last running response also receives its full wait');
+  waiting.shift()();
+  assert.deepEqual(plain(await polling), {status:'error',error:'超时'});
+  assert.equal(waiting.length, 0);
+});
+
+for (const budget of [undefined, 0]) {
+  test(`polling preserves the ${budget === undefined ? 'default 120-attempt' : 'zero-attempt'} budget`, async () => {
+    let reads = 0; const delays = [];
+    const f = fixture({
+      get: async () => {reads++; return {status:'running'};},
+      setTimeout: (resume, delay) => {delays.push(delay); queueMicrotask(resume);},
+    });
+    const result = await f.run(budget === undefined ? `pollJob('job')` : `pollJob('job', 0)`);
+    assert.deepEqual(plain(result), {status:'error',error:'超时'});
+    assert.equal(reads, budget ?? 120);
+    assert.deepEqual(delays, Array(reads).fill(400));
+  });
+}
+
+for (const status of ['done', 'error', 'cancelled', 'unknown']) {
+  test(`polling returns the ${status} response without another request or delay`, async () => {
+    const response = {status, result:{rows_inserted:7}};
+    let reads = 0; const delays = [];
+    const f = fixture({
+      get: async () => {reads++; return reads === 1 ? {status:'running'} : response;},
+      setTimeout: (resume, delay) => {delays.push(delay); queueMicrotask(resume);},
+    });
+    assert.equal(await f.run(`pollJob('job')`), response);
+    assert.equal(reads, 2); assert.deepEqual(delays, [400]);
+  });
+}
+
+for (const synchronous of [false, true]) {
+  test(`polling propagates a ${synchronous ? 'synchronous' : 'rejected'} request error without retry`, async () => {
+    const failure = new Error('job unavailable');
+    let reads = 0; const delays = [];
+    const f = fixture({
+      get: () => {reads++; if (synchronous) throw failure; return Promise.reject(failure);},
+      setTimeout: (_resume, delay) => {delays.push(delay);},
+    });
+    await assert.rejects(f.run(`pollJob('job')`), error => error === failure);
+    assert.equal(reads, 1); assert.deepEqual(delays, []);
+  });
+}
+
+test('the AI flow keeps its 900-attempt budget and never applies a timeout result', async () => {
+  let reads = 0; const calls = [], delays = [];
+  const f = fixture({
+    get: async path => {assert.equal(path, '/api/jobs/ai'); reads++; return {status:'running'};},
+    post: async path => {
+      calls.push(path);
+      return path === '/api/ai/test-connection' ? {available:true,ok:true,backend:'local'} : {job_id:'ai'};
+    },
+    setTimeout: (resume, delay) => {delays.push(delay); queueMicrotask(resume);},
+  });
+  const before = plain(f.run(`[...cfg].map(([name, columns]) => [name,[...columns]])`));
+  await f.run('aiGenerateConfig()');
+  assert.equal(reads, 900); assert.deepEqual(delays, Array(900).fill(400));
+  assert.deepEqual(calls, ['/api/ai/test-connection','/api/connections/A/heal/auto']);
+  assert.match(f.out.textContent, /超时/);
+  assert.deepEqual(plain(f.run(`[...cfg].map(([name, columns]) => [name,[...columns]])`)), before);
+  assert.equal(f.out.disabled, false);
+});
+
+test('generation submits the next FK-ordered table only after its parent job succeeds', async () => {
+  const parent = deferred(), child = deferred(), calls = [];
+  const f = fixture({
+    get: path => {
+      calls.push(path);
+      if (path.includes('topo-order')) return Promise.resolve({tables:['two','one']});
+      return path === '/api/jobs/two' ? parent.promise : child.promise;
+    },
+    post: async (path, payload) => {calls.push(`${path}:${payload.table}`); return {job_id:payload.table};},
+  });
+  const running = f.run('doGenerate(tablesMeta)');
+  await flush();
+  assert.match(textOf(f.out), /生成 two/);
+  assert.doesNotMatch(textOf(f.out), /生成 one/);
+  assert.equal(calls.filter(path => path.includes('/fill:')).length, 1);
+  assert.equal(f.run(`runningConnections.has('A')`), true);
+  parent.resolve({status:'done',rows_inserted:2}); await flush();
+  assert.deepEqual(calls.slice(1), ['/api/connections/A/fill:two','/api/jobs/two','/api/connections/A/fill:one','/api/jobs/one']);
+  child.resolve({status:'done',rows_inserted:2}); await running;
+  assert.match(textOf(f.out), /全部完成/);
+  assert.equal(f.run(`runningConnections.has('A')`), false);
+  assert.equal(f.out.disabled, false);
+});
+
+for (const stage of ['submit', 'poll']) {
+  test(`a parent ${stage} failure stops children and releases generation controls`, async () => {
+    const calls = [];
+    const f = fixture({
+      get: async path => {
+        if (path.includes('topo-order')) return {tables:['two','one']};
+        calls.push(path); throw new Error('parent job failed');
+      },
+      post: async (path, payload) => {
+        calls.push(`${path}:${payload.table}`);
+        if (stage === 'submit') throw new Error('parent submission failed');
+        return {job_id:payload.table};
+      },
+    });
+    await f.run('doGenerate(tablesMeta)');
+    assert.deepEqual(calls, stage === 'submit' ? ['/api/connections/A/fill:two']
+      : ['/api/connections/A/fill:two','/api/jobs/two']);
+    assert.match(textOf(f.out), /生成已停止/);
+    assert.doesNotMatch(textOf(f.out), /全部完成|生成 one/);
+    assert.equal(f.run(`runningConnections.has('A')`), false);
+    assert.equal(f.out.disabled, false);
+  });
+}

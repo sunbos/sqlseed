@@ -294,6 +294,17 @@ function deleteSelectedConfigs() {
   function deletionSummary({deleted, missing, failures}, remaining) {
     return tr('configurations.deletedSummary', {count: formatNumber(deleted), missing: missing ? tr('configurations.missingCount', {count: formatNumber(missing)}) : '', failed: failures.length ? tr('configurations.failedCount', {count: failures.length, value: formatNumber(failures.length)}) : '', remaining: remaining ? tr('configurations.remainingCount', {count: formatNumber(remaining)}) : ''});
   }
+  async function* deletionResults(result) {
+    let current = 0;
+    // Each pull submits one reviewed revision. Cancellation or an unknown
+    // outcome must stop the batch before the next mutation is submitted.
+    for (const record of targets) {
+      if (!context.current()) return;
+      current++;
+      setText(progress, tr('configurations.deleteProgress', {current: formatNumber(current), total: formatNumber(targets.length), name: record.name}));
+      yield deleteReviewedRecord(record, result);
+    }
+  }
   async function submit() {
     if (pending || submitted || !context.current()) return;
     pending = submitted = bulkPending = true;
@@ -302,11 +313,9 @@ function deleteSelectedConfigs() {
     updateSelection();
     let attempted = 0;
     const result = {deleted: 0, missing: 0, failures: []};
-    for (const record of targets) {
-      if (!context.current()) break;
+    for await (const canContinue of deletionResults(result)) {
       attempted++;
-      setText(progress, tr('configurations.deleteProgress', {current: formatNumber(attempted), total: formatNumber(targets.length), name: record.name}));
-      if (!await deleteReviewedRecord(record, result)) break;
+      if (!canContinue) break;
     }
     pending = false;
     if (!context.pageCurrent()) return;

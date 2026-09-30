@@ -325,6 +325,47 @@ test('bulk deletion sends only confirmed IDs and revisions and announces every s
   assert.equal(ui.button('删除所选').disabled, true);
 });
 
+test('bulk deletion consumes each result before submitting the next reviewed revision', async () => {
+  const records = [config('A'), config('B'), config('C')], ui = harness({records}); await ui.mount();
+  const first = deferred(), second = deferred(), secondStarted = deferred();
+  await selectVisible(ui);
+  ui.routes.set('DELETE /api/workbench/drafts/A?revision=2', () => first.promise);
+  ui.routes.set('DELETE /api/workbench/drafts/B?revision=2', () => {
+    secondStarted.resolve();
+    return second.promise;
+  });
+  ui.routes.set('DELETE /api/workbench/drafts/C?revision=2', () => {
+    records.splice(records.findIndex(record => record.id === 'C'), 1);
+    return {deleted: true};
+  });
+  await ui.button('删除所选').click();
+  const pending = ui.button('删除 3 份配置', ui.dialog()).click();
+  assert.deepEqual(ui.requests.filter(request => request.options.method === 'DELETE').map(request => request.url),
+    ['/api/workbench/drafts/A?revision=2']);
+  records[1].revision = 9;
+  records[1].name = '另一操作改名';
+  records.shift();
+  first.resolve({deleted: true});
+  await secondStarted.promise;
+  assert.deepEqual(plain(ui.events).map(event => event.detail), [{id: 'A', revision: 2}]);
+  assert.equal(vm.runInContext("selected.has('A')", ui.context), false);
+  assert.equal(vm.runInContext("records.some(record => record.id === 'A')", ui.context), false);
+  assert.match(ui.dialog().querySelector('[role="status"]').textContent, /2.*3.*配置 B/);
+  assert.deepEqual(ui.requests.filter(request => request.options.method === 'DELETE').map(request => request.url),
+    ['/api/workbench/drafts/A?revision=2', '/api/workbench/drafts/B?revision=2']);
+  second.resolve({httpError: 409, message: 'updated since confirmation'});
+  await pending;
+  assert.deepEqual(ui.requests.filter(request => request.options.method === 'DELETE').map(request => request.url),
+    ['A', 'B', 'C'].map(id => `/api/workbench/drafts/${id}?revision=2`));
+  assert.deepEqual(plain(ui.events).map(event => event.detail.id), ['A', 'C']);
+  assert.match(ui.card('B').textContent, /另一操作改名.*v9/);
+  assert.equal(ui.card('B').querySelector('[data-config-select]').checked, false);
+  assert.match(ui.dialog().querySelector('[role="alert"]').textContent, /配置 B：已被更新，本次未删除/);
+  assert.match(ui.dialog().textContent, /已删除 2 份.*1 份需核对/);
+  assert.equal(ui.button('删除 3 份配置', ui.dialog()).disabled, true);
+  ui.leave();
+});
+
 test('bulk deletion preserves conflicts, reports already-missing items and never retries updated versions', async () => {
   const records = [config('A'), config('B'), config('C'), config('D')], ui = harness({records}); await ui.mount();
   await selectVisible(ui);
