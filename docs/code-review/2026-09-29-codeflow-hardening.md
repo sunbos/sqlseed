@@ -111,17 +111,25 @@
 - 本地默认 mutation gate 在独立工作区执行：**246 / 246 killed**，0 survived、0 timeout、0 suspicious、0 skipped。范围为 `unique_adjuster.py` 及默认的两份回归测试；已核对这三个文件与待交付代码一致，不代表全项目变异覆盖。工作区结束后通过管理工具归档，保留日志与结果证据。
 - 提交 `c752443` 的 [CI](https://github.com/sunbos/sqlseed/actions/runs/36583328081) 已完成：lint、五包安装验收、性质测试、PostgreSQL integration、Python 3.10 / 3.12 / 3.13、macOS 和 Windows 均成功；[doc-sync](https://github.com/sunbos/sqlseed/actions/runs/36583327585) 成功。PR 的 docs 部署 job 按条件跳过，本地 MkDocs strict 构建另已通过。
 - 同一提交的 [Codecov patch](https://app.codecov.io/gh/sunbos/sqlseed/pull/23) 实际覆盖率 **96.64%**，要求 **88.21%**；[CodeFlow](https://app.getcodeflow.com/github/sunbos/sqlseed/pull-requests/23) 的 33 条保留提示逐条复核完成。
-- 同一提交的 Sonar quality gate 为 success，但检查摘要报告 **9 条新增问题**。这不等于零问题：本次尚未读取这 9 条的明细。当前缺少 Sonar CLI，所选 Sonar 集成流程需要确认安装、登录及 hooks / MCP 配置，确认仍待用户回复；不能据此宣称全部技术债已清空。
+- 同一提交的 Sonar quality gate 为 success，但检查摘要报告 **9 条新增问题**。这不等于零问题：本次尚未读取这 9 条的明细。用户于 9 月 30 日要求继续，已从官方来源安装 Sonar CLI 1.9.0；`sonar auth status` 返回 `No saved connection`。用户登录、MCP / hooks 配置、明细核验和问题处置仍待完成，不能据此宣称全部技术债已清空。
 
 ### SQLAlchemy 2.0 / 2.1 兼容性补充
 
 完整测试中 15 条弃用警告来自 SQLAlchemy 2.1 将停止为 `mode=memory` 隐式选择连接池；另两类来源提示对应负向测试故意遗漏 `uri=true`。补充修改显式保留 `sqlite` / `sqlite+pysqlite` 命名内存 URL 既有的 `SingletonThreadPool` 策略，不切换连接寿命或改写 URI / 线程参数。负向测试只局部捕获并精确断言预期警告，其他警告仍失败。
 
-- 新增 11 项真实行为回归：共享 / 私有命名内存、连接关闭后数据寿命、普通内存、磁盘 URI 持久化、字面百分号和 timeout、自定义 SQLite driver 与 PostgreSQL 的默认 pool 策略。
+- 新增 11 项回归：真实 SQLite 的共享 / 私有命名内存、连接关闭后数据寿命、普通内存、磁盘 URI 持久化、字面百分号和 timeout、自定义 SQLite driver；PostgreSQL 两项仅验证惰性 engine 的默认 pool 配置，不连接服务器，真实 PostgreSQL 验收另由 CI integration 执行。
 - SQLAlchemy **2.0.51** 和 **2.1.0** 的同组八文件验收均为 **107 passed、7 skipped**，分别 22.25 / 22.39 秒；将 `SAWarning` 和 `SADeprecationWarning` 视为错误，无非预期警告。七项跳过来自 Windows 平台限制，未改动当前开发环境的依赖版本。
 - 补充源码与测试 Pylint 2.17.7 无告警；完整 Ruff / format、mypy（174 文件）、import-linter 与文档同步通过。该小范围补充已独立复核，没有新的 P1 / P2 发现。
 
-补充提交的完整测试和线上结果持续记录于 [PR #23](https://github.com/sunbos/sqlseed/pull/23)，以该 PR 的当前 head SHA 为准；上面的 `c752443` 结果不代替后续提交检查。PR 保留草稿状态，未合并、打 tag 或发布。
+### 9 月 30 日补充提交验收
+
+补充代码提交为 `3c5aceb8350dcd2923bdaef569ab0d1dde767439`，与前述 `c752443` 的历史结果分开记录：
+
+- 最终完整 pytest：**4,126 passed、95 skipped**，529.18 秒，0 failed、0 error、无非预期警告。`ResourceWarning`、`PytestUnraisableExceptionWarning`、`SAWarning` 和 `SADeprecationWarning` 均按错误处理。证据为 `sqlseed-hardening-pytest-pool-final.log` / `.xml`；旧的 4,115 项结果属于补充前，不替代本次验收。
+- 该提交 [CI](https://github.com/sunbos/sqlseed/actions/runs/36587202195) 的所有实际执行 job 成功，含 PostgreSQL、五包安装、性质测试、Python 3.10 / 3.12 / 3.13、Windows、macOS，以及 lint 中的 Node 测试和 MkDocs strict；[文档同步](https://github.com/sunbos/sqlseed/actions/runs/36587201874) 成功。docs 部署 job 仍按 PR 条件跳过。
+- 该提交 CodeFlow 为 **0 errors、33 warnings**，SQLite 补充没有新增告警；Codecov 增量覆盖率为 **96.67%**，门槛 **88.21%**。Sonar 检查仍为 success、**9 条新增问题未核验**，不将成功状态解释为零问题。
+
+后续提交以 [PR #23](https://github.com/sunbos/sqlseed/pull/23) 当前 head SHA 的检查和验收记录为准。PR 保留草稿状态，未合并、打 tag 或发布。
 
 ## 证据归属
 
