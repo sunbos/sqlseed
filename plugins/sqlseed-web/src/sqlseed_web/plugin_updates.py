@@ -9,7 +9,8 @@ import sys
 import threading
 import time
 import zipfile
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 from email.parser import BytesParser
 from email.policy import compat32
@@ -38,23 +39,32 @@ _NETWORK_SLOT = threading.BoundedSemaphore(1)
 _T = TypeVar("_T")
 
 
-def _bounded_network(operation: Callable[[], _T], timeout: float) -> _T:
-    # A slow DNS/header read cannot outlive the control channel's wait budget.
-    # Timed-out network work can only return bytes/metadata, never publish a
-    # plan or write files. Its slot remains occupied until it actually exits.
+@contextmanager
+def _network_slot() -> Iterator[None]:
+    """Reserve admission without blocking; the owner releases it on exit."""
     if not _NETWORK_SLOT.acquire(blocking=False):
         raise ValueError(tr("backend.plugin_updates.the_previous_update_check_is_still_finishing"))
+    try:
+        yield
+    finally:
+        _NETWORK_SLOT.release()
+
+
+def _bounded_network(operation: Callable[[], _T], timeout: float) -> _T:
+    # Transfer ownership before starting the thread. A caller timeout cannot
+    # release admission while DNS/headers or the download are still running.
+    with ExitStack() as admission:
+        admission.enter_context(_network_slot())
+        worker_resources = admission.pop_all()
 
     def run() -> _T:
-        try:
+        with worker_resources:
             return operation()
-        finally:
-            _NETWORK_SLOT.release()
 
     try:
         task = DaemonTask(run, name="sqlseed-update-read")
     except RuntimeError:
-        _NETWORK_SLOT.release()
+        worker_resources.close()
         raise
     if not task.wait(timeout):
         raise ValueError(tr("backend.plugin_updates.the_update_check_or_download_timed_out"))
@@ -74,14 +84,9 @@ class PreparedUpdate:
 
 def _artifact_path(url: str) -> str:
     parsed = urlsplit(url)
-    if (
-        parsed.scheme != "https"
-        or parsed.netloc != "files.pythonhosted.org"
-        or not parsed.path.startswith("/packages/")
-        or parsed.query
-        or parsed.fragment
-        or any(character.isspace() for character in url)
-    ):
+    trusted_origin = parsed.scheme == "https" and parsed.netloc == "files.pythonhosted.org"
+    package_path = parsed.path.startswith("/packages/") and not parsed.query and not parsed.fragment
+    if not trusted_origin or not package_path or any(character.isspace() for character in url):
         raise ValueError(tr("backend.plugin_updates.the_package_download_address_is_not_a"))
     return parsed.path
 

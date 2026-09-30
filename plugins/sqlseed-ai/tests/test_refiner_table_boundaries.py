@@ -12,14 +12,17 @@ from sqlseed._utils.sql_safe import quote_identifier
 from sqlseed.config.models import TableConfig
 from tests.sqlite_helpers import sqlite_connection
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-pytest.importorskip("sqlseed_ai")
-
-from sqlseed_ai.refiner import AISuggestionFailedError
+try:
+    from sqlseed_ai.refiner import AISuggestionFailedError
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai is not installed", allow_module_level=True)
 
 from .test_refiner_json_recovery import _completion_server, _refiner
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.mark.parametrize("streaming", [False, True])

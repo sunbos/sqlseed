@@ -27,6 +27,8 @@ from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest
 from sqlseed_web.plugin_process import run_installer
 from sqlseed_web.supervised_plugins import SupervisedPluginManager
 
+from .component_test_support import HTTPExchange, RecordingController, acquired_with_timeout
+
 
 def package(version: str, *requirements: str) -> environment.InstalledPackage:
     return environment.InstalledPackage(version, tuple(sorted(requirements)))
@@ -216,41 +218,15 @@ def test_update_api_preserves_origin_token_and_component_allowlist() -> None:
 def test_download_transport_rejects_redirect_oversize_and_expiry(
     monkeypatch: pytest.MonkeyPatch, status: int, body: bytes, timeout: float, expected: str
 ) -> None:
-    calls = []
-    closed = []
-
-    class Response:
-        def __init__(self) -> None:
-            self.status = status
-            self.remaining = body
-
-        def read1(self, size: int) -> bytes:
-            result, self.remaining = self.remaining[:size], self.remaining[size:]
-            return result
-
-    class Connection:
-        sock = None
-
-        def __init__(self, host: str, timeout: float) -> None:
-            calls.append((host, timeout))
-
-        def request(self, method: str, path: str, headers: dict[str, str]) -> None:
-            calls.append((method, path, headers))
-
-        def getresponse(self) -> Response:
-            return Response()
-
-        def close(self) -> None:
-            closed.append(True)
-
-    monkeypatch.setattr(updates.http.client, "HTTPSConnection", Connection)
+    exchange = HTTPExchange(status=status, body=body)
+    monkeypatch.setattr(updates.http.client, "HTTPSConnection", exchange.connection)
     with pytest.raises((ValueError, TimeoutError), match=expected):
         updates._read_artifact("https://files.pythonhosted.org/packages/a.whl", limit=32, timeout=timeout)
-    assert calls == [
+    assert exchange.calls == [
         ("files.pythonhosted.org", timeout),
         ("GET", "/packages/a.whl", {"User-Agent": "sqlseed-component-update"}),
     ]
-    assert closed == [True]
+    assert exchange.closed == [True]
 
 
 @pytest.fixture(name="update_manager")
@@ -271,24 +247,10 @@ def fixture_update_manager(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> A
     events: list[str] = []
     installs: list[Any] = []
 
-    class Controller:
-        def pause(self) -> None:
-            events.append("pause")
-
-        def resume(self) -> None:
-            events.append("resume")
-
-        def enter_maintenance(self) -> None:
-            events.append("maintenance")
-
-        def restore_business(self) -> dict[str, Any]:
-            events.append("restore")
-            return {}
-
     monkeypatch.setattr(
         "sqlseed_web.plugin_management.run_installer", lambda *args, **kwargs: installs.append(args) or 0
     )
-    manager = SupervisedPluginManager(Controller())
+    manager = SupervisedPluginManager(RecordingController(restored={}, calls=events))
     manager.start()
     yield manager, site, events, installs
     manager.stop()
@@ -334,9 +296,8 @@ def test_slow_plan_has_total_budget_and_late_result_cannot_publish_a_plan(
         assert not installs
     finally:
         release.set()
-        # A semaphore context manager cannot bound the wait for a late worker.
-        assert updates._NETWORK_SLOT.acquire(timeout=5)
-        updates._NETWORK_SLOT.release()
+        with acquired_with_timeout(updates._NETWORK_SLOT, timeout=5):
+            pass
     assert manager._plan is None, "late read-only completion cannot publish a previously timed-out plan"
 
 
@@ -373,9 +334,8 @@ def test_timed_out_wheel_read_cannot_write_after_service_recovery(
         assert len(directories) == 1 and not directories[0].exists()
     finally:
         release.set()
-        # Wait for ownership to return before releasing it, with a fixed deadline.
-        assert updates._NETWORK_SLOT.acquire(timeout=5)
-        updates._NETWORK_SLOT.release()
+        with acquired_with_timeout(updates._NETWORK_SLOT, timeout=5):
+            pass
     assert not directories[0].exists(), "late bytes must never recreate a cleaned-up download directory"
 
 
@@ -485,24 +445,7 @@ def test_real_confirmed_update_only_changes_selected_package_in_temporary_venv(
     before = environment.installed_packages(prefix)
     _, reads = official_wheel(monkeypatch, "shared>=1")
 
-    class Controller:
-        def __init__(self) -> None:
-            self.calls: list[str] = []
-
-        def pause(self) -> None:
-            self.calls.append("pause")
-
-        def resume(self) -> None:
-            self.calls.append("resume")
-
-        def enter_maintenance(self) -> None:
-            self.calls.append("maintenance")
-
-        def restore_business(self) -> dict[str, Any]:
-            self.calls.append("restore")
-            return {"restored_connections": 0}
-
-    controller = Controller()
+    controller = RecordingController(restored={"restored_connections": 0})
     manager = SupervisedPluginManager(controller)
     manager.start()
     try:

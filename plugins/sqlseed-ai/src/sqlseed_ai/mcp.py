@@ -32,13 +32,11 @@ except ImportError as _exc:  # pragma: no cover - import error path
 from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, AISuggestionFailedError, GemmaModel, SchemaAnalyzer
 from sqlseed_ai._hardware import MODEL_REQUIREMENTS, detect_hardware, evaluate_model_status
 
+from sqlseed import ColumnConfig, DataOrchestrator
+from sqlseed._utils import paths
 from sqlseed._utils.logger import get_logger
-from sqlseed._utils.paths import validate_db_target as _validate_db_target
-from sqlseed._utils.paths import validate_table_name as _validate_table_name
 from sqlseed._utils.progress import NullProgressBackend
 from sqlseed._utils.redaction import redact_url_credentials
-from sqlseed.config.models import ColumnConfig
-from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators import ConfigurationError
 
 logger = get_logger(__name__)
@@ -64,7 +62,7 @@ def _build_ai_config(
     Raises:
         ValueError: If db_path is invalid or backend is not a valid AIBackend value.
     """
-    db_path = _validate_db_target(db_path)
+    db_path = paths.validate_db_target(db_path)
 
     ai_config = AIConfig.from_env()
     if model:
@@ -103,9 +101,9 @@ def sqlseed_ai_generate_yaml(
     Returns a YAML string for human review.
     """
     try:
-        db_path = _validate_db_target(db_path)
+        db_path = paths.validate_db_target(db_path)
         with DataOrchestrator(db_path) as orch:
-            _validate_table_name(table_name, orch.get_table_names())
+            paths.validate_table_name(table_name, orch.get_table_names())
 
         ai_config = AIConfig.from_env().apply_overrides(
             api_key=api_key,
@@ -158,7 +156,7 @@ def sqlseed_gemma4_analyze(
         ai_config = _build_ai_config(db_path, model, backend)
 
         with DataOrchestrator(db_path) as orch:
-            _validate_table_name(table_name, orch.get_table_names())
+            paths.validate_table_name(table_name, orch.get_table_names())
             schema_ctx = orch.get_schema_context(table_name)
 
         analyzer = SchemaAnalyzer(config=ai_config)
@@ -225,7 +223,7 @@ def sqlseed_gemma4_agent_fill(
 
         # Step 2: Execute fill with AI-generated config
         with DataOrchestrator(db_path) as orch:
-            _validate_table_name(table_name, orch.get_table_names())
+            paths.validate_table_name(table_name, orch.get_table_names())
 
             column_configs = [ColumnConfig(**c) for c in ai_result.get("columns", [])]
             # stdout is reserved for MCP JSON-RPC, including when Rich is installed.

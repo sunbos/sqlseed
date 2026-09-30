@@ -10,6 +10,8 @@ from fastapi.testclient import TestClient
 from sqlseed_web import settings_updates as updates
 from sqlseed_web.app import create_app
 
+from .component_test_support import HTTPExchange
+
 
 @pytest.fixture(autouse=True)
 def clean_cache() -> Any:
@@ -94,29 +96,11 @@ def test_partial_failure_is_sanitized_and_short_cached(monkeypatch: pytest.Monke
 
 
 def test_http_boundary_is_fixed_metadata_only_and_rejects_redirects(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls = []
-    closed = []
-
-    class Connection:
-        def __init__(self, host: str, timeout: int) -> None:
-            calls.append((host, timeout))
-
-        def request(self, method: str, path: str, headers: dict[str, str]) -> None:
-            calls.append((method, path, headers))
-
-        def getresponse(self) -> Any:
-            class Response:
-                status = 302
-
-            return Response()
-
-        def close(self) -> None:
-            closed.append(True)
-
-    monkeypatch.setattr(updates.http.client, "HTTPSConnection", Connection)
+    exchange = HTTPExchange(status=302)
+    monkeypatch.setattr(updates.http.client, "HTTPSConnection", exchange.connection)
     with pytest.raises(ValueError):
         updates._fetch_index("sqlseed")
-    assert calls == [
+    assert exchange.calls == [
         ("pypi.org", 5),
         (
             "GET",
@@ -124,37 +108,17 @@ def test_http_boundary_is_fixed_metadata_only_and_rejects_redirects(monkeypatch:
             {"Accept": "application/vnd.pypi.simple.v1+json", "User-Agent": "sqlseed-update-check"},
         ),
     ]
-    assert closed == [True]
+    assert exchange.closed == [True]
     with pytest.raises(ValueError):
         updates._fetch_index("https://attacker.test/")
-    assert len(calls) == 2
+    assert len(exchange.calls) == 2
 
 
 @pytest.mark.parametrize("body", [b"not json", b"[]", b'{"files": []}', b"x" * 33])
 def test_invalid_or_oversized_metadata_fails_without_raw_output(monkeypatch: pytest.MonkeyPatch, body: bytes) -> None:
-    class Response:
-        status = 200
-        remaining = body
-
-        def read1(self, size: int) -> bytes:
-            chunk, self.remaining = self.remaining[:size], self.remaining[size:]
-            return chunk
-
-    class Connection:
-        def __init__(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def request(self, *args: Any, **kwargs: Any) -> None:
-            pass
-
-        def getresponse(self) -> Response:
-            return Response()
-
-        def close(self) -> None:
-            pass
-
+    exchange = HTTPExchange(status=200, body=body)
     monkeypatch.setattr(updates, "_MAX_BYTES", 32)
-    monkeypatch.setattr(updates.http.client, "HTTPSConnection", Connection)
+    monkeypatch.setattr(updates.http.client, "HTTPSConnection", exchange.connection)
     result = updates._remote_version("sqlseed")
     assert result["error"] is True
     assert result["latest"] is None

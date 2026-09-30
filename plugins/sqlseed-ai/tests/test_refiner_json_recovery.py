@@ -15,14 +15,17 @@ from sqlseed.config.models import TableConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 from tests.sqlite_helpers import sqlite_connection
 
+try:
+    from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, SchemaAnalyzer
+    from sqlseed_ai.refiner import AISuggestionFailedError
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai is not installed", allow_module_level=True)
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
-
-pytest.importorskip("sqlseed_ai")
-
-from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, SchemaAnalyzer
-from sqlseed_ai.refiner import AISuggestionFailedError
 
 _VALID_CONFIG = {
     "name": "events",

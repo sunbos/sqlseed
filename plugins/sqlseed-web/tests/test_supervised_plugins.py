@@ -7,10 +7,12 @@ import sys
 from contextlib import ExitStack
 from dataclasses import replace
 from pathlib import Path
-from typing import Any, ClassVar
+from typing import Any
 
 import pytest
 from fastapi import HTTPException
+
+from .component_test_support import RecordingController
 
 
 @pytest.fixture(name="managed")
@@ -34,29 +36,9 @@ def fixture_managed(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     )
     monkeypatch.setattr(environment, "_distribution_paths", lambda: [str(site)])
 
-    class Controller:
-        calls: ClassVar[list[str]] = []
-        busy = False
-        restoration_error = False
-
-        def pause(self) -> None:
-            if self.busy:
-                raise HTTPException(409, detail={"code": "plugin_management_busy", "message": "正在生成数据。"})
-            self.calls.append("pause")
-
-        def resume(self) -> None:
-            self.calls.append("resume")
-
-        def enter_maintenance(self) -> None:
-            self.calls.append("maintenance")
-
-        def restore_business(self) -> dict[str, Any]:
-            self.calls.append("restore")
-            if self.restoration_error:
-                raise RuntimeError("private-error")
-            return {"restored_connections": 1, "failed_connections": [], "ai_session_restored": True}
-
-    controller = Controller()
+    controller = RecordingController(
+        restored={"restored_connections": 1, "failed_connections": [], "ai_session_restored": True}
+    )
     manager = module.SupervisedPluginManager(controller)
     manager.start()
     calls: list[Any] = []

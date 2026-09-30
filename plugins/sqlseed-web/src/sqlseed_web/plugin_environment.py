@@ -138,18 +138,17 @@ class InheritedEnvironmentLock:
         self.descriptor = descriptor
 
     def __reduce__(self) -> tuple[Any, tuple[Any, ...]]:
-        if sys.platform == "win32":
-            import msvcrt
-            from multiprocessing.context import get_spawning_popen
-
-            if (spawning := get_spawning_popen()) is None:
-                raise RuntimeError("Environment handles can only be transferred while spawning a worker")
-            handle = spawning.duplicate_for_child(msvcrt.get_osfhandle(self.descriptor))
-            return _WindowsEnvironmentHandle, (handle,)
-        else:
+        if sys.platform != "win32":
             from multiprocessing.reduction import DupFd
 
             return _PosixEnvironmentHandle, (DupFd(self.descriptor),)
+        import msvcrt
+        from multiprocessing.context import get_spawning_popen
+
+        if (spawning := get_spawning_popen()) is None:
+            raise RuntimeError("Environment handles can only be transferred while spawning a worker")
+        handle = spawning.duplicate_for_child(msvcrt.get_osfhandle(self.descriptor))
+        return _WindowsEnvironmentHandle, (handle,)
 
     def detach(self) -> int:
         raise RuntimeError("The parent cannot detach a worker's environment lock")
