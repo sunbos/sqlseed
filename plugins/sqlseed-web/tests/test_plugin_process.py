@@ -115,7 +115,8 @@ def test_cleanup_resource_error_does_not_stop_an_already_closed_job_again(
     # ExitStack runs every callback despite the error, including Job.close().
     process = recorded_processes[0]
     assert process.poll() is not None
-    assert process.stdout is not None and process.stdout.closed
+    assert process.stdout is not None
+    assert process.stdout.closed
     # Successful draining is durable: a later retry must not use the closed Job.
     pending_cleanup.retry()
 

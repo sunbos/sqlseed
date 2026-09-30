@@ -149,7 +149,8 @@ def test_other_target_gets_retry_feedback_without_changing_database(
     messages = requests[1]["messages"]
     assert isinstance(messages, list)
     assert "table_mismatch" in messages[-1]["content"]
-    assert target in messages[-1]["content"] and other in messages[-1]["content"]
+    assert target in messages[-1]["content"]
+    assert other in messages[-1]["content"]
     assert database.read_bytes() == before
     assert not (tmp_path / "cache").exists()
 

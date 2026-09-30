@@ -122,10 +122,9 @@ def test_invalid_date_configuration_is_reported_once_without_writes(
 
         monkeypatch.setattr(provider, "_gen_date", count_dates)
         columns = [ColumnConfig(name="created_at", generator="date", params={"end_date": "now"})]
+        generate = orch.preview_table if preview else orch.fill_table
+        options = {} if preview else {"skip_ai": True}
         with pytest.raises(ConfigurationError, match=r"Column 'created_at'.*invalid date 'now'.*YYYY-MM-DD"):
-            if preview:
-                orch.preview_table("events", count=50, column_configs=columns)
-            else:
-                orch.fill_table("events", count=50, column_configs=columns, skip_ai=True)
+            generate("events", count=50, column_configs=columns, **options)
         assert calls == 1
         assert orch.query("SELECT * FROM events") == [{"id": 1, "created_at": "2020-01-01"}]

@@ -28,6 +28,7 @@ router = APIRouter(route_class=MessageRoute, prefix="/api/settings", tags=["sett
 # The pre-0.2.4 release line lacks the workbench/runtime interfaces. Include
 # development builds from this release line for source and wheel validation.
 AI_INSTALL_REQUIREMENT = "sqlseed-ai>=0.2.4.dev0"
+_AI_WEB_INSTALL_EXTRA = "sqlseed-web[ai]"
 
 
 @dataclass(frozen=True)
@@ -63,7 +64,7 @@ _COMPONENTS = {
         "optional",
         ("core", "cli"),
         tr("backend.settings_environment.suggest_rules_from_table_structure_and_business"),
-        "sqlseed-web[ai]",
+        _AI_WEB_INSTALL_EXTRA,
         tr("backend.settings_environment.optional_ai_extension_installing_it_also_installs"),
     ),
     "cli": _ComponentInfo(
@@ -279,9 +280,9 @@ def ai_import_failure() -> dict[str, Any]:
         "message": message,
         "reason": message,
         "installer": installer.public_info(),
-        "install_command": installer.command("install", "sqlseed-web[ai]"),
+        "install_command": installer.command("install", _AI_WEB_INSTALL_EXTRA),
         "repair_command": installer.command("check"),
-        "install_commands": installer.commands("install", "sqlseed-web[ai]"),
+        "install_commands": installer.commands("install", _AI_WEB_INSTALL_EXTRA),
         "repair_commands": installer.commands("check"),
     }
 

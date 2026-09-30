@@ -171,7 +171,8 @@ def test_model_connection_failure_is_safe_and_releases_the_request_for_retry(
     failed = client.post("/api/workbench/ai/suggest", json=payload)
     assert failed.status_code == 502
     assert failed.json()["detail"]["code"] == "ai_connection_failed"
-    assert "private-model" not in failed.text and "private-outer" not in failed.text
+    assert "private-model" not in failed.text
+    assert "private-outer" not in failed.text
     assert client.post("/api/workbench/ai/suggest", json=payload).status_code == 200
     assert len(attempted) == 2
     assert connection.orchestrator.query("SELECT * FROM users") == original_users
@@ -186,8 +187,9 @@ def test_serializing_an_environment_lock_outside_spawn_preserves_its_ownership(t
         cleanup.callback(owner.release)
         cleanup.callback(contender.release)
         owner.acquire()
+        inherited = plugin_environment.InheritedEnvironmentLock(owner.fileno())
         with pytest.raises(RuntimeError, match="while spawning a worker"):
-            pickle.dumps(plugin_environment.InheritedEnvironmentLock(owner.fileno()))
+            pickle.dumps(inherited)
         with pytest.raises(RuntimeError):
             contender.acquire()
         owner.release()

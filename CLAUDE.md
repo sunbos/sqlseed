@@ -105,15 +105,16 @@ Core (`sqlseed`) has **no CLI, AI, MCP or Web application code** — these are a
 
 ### Public API (`src/sqlseed/__init__.py`)
 
-| Function | Purpose |
+| Entry | Purpose |
 |----------|---------|
 | `fill(db_path, *, url, table, count, ...)` | Single table zero-config fill |
+| `FillOptions(...)` | Frozen, keyword-only reusable fill settings; explicit fill keywords take precedence |
 | `connect(db_path, *, url, ...)` | Returns `DataOrchestrator` context manager |
 | `preview(db_path, *, url, table, count, ...)` | Preview data without writing |
 | `fill_from_config(config_path)` | Batch fill from YAML/JSON config |
 | `load_config(path)` | Load config as `GeneratorConfig` |
 
-All public API functions accept `db_path` (SQLite file) and `url` (database URL) as mutually exclusive connection modes.
+`fill`, `connect`, and `preview` accept `db_path` (SQLite file) and `url` (database URL) as mutually exclusive connection modes. `fill_from_config` and `load_config` take configuration paths instead.
 
 ### Config Model Hierarchy
 

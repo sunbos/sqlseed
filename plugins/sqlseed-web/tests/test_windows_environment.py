@@ -68,8 +68,13 @@ def test_worker_holds_environment_after_spawning_parent_exits(tmp_path: Path) ->
             [sys.executable, "-I", str(script), str(tmp_path)], creationflags=subprocess.CREATE_NO_WINDOW
         ) as process:
             try:
-                assert process.wait(timeout=10) == 0
+                # Readiness includes two interpreter imports and a Windows spawn.
+                # Measure the parent's hard exit only after the child owns the handle.
+                deadline = time.monotonic() + 30
+                while not ready.exists() and process.poll() is None and time.monotonic() < deadline:
+                    time.sleep(0.01)
                 assert ready.exists()
+                assert process.wait(timeout=5) == 0
                 with pytest.raises(RuntimeError):
                     contender.acquire()
             finally:

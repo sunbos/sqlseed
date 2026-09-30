@@ -20,8 +20,8 @@ if TYPE_CHECKING:
 )
 def test_invalid_url_redacts_exception_and_chained_diagnostic(password: str) -> None:
     target = f"sqlite://audit-user:{password}@host/db?password=synthetic-query&timeout=3"
-    with pytest.raises(ValueError, match="Invalid database URL") as captured:
-        SQLAlchemyAdapter().connect(target)
+    with SQLAlchemyAdapter() as adapter, pytest.raises(ValueError, match="Invalid database URL") as captured:
+        adapter.connect(target)
     rendered = "".join(traceback.format_exception(captured.value))
     assert password not in rendered
     assert "synthetic-query" not in rendered
@@ -31,8 +31,8 @@ def test_invalid_url_redacts_exception_and_chained_diagnostic(password: str) -> 
 @pytest.mark.parametrize("separator", [" ", "\t", "#", "'", '"', ")"])
 def test_invalid_url_query_password_is_fully_redacted(separator: str) -> None:
     target = f"sqlite://host/db?password=first-secret{separator}second-secret&timeout=3"
-    with pytest.raises(ValueError, match="Invalid database URL") as captured:
-        SQLAlchemyAdapter().connect(target)
+    with SQLAlchemyAdapter() as adapter, pytest.raises(ValueError, match="Invalid database URL") as captured:
+        adapter.connect(target)
     rendered = "".join(traceback.format_exception(captured.value))
     assert "first-secret" not in rendered
     assert "second-secret" not in rendered

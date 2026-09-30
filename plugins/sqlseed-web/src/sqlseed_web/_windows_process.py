@@ -19,10 +19,12 @@ from ctypes import wintypes
 from pathlib import Path
 from typing import Any
 
+_WINDOWS_ONLY_ERROR = "Windows process ownership is only available on Windows"
+
 
 def _kernel32() -> Any:
     if sys.platform != "win32":
-        raise RuntimeError("Windows process ownership is only available on Windows")
+        raise RuntimeError(_WINDOWS_ONLY_ERROR)
     kernel = ctypes.WinDLL("kernel32", use_last_error=True)
     signatures = {
         "CreateFileW": (
@@ -60,7 +62,7 @@ def _kernel32() -> Any:
 def _last_windows_error() -> OSError:
     if sys.platform == "win32":
         return ctypes.WinError(ctypes.get_last_error())
-    return OSError("Windows process ownership is only available on Windows")
+    return OSError(_WINDOWS_ONLY_ERROR)
 
 
 class _Limits(ctypes.Structure):
@@ -104,7 +106,7 @@ class _Accounting(ctypes.Structure):
 def open_environment_lock(path: Path, *, exclusive: bool) -> int:
     """Share-deny follows the file object across DuplicateHandle and parent exit."""
     if sys.platform != "win32":
-        raise RuntimeError("Windows process ownership is only available on Windows")
+        raise RuntimeError(_WINDOWS_ONLY_ERROR)
     import msvcrt
 
     kernel = _kernel32()
@@ -215,7 +217,7 @@ class WindowsInstaller:
                 self.close()
                 raise
         else:
-            raise RuntimeError("Windows process ownership is only available on Windows")
+            raise RuntimeError(_WINDOWS_ONLY_ERROR)
 
     def spawned(self) -> None:
         for handle in self.handles:

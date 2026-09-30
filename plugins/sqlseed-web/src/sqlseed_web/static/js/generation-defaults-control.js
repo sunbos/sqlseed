@@ -5,6 +5,12 @@ import {button} from './workbench/ui.js';
 import {createDropdown} from './dropdown.js';
 import {GENERATION_DEFAULTS, readGenerationDefaults, saveGenerationDefaults, validateGenerationDefaults} from './generation-defaults.js';
 
+function validNumberInput(input, max, optional) {
+  if (optional && input.value === '') return true;
+  const number = Number(input.value);
+  return /^\d+$/.test(String(input.value)) && number >= (optional ? 0 : 1) && number <= max;
+}
+
 export function createGenerationDefaultsControl() {
   let saved = readGenerationDefaults(), destroyed = false, loading = false, loaded = false;
   let controller = null, localeOptions = [], providerFacts = {};
@@ -37,15 +43,19 @@ export function createGenerationDefaultsControl() {
     const value = draft();
     let error = '';
     for (const [input, max, optional, label] of [[count,1000000,false,tr('defaults.countAria')],[previewCount,100,false,tr('defaults.previewAria')],[seed,4294967295,true,tr('defaults.seedAria')]]) {
-      const valid = optional && input.value === '' || /^\d+$/.test(String(input.value)) && Number(input.value) >= (optional ? 0 : 1) && Number(input.value) <= max;
+      const valid = validNumberInput(input, max, optional);
       setAttr(input, 'aria-invalid', String(!valid));
       if (!valid) error = tr('defaults.invalidField', {label, min: optional ? 0 : 1, max: formatNumber(max), optional: optional ? tr('defaults.optionalSuffix') : ''});
     }
     try { validateGenerationDefaults(value); } catch (error_) { error ||= errorText(error_); }
-    save.disabled = !loaded || Boolean(error) || JSON.stringify(value) === JSON.stringify(saved);
+    const unchanged = JSON.stringify(value) === JSON.stringify(saved);
+    save.disabled = !loaded || Boolean(error) || unchanged;
+    updateNotice(error, value, unchanged);
+  }
+  function updateNotice(error, value, unchanged) {
     if (error) setText(notice, error);
     else if (loaded && providerFacts[value.provider]?.available === false) setText(notice, tr('defaults.unavailableEngine'));
-    else setText(notice, JSON.stringify(value) === JSON.stringify(saved) ? tr('defaults.saved') : tr('defaults.unsaved'));
+    else setText(notice, unchanged ? tr('defaults.saved') : tr('defaults.unsaved'));
   }
   function persist() {
     if (save.disabled) return;

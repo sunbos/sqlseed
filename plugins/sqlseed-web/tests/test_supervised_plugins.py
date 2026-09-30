@@ -82,8 +82,9 @@ def test_replanned_installer_recovers_business_after_stale_plan_rejection(
     first = manager.plan(module.PlanRequest(component_id="mimesis", action="install"))
     current = replace(manager.environment, tool="uv", tool_executable="/test/uv")
     monkeypatch.setattr("sqlseed_web.plugin_environment._environment", lambda: current)
+    request = module.ExecuteRequest(plan_id=first["plan_id"])
     with pytest.raises(HTTPException) as error:
-        manager.execute(module.ExecuteRequest(plan_id=first["plan_id"]))
+        manager.execute(request)
     assert error.value.status_code == 409
     assert controller.calls == ["pause", "resume"]
     assert manager.status()["active_task"] is None

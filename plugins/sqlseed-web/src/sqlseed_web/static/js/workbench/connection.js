@@ -1,7 +1,7 @@
-import {tr, setText, setAttr, replaceContent, UserFacingError, errorText, appendContent, liveText} from '../i18n.js';
+import {tr, joinText, setText, setAttr, replaceContent, UserFacingError, errorText, appendContent, liveText} from '../i18n.js';
 import '../i18n/messages/flow.js';
 import { cycleFocus } from "./focus.js";
-import { h, get, send, store, rememberConnId, setConnBadge, safeTargetLabel } from '../api.js';
+import { h, get, send, store, rememberConnId, setConnBadge, safeTargetLabel, safeTargetIdentity } from '../api.js';
 import { lockPageScroll } from './scroll-lock.js';
 import { createSegmentIndicator } from '../segment-motion.js';
 let activeDialog = null;
@@ -224,7 +224,7 @@ export function openConnectionDialog({
   function publish(connection) {
     store.connId = connection.conn_id;
     const target = connection.target_label || connection.target;
-    store.target = String(target || '').includes('://') ? safeTargetLabel(target) : target;
+    store.target = String(target || '').includes('://') ? safeTargetIdentity(target) : target;
     store.tables = connection.tables || [];
     rememberConnId(connection.conn_id);
     setConnBadge();
@@ -234,7 +234,7 @@ export function openConnectionDialog({
     }));
     onConnected?.({
       conn_id: store.connId,
-      target_label: safeTargetLabel(store.target),
+      target_label: safeTargetIdentity(store.target),
       tables: store.tables
     });
   }
@@ -527,11 +527,11 @@ export function openConnectionDialog({
 function targetDescription(target) {
   const text = String(target || '');
   if (!text.includes('://')) {
-    return text;
+    return joinText([text]);
   }
   try {
     const url = new URL(text);
-    return `${url.protocol}//${url.host}${decodeURIComponent(url.pathname)}`;
+    return joinText([`${url.protocol}//${url.host}${decodeURIComponent(url.pathname)}`]);
   } catch {
     return tr("flow.connection.title");
   }

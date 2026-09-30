@@ -88,7 +88,8 @@ def test_plan_checks_target_and_reverse_dependencies_and_downloads_only_metadata
     result = updates.prepare_update("mimesis", packages)
     assert result.package == package("2.0", "shared>=1", "optional; extra == 'feature'")
     assert result.dependencies == ("shared==1.5",)
-    assert len(calls) == 1 and calls[0].endswith(".metadata")
+    assert len(calls) == 1
+    assert calls[0].endswith(".metadata")
     assert packages["mimesis"].version == "1.0"
 
 
@@ -107,9 +108,11 @@ def test_dependency_changes_are_blocked_before_download_or_install(
     monkeypatch: pytest.MonkeyPatch, requirements: tuple[str, ...], extra_packages: dict[str, Any], expected: str
 ) -> None:
     _, calls = official_wheel(monkeypatch, *requirements)
+    packages = {"mimesis": package("1.0"), **extra_packages}
     with pytest.raises(ValueError, match=expected):
-        updates.prepare_update("mimesis", {"mimesis": package("1.0"), **extra_packages})
-    assert len(calls) == 1 and calls[0].endswith(".metadata")
+        updates.prepare_update("mimesis", packages)
+    assert len(calls) == 1
+    assert calls[0].endswith(".metadata")
 
 
 @pytest.mark.parametrize("current", ["2.0", "2.1.dev1", "2.0+local", "3.0"])
@@ -117,15 +120,17 @@ def test_latest_stable_cannot_downgrade_current_or_development_versions(
     monkeypatch: pytest.MonkeyPatch, current: str
 ) -> None:
     _, calls = official_wheel(monkeypatch)
+    packages = {"mimesis": package(current)}
     with pytest.raises(ValueError, match="不会降级"):
-        updates.prepare_update("mimesis", {"mimesis": package(current)})
+        updates.prepare_update("mimesis", packages)
     assert not calls
 
 
 def test_missing_target_and_protected_distributions_are_rejected() -> None:
     for target in ("sqlseed", "sqlseed-web", "faker", "arbitrary", "mimesis"):
+        packages = {"sqlseed": package("1.0")}
         with pytest.raises(ValueError, match="可选组件"):
-            updates.prepare_update(target, {"sqlseed": package("1.0")})
+            updates.prepare_update(target, packages)
 
 
 @pytest.mark.parametrize(
@@ -143,8 +148,9 @@ def test_unsupported_or_unverified_release_never_becomes_an_update_plan(
     _, calls = official_wheel(monkeypatch)
     payload = updates.settings_updates._fetch_index("mimesis")
     payload["files"][0].update(change)
+    packages = {"mimesis": package("1.0")}
     with pytest.raises(ValueError, match=expected):
-        updates.prepare_update("mimesis", {"mimesis": package("1.0")})
+        updates.prepare_update("mimesis", packages)
     assert all(address.endswith(".metadata") for address in calls)
 
 
@@ -169,11 +175,13 @@ def test_download_checks_both_published_wheel_hash_and_reviewed_metadata(
 ) -> None:
     _, calls = official_wheel(monkeypatch)
     planned = updates.prepare_update("mimesis", {"mimesis": package("1.0")})
+    invalid_wheel_hash = replace(planned, sha256="0" * 64)
     with pytest.raises(ValueError, match="SHA256"):
-        updates.download_update(replace(planned, sha256="0" * 64), tmp_path)
+        updates.download_update(invalid_wheel_hash, tmp_path)
     assert not list(tmp_path.iterdir())
+    invalid_metadata_hash = replace(planned, metadata_sha256="0" * 64)
     with pytest.raises(ValueError, match="依赖与确认计划不一致"):
-        updates.download_update(replace(planned, metadata_sha256="0" * 64), tmp_path)
+        updates.download_update(invalid_metadata_hash, tmp_path)
     path = updates.download_update(planned, tmp_path)
     assert path.name == planned.filename
     assert hashlib.sha256(path.read_bytes()).hexdigest() == planned.sha256
@@ -260,8 +268,9 @@ def test_update_plan_metadata_snapshot_is_rechecked_before_maintenance(update_ma
     manager, site, events, installs = update_manager
     plan = manager.plan(PlanRequest(component_id="mimesis", action="update"))
     (site / "shared-1.0.dist-info/METADATA").write_text("Metadata-Version: 2.1\nName: shared\nVersion: 1.1\n")
+    request = ExecuteRequest(plan_id=plan["plan_id"])
     with pytest.raises(HTTPException) as caught:
-        manager.execute(ExecuteRequest(plan_id=plan["plan_id"]))
+        manager.execute(request)
     assert caught.value.status_code == 409
     assert "环境已发生变化" in caught.value.detail["message"]
     assert not installs
@@ -283,14 +292,16 @@ def test_slow_plan_has_total_budget_and_late_result_cannot_publish_a_plan(
     monkeypatch.setattr(updates.settings_updates, "_fetch_index", slow)
     monkeypatch.setattr(updates, "_PLAN_TIMEOUT", 0.01)
     try:
+        request = PlanRequest(component_id="mimesis", action="update")
         with pytest.raises(HTTPException) as caught:
-            manager.plan(PlanRequest(component_id="mimesis", action="update"))
+            manager.plan(request)
         assert started.is_set()
         assert "超时" in caught.value.detail["message"]
         assert manager._plan is None
         assert manager.status()["available"] is True
+        retry_request = PlanRequest(component_id="mimesis", action="update")
         with pytest.raises(HTTPException) as next_request:
-            manager.plan(PlanRequest(component_id="mimesis", action="update"))
+            manager.plan(retry_request)
         assert "上一次更新查询" in next_request.value.detail["message"]
         assert not events
         assert not installs
@@ -327,11 +338,13 @@ def test_timed_out_wheel_read_cannot_write_after_service_recovery(
         manager._worker.join(5)
         result = manager.task_snapshot(task["task_id"])
         assert started.is_set()
-        assert result["status"] == "failed" and result["service_ready"] is True
+        assert result["status"] == "failed"
+        assert result["service_ready"] is True
         assert any("超时" in line for line in result["output"])
         assert events == ["pause", "maintenance", "restore"]
         assert not installs
-        assert len(directories) == 1 and not directories[0].exists()
+        assert len(directories) == 1
+        assert not directories[0].exists()
     finally:
         release.set()
         with acquired_with_timeout(updates._NETWORK_SLOT, timeout=5):
@@ -393,10 +406,12 @@ def test_update_download_failure_or_environment_race_never_invokes_installer_and
     task = manager.execute(ExecuteRequest(plan_id=plan["plan_id"]))
     manager._worker.join(5)
     result = manager.task_snapshot(task["task_id"])
-    assert result["status"] == "failed" and result["service_ready"] is True
+    assert result["status"] == "failed"
+    assert result["service_ready"] is True
     assert events == ["pause", "maintenance", "restore"]
     assert not installs
-    assert len(directories) == 1 and not directories[0].exists()
+    assert len(directories) == 1
+    assert not directories[0].exists()
 
 
 @pytest.mark.parametrize("tool", ["pip", "uv"])
@@ -450,8 +465,10 @@ def test_real_confirmed_update_only_changes_selected_package_in_temporary_venv(
     manager.start()
     try:
         plan = manager.plan(PlanRequest(component_id="mimesis", action="update"))
-        assert plan["version"] == "1.0" and plan["target_version"] == "2.0"
-        assert "_update" not in plan and "url" not in plan["artifact"]
+        assert plan["version"] == "1.0"
+        assert plan["target_version"] == "2.0"
+        assert "_update" not in plan
+        assert "url" not in plan["artifact"]
         assert len(reads) == 1
         assert environment.installed_packages(prefix) == before
         assert not controller.calls
@@ -467,8 +484,9 @@ def test_real_confirmed_update_only_changes_selected_package_in_temporary_venv(
         assert {name: item for name, item in after.items() if name != "mimesis"} == {
             name: item for name, item in before.items() if name != "mimesis"
         }
+        repeated_request = ExecuteRequest(plan_id=plan["plan_id"])
         with pytest.raises(HTTPException):
-            manager.execute(ExecuteRequest(plan_id=plan["plan_id"]))
+            manager.execute(repeated_request)
     finally:
         manager.stop()
     assert host_before == sorted((item.metadata["Name"], item.version) for item in metadata.distributions())

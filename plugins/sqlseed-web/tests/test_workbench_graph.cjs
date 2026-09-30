@@ -299,6 +299,30 @@ test('editable scale applies actual percentages with Enter or blur and synchroni
   graph.destroy();
 });
 
+test('percentage input accepts surrounding native whitespace but rejects malformed or very long drafts without changing the graph', async () => {
+  const ui = harness(), data = schema(), before = structuredClone(data), changes = [];
+  const graph = ui.create({schema: data, onViewChange: view => changes.push(view)});
+  ui.document.body.append(graph.toolbar, graph.el);
+  const input = scaleInput(graph), svg = graph.el.querySelector('svg.schema-graph');
+  for (const value of ['87.5', '087.50 %', '\t87.5\n%\r', '\u00a087.5\u202f%\u3000', ' 87.5 % ']) {
+    await editScale(graph, value);
+    assert.equal(input.getAttribute('aria-invalid'), null, JSON.stringify(value));
+    assert.ok(Math.abs(actualScale(graph) - .875) < 1e-10);
+    assert.equal(input.value, '87.5');
+  }
+  const view = JSON.stringify(graph.getView()), count = changes.length;
+  for (const value of ['87.5%%', '87.5% x', '87 .5%', '８７.５%', '+87.5%', '8.75e1%', '\u200b87.5%', '87.5\u0085%', `87.5${' '.repeat(100000)}x`]) {
+    await editScale(graph, value);
+    assert.equal(input.getAttribute('aria-invalid'), 'true');
+    assert.equal(input.value, value);
+    assert.equal(JSON.stringify(graph.getView()), view);
+    assert.equal(changes.length, count);
+  }
+  assert.equal(graph.el.querySelector('svg.schema-graph'), svg);
+  assert.deepEqual(data, before);
+  graph.destroy();
+});
+
 test('invalid scale leaves the graph unchanged, retains correction text and cancels locally with Escape', async () => {
   const ui = harness(), changes = [], graph = ui.create({schema: schema(), onViewChange: view => changes.push(view)});
   ui.document.body.append(graph.toolbar, graph.el);

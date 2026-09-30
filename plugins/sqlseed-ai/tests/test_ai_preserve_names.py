@@ -297,3 +297,64 @@ def test_legacy_tool_arguments_can_fall_back_to_valid_text(
     with _analyzer_http(monkeypatch, lambda _request: _completion(message), tools=True) as analyzer:
         result = analyzer.call_llm(_MESSAGES, preserve_names=preserve_names)
     assert result == _expected(preserved=preserve_names)
+
+
+@pytest.mark.parametrize(
+    "calls,expected,strict_error",
+    [
+        pytest.param(
+            [
+                ("unrelated", "[]"),
+                ("analyze_schema", ""),
+                ("analyze_schema", "malformed JSON"),
+                ("analyze_schema", _JSON),
+                ("analyze_schema", '{"name":"later"}'),
+            ],
+            _CONFIG,
+            False,
+            id="skip-unrelated-empty-and-malformed-before-first-object",
+        ),
+        pytest.param(
+            [("analyze_schema", "{}"), ("analyze_schema", _JSON)],
+            {},
+            False,
+            id="empty-object-still-wins",
+        ),
+        pytest.param(
+            [("analyze_schema", "[]"), ("analyze_schema", _JSON)],
+            _CONFIG,
+            True,
+            id="nonobject-before-object-rejected-only-in-strict-mode",
+        ),
+    ],
+)
+@pytest.mark.parametrize("strict", [False, True])
+def test_tool_response_order_keeps_first_object_and_strict_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    calls: list[tuple[str, str]],
+    expected: dict[str, Any],
+    strict_error: bool,
+    strict: bool,
+) -> None:
+    """Decode real SDK tool messages; neither later tools nor text replace a result."""
+    requests = []
+    message = {
+        "content": '{"name":"text-fallback"}',
+        "tool_calls": [
+            {"id": f"tool-{index}", "type": "function", "function": {"name": name, "arguments": arguments}}
+            for index, (name, arguments) in enumerate(calls)
+        ],
+    }
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return _completion(message, finish_reason="tool_calls")
+
+    with _analyzer_http(monkeypatch, handle, tools=True) as analyzer:
+        if strict and strict_error:
+            with pytest.raises(JSONResponseError) as captured:
+                analyzer.call_llm(_MESSAGES, strict_json=True, preserve_names=True)
+            assert captured.value.code == "invalid_json"
+        else:
+            assert analyzer.call_llm(_MESSAGES, strict_json=strict, preserve_names=True) == expected
+    assert len(requests) == 1

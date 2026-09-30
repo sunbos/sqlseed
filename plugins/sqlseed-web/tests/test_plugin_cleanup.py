@@ -85,6 +85,7 @@ def test_cleanup_failure_publishes_terminal_state_and_preserves_environment_lock
         return returncode
 
     monkeypatch.setattr(plugin_management, "run_installer", installer)
+    blocked_contender = EnvironmentLock(prefix, exclusive=True)
     manager.start()
     try:
         plan = manager.plan(plugin_management.PlanRequest(component_id="mimesis", action="install"))
@@ -101,7 +102,7 @@ def test_cleanup_failure_publishes_terminal_state_and_preserves_environment_lock
         assert "do-not-expose" not in str(result)
         assert "private temporary path" not in str(result)
         with pytest.raises(RuntimeError):
-            EnvironmentLock(prefix, exclusive=True).acquire()
+            blocked_contender.acquire()
         if supervised:
             assert result["service_ready"] is True
             assert phases == ["pause", "maintenance", "restore"]
@@ -112,6 +113,7 @@ def test_cleanup_failure_publishes_terminal_state_and_preserves_environment_lock
             assert not phases
         assert ("mimesis" in plugin_environment.installed_packages(prefix)) is (returncode == 0)
     finally:
+        blocked_contender.release()
         for descriptor in descriptors:
             os.close(descriptor)
         manager.stop()

@@ -80,23 +80,31 @@ def _fetch_index(project: str) -> object:
         connection.close()
 
 
+def _file_version(file: object) -> tuple[str, Version] | None:
+    """Read one non-yanked distribution filename without accepting malformed entries."""
+    if not isinstance(file, dict) or file.get("yanked", False) is not False:
+        return None
+    filename = file.get("filename")
+    if not isinstance(filename, str):
+        return None
+    try:
+        if filename.endswith(".whl"):
+            name, version, _, _ = parse_wheel_filename(filename)
+        else:
+            name, version = parse_sdist_filename(filename)
+    except (InvalidWheelFilename, InvalidSdistFilename, InvalidVersion):
+        return None
+    return name, version
+
+
 def _latest_stable(project: str, payload: object) -> str:
     if not isinstance(payload, dict) or not isinstance(payload.get("files"), list):
         raise TypeError("Invalid index")
     versions: set[Version] = set()
     for file in payload["files"]:
-        if not isinstance(file, dict) or file.get("yanked", False) is not False:
+        if (candidate := _file_version(file)) is None:
             continue
-        filename = file.get("filename")
-        if not isinstance(filename, str):
-            continue
-        try:
-            if filename.endswith(".whl"):
-                name, version, _, _ = parse_wheel_filename(filename)
-            else:
-                name, version = parse_sdist_filename(filename)
-        except (InvalidWheelFilename, InvalidSdistFilename, InvalidVersion):
-            continue
+        name, version = candidate
         if name == canonicalize_name(project) and not (version.is_prerelease or version.is_devrelease or version.local):
             versions.add(version)
     if not versions:

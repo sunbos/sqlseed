@@ -220,10 +220,11 @@ function renderSidebar() {
         `${name} ${table.description}`.toLowerCase().includes(search),
     );
     $("#table-list").innerHTML = visible
-        .map(
-            ([name, table]) =>
-                `<div class="table-item ${name === currentTable ? "active" : ""}"><input type="checkbox" data-select="${name}" aria-label="选择 ${name} 参与生成" ${table.selected ? "checked" : ""}><button class="table-select" data-table="${name}" ${name === currentTable ? 'aria-current="true"' : ""}><span data-icon="table"></span><span><strong>${name}</strong><small>${table.description}</small></span></button><span class="table-amount">${table.selected ? (validCount(table.count) ? number(table.count) : "待修正") : "—"}</span></div>`,
-        )
+        .map(([name, table]) => {
+            const count = validCount(table.count) ? number(table.count) : "待修正";
+            const amount = table.selected ? count : "—";
+            return `<div class="table-item ${name === currentTable ? "active" : ""}"><input type="checkbox" data-select="${name}" aria-label="选择 ${name} 参与生成" ${table.selected ? "checked" : ""}><button class="table-select" data-table="${name}" ${name === currentTable ? 'aria-current="true"' : ""}><span data-icon="table"></span><span><strong>${name}</strong><small>${table.description}</small></span></button><span class="table-amount">${amount}</span></div>`;
+        })
         .join("");
     $("#table-count").textContent = String(visible.length).padStart(2, "0");
     $("#search-empty").hidden = visible.length > 0;
@@ -271,10 +272,10 @@ function renderTable() {
     $("#field-count").textContent = `${table.fields.length} 个字段`;
     $("#row-count").value = table.count;
     $("#rules-body").innerHTML = table.fields
-        .map(
-            (item, index) =>
-                `<tr><td class="number-col">${String(index + 1).padStart(2, "0")}</td><td><span class="field-name">${item.name}</span><span class="field-type">${item.type}</span></td><td><button class="rule-button" data-field="${index}" aria-label="${item.generator === "auto" || item.generator === "reference" ? "查看" : "编辑"} ${item.name} 规则"><span class="generator-icon" data-icon="${generatorIcons[item.generator]}"></span><span><span class="rule-label">${labels[item.generator]}</span><span class="rule-description">${escapeHTML(ruleDescription(item))}</span></span></button></td><td>${item.constraints.map((constraint) => `<span class="constraint-tag ${constraint === "PRIMARY KEY" ? "pk" : ""}">${constraint === "PRIMARY KEY" ? icon("key") : ""}${constraint}</span>`).join("")}</td><td><button class="icon-button edit-rule" data-field="${index}" aria-label="${item.name} 字段详情"><span data-icon="${item.generator === "auto" || item.generator === "reference" ? "info" : "edit"}"></span></button></td></tr>`,
-        )
+        .map((item, index) => {
+            const constraints = item.constraints.map(constraintTag).join("");
+            return `<tr><td class="number-col">${String(index + 1).padStart(2, "0")}</td><td><span class="field-name">${item.name}</span><span class="field-type">${item.type}</span></td><td><button class="rule-button" data-field="${index}" aria-label="${item.generator === "auto" || item.generator === "reference" ? "查看" : "编辑"} ${item.name} 规则"><span class="generator-icon" data-icon="${generatorIcons[item.generator]}"></span><span><span class="rule-label">${labels[item.generator]}</span><span class="rule-description">${escapeHTML(ruleDescription(item))}</span></span></button></td><td>${constraints}</td><td><button class="icon-button edit-rule" data-field="${index}" aria-label="${item.name} 字段详情"><span data-icon="${item.generator === "auto" || item.generator === "reference" ? "info" : "edit"}"></span></button></td></tr>`;
+        })
         .join("");
     $("#rule-summary").textContent =
         `${table.fields.filter((item) => item.generator !== "auto").length} 项生成规则`;
@@ -288,6 +289,10 @@ function renderTable() {
         );
     if (currentTab === "preview") renderPreview();
     if (currentTab === "relations") renderRelations();
+}
+function constraintTag(constraint) {
+    const primaryKey = constraint === "PRIMARY KEY";
+    return `<span class="constraint-tag ${primaryKey ? "pk" : ""}">${primaryKey ? icon("key") : ""}${constraint}</span>`;
 }
 function setTab(tabName) {
     currentTab = tabName;
@@ -351,19 +356,28 @@ function renderPreview() {
     const fields = tables[currentTable].fields;
     $("#preview-state").textContent =
         `当前规则的演示样例 · 第 ${sampleRound + 1} 组`;
+    const headings = fields
+        .map((item, index) => `<th scope="col"><button data-preview-field="${index}" aria-label="查看 ${item.name} 规则">${item.name}</button></th>`)
+        .join("");
+    const rows = Array.from({ length: 5 }, (_, row) => previewRow(fields, row)).join("");
     $("#preview-table").innerHTML =
-        `<table class="preview-table"><thead><tr>${fields.map((item, index) => `<th scope="col"><button data-preview-field="${index}" aria-label="查看 ${item.name} 规则">${item.name}</button></th>`).join("")}</tr></thead><tbody>${Array.from({ length: 5 }, (_, row) => `<tr>${fields.map((item) => `<td class="${item.generator === "auto" || item.generator === "reference" ? "auto-value" : ""}">${escapeHTML(sample(item, row))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+        `<table class="preview-table"><thead><tr>${headings}</tr></thead><tbody>${rows}</tbody></table>`;
     $$("[data-preview-field]").forEach((button) =>
         button.addEventListener("click", () =>
             openField(Number(button.dataset.previewField)),
         ),
     );
 }
+function previewRow(fields, row) {
+    const cells = fields.map((item) => `<td class="${item.generator === "auto" || item.generator === "reference" ? "auto-value" : ""}">${escapeHTML(sample(item, row))}</td>`).join("");
+    return `<tr>${cells}</tr>`;
+}
+function relationNode(name) {
+    return `<button class="relation-node ${name === currentTable ? "current" : ""}" data-relation-table="${name}"><strong>${name}</strong><small>${tables[name].description} · ${tables[name].selected ? "参与生成" : "未选择"}</small></button>`;
+}
 function renderRelations() {
-    const node = (name) =>
-        `<button class="relation-node ${name === currentTable ? "current" : ""}" data-relation-table="${name}"><strong>${name}</strong><small>${tables[name].description} · ${tables[name].selected ? "参与生成" : "未选择"}</small></button>`;
     $("#relations-content").innerHTML =
-        `<div class="relation-paths"><div class="relation-flow">${node("users")}<span class="relation-arrow">→<small>user_id</small></span>${node("orders")}<span class="relation-arrow">→<small>order_id</small></span>${node("order_items")}</div><div class="relation-flow">${node("products")}<span class="relation-arrow">→<small>product_id</small></span>${node("order_items")}</div><p class="form-help">箭头指向引用该主键的表。点击节点查看字段，生成范围保持不变。</p></div>`;
+        `<div class="relation-paths"><div class="relation-flow">${relationNode("users")}<span class="relation-arrow">→<small>user_id</small></span>${relationNode("orders")}<span class="relation-arrow">→<small>order_id</small></span>${relationNode("order_items")}</div><div class="relation-flow">${relationNode("products")}<span class="relation-arrow">→<small>product_id</small></span>${relationNode("order_items")}</div><p class="form-help">箭头指向引用该主键的表。点击节点查看字段，生成范围保持不变。</p></div>`;
     $$("[data-relation-table]").forEach((button) =>
         button.addEventListener("click", () =>
             selectTable(button.dataset.relationTable),
@@ -388,47 +402,60 @@ function showDialog(id) {
     const dialog = $(`#${id}`);
     if (!dialog.open) dialog.showModal();
 }
+function readEmailParams() {
+    const domain = $("#param-domain").value.trim().toLowerCase();
+    if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain))
+        throw new Error("请输入有效域名，例如 example.test。");
+    return { domain };
+}
+function readNumericParams(generator) {
+    const minText = $("#param-min").value;
+    const maxText = $("#param-max").value;
+    const min = Number(minText),
+        max = Number(maxText);
+    if (
+        minText === "" ||
+        maxText === "" ||
+        !Number.isFinite(min) ||
+        !Number.isFinite(max)
+    )
+        throw new Error("请填写完整的数值范围。");
+    if (min > max) throw new Error("最小值不能大于最大值。");
+    if (
+        generator === "integer" &&
+        (!Number.isInteger(min) || !Number.isInteger(max))
+    )
+        throw new Error("整数范围不支持小数。");
+    if (Math.abs(min) > 1000000000 || Math.abs(max) > 1000000000)
+        throw new Error("原型支持的数值范围为 -10 亿至 10 亿。");
+    return { min, max };
+}
+function readChoiceParams() {
+    const values = $("#param-values")
+        .value.split(/[,，]/)
+        .map((value) => value.trim())
+        .filter(Boolean);
+    if (!values.length) throw new Error("请至少填写一个选项。");
+    return { values };
+}
+function readDateParams() {
+    const start = $("#param-start").value;
+    const end = $("#param-end").value;
+    if (!start || !end || start > end)
+        throw new Error("请填写有效的日期范围，起始日期不能晚于结束日期。");
+    return { start, end };
+}
 function readRuleDraft() {
     const generator = $("#generator").value;
-    const params = {};
+    let params = {};
     if (generator === "email") {
-        const domain = $("#param-domain").value.trim().toLowerCase();
-        if (!/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain))
-            throw new Error("请输入有效域名，例如 example.test。");
-        params.domain = domain;
+        params = readEmailParams();
     } else if (generator === "integer" || generator === "decimal") {
-        const minText = $("#param-min").value;
-        const maxText = $("#param-max").value;
-        const min = Number(minText),
-            max = Number(maxText);
-        if (
-            minText === "" ||
-            maxText === "" ||
-            !Number.isFinite(min) ||
-            !Number.isFinite(max)
-        )
-            throw new Error("请填写完整的数值范围。");
-        if (min > max) throw new Error("最小值不能大于最大值。");
-        if (
-            generator === "integer" &&
-            (!Number.isInteger(min) || !Number.isInteger(max))
-        )
-            throw new Error("整数范围不支持小数。");
-        if (Math.abs(min) > 1000000000 || Math.abs(max) > 1000000000)
-            throw new Error("原型支持的数值范围为 -10 亿至 10 亿。");
-        params.min = min;
-        params.max = max;
+        params = readNumericParams(generator);
     } else if (generator === "choice") {
-        params.values = $("#param-values")
-            .value.split(/[,，]/)
-            .map((value) => value.trim())
-            .filter(Boolean);
-        if (!params.values.length) throw new Error("请至少填写一个选项。");
+        params = readChoiceParams();
     } else if (generator === "datetime") {
-        params.start = $("#param-start").value;
-        params.end = $("#param-end").value;
-        if (!params.start || !params.end || params.start > params.end)
-            throw new Error("请填写有效的日期范围，起始日期不能晚于结束日期。");
+        params = readDateParams();
     }
     return { ...editingField, generator, params };
 }
@@ -487,9 +514,12 @@ function openField(index) {
         editingField.generator === "reference"
     ) {
         const isAuto = editingField.generator === "auto";
+        const description = isAuto
+            ? "这个字段由数据库自动分配主键。预览不虚构写入后的 ID，也不允许在此覆盖数据库规则。"
+            : `此字段引用 ${escapeHTML(editingField.params.target)}。实际生成需要关联表中的有效记录；原型用引用说明代替真实外键值。`;
         actionDialog(
             `${editingField.name} · 字段信息`,
-            `<p class="action-message">${isAuto ? "这个字段由数据库自动分配主键。预览不虚构写入后的 ID，也不允许在此覆盖数据库规则。" : `此字段引用 ${escapeHTML(editingField.params.target)}。实际生成需要关联表中的有效记录；原型用引用说明代替真实外键值。`}</p><div class="check-success">${icon("shield")}${escapeHTML(editingField.constraints.join(" · "))}</div>`,
+            `<p class="action-message">${description}</p><div class="check-success">${icon("shield")}${escapeHTML(editingField.constraints.join(" · "))}</div>`,
             [
                 {
                     label: "知道了",
@@ -502,14 +532,7 @@ function openField(index) {
     }
     $("#field-title").textContent = editingField.name;
     $("#field-meta").textContent = `${currentTable} / ${editingField.type}`;
-    const allowed =
-        editingField.type === "TEXT"
-            ? ["name", "email", "choice"]
-            : editingField.type === "INTEGER"
-              ? ["integer"]
-              : editingField.type === "DECIMAL"
-                ? ["decimal"]
-                : ["datetime"];
+    const allowed = allowedGenerators(editingField.type);
     $("#generator").innerHTML = allowed
         .map(
             (name) =>
@@ -520,6 +543,12 @@ function openField(index) {
         `保留字段约束：${editingField.constraints.join("、")}。规则仅影响生成的数据。`;
     renderGeneratorOptions(editingField.params);
     showDialog("field-dialog");
+}
+function allowedGenerators(type) {
+    if (type === "TEXT") return ["name", "email", "choice"];
+    if (type === "INTEGER") return ["integer"];
+    if (type === "DECIMAL") return ["decimal"];
+    return ["datetime"];
 }
 function actionDialog(
     title,
@@ -563,9 +592,10 @@ function validationIssues() {
 function checkConfiguration(generate = false) {
     const issues = validationIssues();
     if (issues.length) {
+        const issueText = issues.map((issue) => `<p class="action-message">${escapeHTML(issue)}</p>`).join("");
         actionDialog(
             "还有几处需要调整",
-            `<div class="check-success error">${icon("info")}配置检查未通过</div>${issues.map((issue) => `<p class="action-message">${escapeHTML(issue)}</p>`).join("")}`,
+            `<div class="check-success error">${icon("info")}配置检查未通过</div>${issueText}`,
             [
                 {
                     label: "返回调整",
@@ -583,7 +613,8 @@ function checkConfiguration(generate = false) {
         (sum, [, table]) => sum + Number(table.count),
         0,
     );
-    const content = `<div class="check-success">${icon("check")}已检查生成范围、行数及表间依赖</div><div class="plan-list">${selected.map(([name, table]) => `<div class="plan-row"><code>${name}</code><span>${number(table.count)} 行</span></div>`).join("")}</div><p class="action-message">目标：<strong>shop_demo.db（演示）</strong><br>共 ${selected.length} 张表，${number(total)} 行。此次仅模拟追加生成，不连接或修改真实数据库。</p>`;
+    const planRows = selected.map(([name, table]) => `<div class="plan-row"><code>${name}</code><span>${number(table.count)} 行</span></div>`).join("");
+    const content = `<div class="check-success">${icon("check")}已检查生成范围、行数及表间依赖</div><div class="plan-list">${planRows}</div><p class="action-message">目标：<strong>shop_demo.db（演示）</strong><br>共 ${selected.length} 张表，${number(total)} 行。此次仅模拟追加生成，不连接或修改真实数据库。</p>`;
     actionDialog(
         generate ? "生成前，再确认一下。" : "配置已准备就绪",
         content,
@@ -736,21 +767,19 @@ $(".editor-tabs").addEventListener("keydown", (event) => {
     const tabs = $$("[data-tab]");
     const index = tabs.indexOf(document.activeElement);
     if (index < 0) return;
-    const next =
-        event.key === "ArrowRight"
-            ? (index + 1) % tabs.length
-            : event.key === "ArrowLeft"
-              ? (index + tabs.length - 1) % tabs.length
-              : event.key === "Home"
-                ? 0
-                : event.key === "End"
-                  ? tabs.length - 1
-                  : null;
+    const next = nextTabIndex(event.key, index, tabs.length);
     if (next !== null) {
         event.preventDefault();
         tabs[next].focus();
     }
 });
+function nextTabIndex(key, index, length) {
+    if (key === "ArrowRight") return (index + 1) % length;
+    if (key === "ArrowLeft") return (index + length - 1) % length;
+    if (key === "Home") return 0;
+    if (key === "End") return length - 1;
+    return null;
+}
 $("#table-search").addEventListener("input", renderSidebar);
 $("#row-count").addEventListener("input", () => {
     tables[currentTable].count = $("#row-count").value;
@@ -786,7 +815,7 @@ $("#field-form").addEventListener("submit", (event) => {
     notify(`${draft.name} 的规则已应用`);
 });
 $("#field-dialog").addEventListener("close", () => {
-    if (!editorReturnTarget || editorReturnTarget.table !== currentTable)
+    if (editorReturnTarget?.table !== currentTable)
         return;
     const selector = editorReturnTarget.preview
         ? `[data-preview-field="${editorReturnTarget.index}"]`

@@ -129,18 +129,22 @@ def _try_raw_decode(content: str, *, preserve_names: bool = False) -> dict[str, 
     return None
 
 
+def _advance_quoted_string(char: str, escaped: bool) -> tuple[bool, bool]:
+    """Return the quoted/escaped state after one character inside a JSON string."""
+    if escaped:
+        return True, False
+    if char == "\\":
+        return True, True
+    return char != '"', False
+
+
 def _missing_closers(content: str) -> str:
     """Complete delimiters only, never strings, keys, commas or business values."""
     stack: list[str] = []
     quoted = escaped = False
     for char in content:
         if quoted:
-            if escaped:
-                escaped = False
-            elif char == "\\":
-                escaped = True
-            elif char == '"':
-                quoted = False
+            quoted, escaped = _advance_quoted_string(char, escaped)
         elif char == '"':
             quoted = True
         elif char in "{[":

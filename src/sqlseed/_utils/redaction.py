@@ -14,16 +14,8 @@ _QUERY_KEY = re.compile(r"[?&]([^=?&#\s]+)=")
 _SECRET_KEYS = frozenset({"password", "passwd", "pwd", "sslpassword", "secret", "token", "api_key", "access_token"})
 
 
-def redact_url_credentials(message: str) -> str:
-    """Keep hosts, paths and diagnostics while hiding URL userinfo and secrets.
-
-    Matching text instead of parsing one URL also handles malformed targets and
-    multiple URLs embedded in an exception. Percent-encoded credential values
-    remain opaque; encoded query parameter names are recognized as well.
-    Query values may contain raw whitespace, quotes and '#', so only an '&'
-    terminates a credential value. Ambiguous free text is redacted conservatively:
-    a scheme inside a password must not expose the part before that scheme.
-    """
+def _redact_userinfo(message: str) -> str:
+    """Mask authority credentials, including malformed and embedded URL targets."""
     starts = list(_URL_START.finditer(message))
     ats = [match.start() for match in re.finditer("@", message)]
     at_index = 0
@@ -43,8 +35,20 @@ def redact_url_credentials(message: str) -> str:
             pieces.append("***:***@")
             previous = ats[at_index] + 1
     pieces.append(message[previous:])
-    message = "".join(pieces)
+    return "".join(pieces)
 
+
+def redact_url_credentials(message: str) -> str:
+    """Keep hosts, paths and diagnostics while hiding URL userinfo and secrets.
+
+    Matching text instead of parsing one URL also handles malformed targets and
+    multiple URLs embedded in an exception. Percent-encoded credential values
+    remain opaque; encoded query parameter names are recognized as well.
+    Query values may contain raw whitespace, quotes and '#', so only an '&'
+    terminates a credential value. Ambiguous free text is redacted conservatively:
+    a scheme inside a password must not expose the part before that scheme.
+    """
+    message = _redact_userinfo(message)
     pieces = []
     previous = 0
     for key in _QUERY_KEY.finditer(message):

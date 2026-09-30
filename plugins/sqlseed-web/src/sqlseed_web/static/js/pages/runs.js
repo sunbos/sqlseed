@@ -132,7 +132,7 @@ function drawList(runs) {
     if (list.children[index] !== card) list.insertBefore(card, list.children[index] || null);
   });
   const retained = new Set(cards);
-  for (const card of [...list.children]) if (!retained.has(card)) card.remove();
+  for (const card of previousCards.values()) if (!retained.has(card)) card.remove();
   if (focused?.isConnected && document.activeElement !== focused) focused.focus({preventScroll: true});
 }
 function status(value) {
@@ -197,27 +197,50 @@ function viewTable(run, table) {
     // Polling replaces the detail controls while this reader is open. Resolve
     // the current action by identity only when its original page/run survives.
     returnFocus: () => current() && detail.dataset.runId === String(run.id)
-      ? [...detail.querySelectorAll('[data-run-focus]')].find(element => element.getAttribute('data-run-focus') === `table:${table.name}`)
+      ? [...detail.querySelectorAll('[data-run-focus]')].find(element => element.dataset.runFocus === `table:${table.name}`)
       : null
   });
 }
-function drawRun(run) {
+function captureRunView(run) {
   const previousSnapshot = detail.querySelector('.run-snapshot');
   if (previousSnapshot && detail.dataset.runId) {
     const code = previousSnapshot.querySelector('pre');
     snapshotStates.set(detail.dataset.runId, {open: previousSnapshot.open, top: code.scrollTop, left: code.scrollLeft});
   }
   const active = document.activeElement;
-  const focusedKey = detail.dataset.runId === String(run.id) && detail.contains(active) ? active.getAttribute('data-run-focus') : null;
+  return detail.dataset.runId === String(run.id) && detail.contains(active) ? active.dataset.runFocus : null;
+}
+function restoreRunView(run, content, focusedKey) {
+  const snapshot = content.find(element => element?.classList.contains('run-snapshot'));
+  const saved = snapshotStates.get(String(run.id));
+  if (saved) snapshot.open = saved.open;
+  replaceContent(detail, ...content.filter(element => element !== null));
+  detail.dataset.runId = run.id;
+  if (saved) {
+    const code = snapshot.querySelector('pre');
+    code.scrollTop = saved.top;
+    code.scrollLeft = saved.left;
+  }
+  if (focusedKey) {
+    const target = [...detail.querySelectorAll('[data-run-focus]')].find(element => element.dataset.runFocus === focusedKey);
+    if (target && !target.disabled) target.focus({preventScroll: true});
+  }
+}
+function plannedRunCounts(run, tables) {
+  const configured = Array.isArray(run.document?.tables) ? run.document.tables : [];
+  const plannedCount = table => table.requested_count ?? table.count ?? configured.find(item => item.name === table.name)?.count;
+  const planned = tables.length && tables.every(table => knownCount(plannedCount(table))) ? tables.reduce((total, table) => total + plannedCount(table), 0) : null;
+  return {plannedCount, planned};
+}
+function drawRun(run) {
+  const focusedKey = captureRunView(run);
   const recovery = remainingRun(run);
   const count = run.rows_inserted;
   const replacement = run.execution?.mode === 'replace_selected';
   const exact = knownCount(count) && run.row_counts_exact !== false && run.count_complete !== false;
   const errors = recordedErrors(run);
   const tables = Array.isArray(run.tables) ? run.tables : [];
-  const configured = Array.isArray(run.document?.tables) ? run.document.tables : [];
-  const plannedCount = table => table.requested_count ?? table.count ?? configured.find(item => item.name === table.name)?.count;
-  const planned = tables.length && tables.every(table => knownCount(plannedCount(table))) ? tables.reduce((total, table) => total + plannedCount(table), 0) : null;
+  const {plannedCount, planned} = plannedRunCounts(run, tables);
   function executionDescription() {
     if (replacement) {
       return tr('runs.replaceMode', {identity: run.execution.reset_identity ? tr('runs.reset') : tr('runs.keep')});
@@ -330,18 +353,5 @@ function drawRun(run) {
   }, tr('runs.replacementSnapshotHint')) : null, ['queued', 'running'].includes(run.status) ? h('p', {
     class: 'muted'
   }, tr('runs.serverRunning')) : null];
-  const snapshot = content.find(element => element?.classList.contains('run-snapshot'));
-  const saved = snapshotStates.get(String(run.id));
-  if (saved) snapshot.open = saved.open;
-  replaceContent(detail, ...content.filter(element => element !== null));
-  detail.dataset.runId = run.id;
-  if (saved) {
-    const code = snapshot.querySelector('pre');
-    code.scrollTop = saved.top;
-    code.scrollLeft = saved.left;
-  }
-  if (focusedKey) {
-    const target = [...detail.querySelectorAll('[data-run-focus]')].find(element => element.getAttribute('data-run-focus') === focusedKey);
-    if (target && !target.disabled) target.focus({preventScroll: true});
-  }
+  restoreRunView(run, content, focusedKey);
 }

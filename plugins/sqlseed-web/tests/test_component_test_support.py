@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import sys
 import threading
+from contextlib import ExitStack
 
 import pytest
 
@@ -22,10 +23,14 @@ def test_timed_acquisition_failure_does_not_release_an_unowned_slot() -> None:
 
 def test_timed_acquisition_releases_once_when_the_protected_assertion_fails() -> None:
     semaphore = threading.BoundedSemaphore(1)
-    with pytest.raises(ValueError, match="protected failure"), acquired_with_timeout(semaphore, timeout=0):
+    failure = ValueError("protected failure")
+    with ExitStack() as cleanup:
+        cleanup.enter_context(acquired_with_timeout(semaphore, timeout=0))
         with pytest.raises(AssertionError, match="not released"), acquired_with_timeout(semaphore, timeout=0):
             pytest.fail("the outer scope must retain the only slot")
-        raise ValueError("protected failure")
+        with pytest.raises(ValueError, match="protected failure") as raised, cleanup as _:
+            raise failure
+        assert raised.value is failure
     with (
         acquired_with_timeout(semaphore, timeout=0),
         pytest.raises(AssertionError, match="not released"),

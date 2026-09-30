@@ -24,6 +24,7 @@ class Element {
         this.attributes['data-' + String(key).replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())] = String(value);
         return true;
       },
+      deleteProperty: (_, key) => delete this.attributes['data-' + String(key).replace(/[A-Z]/g, letter => '-' + letter.toLowerCase())],
     });
     this.classList = {
       contains: (name) => this.className.split(/\s+/).includes(name),
@@ -54,6 +55,7 @@ class Element {
     }
   }
   appendChild(node) { this.append(node); return node; }
+  before(node) { this.parentNode?.insertBefore(node, this); }
   replaceWith(node) {
     if (!this.parentNode || node === this) return;
     this.parentNode.insertBefore(node, this);
@@ -223,7 +225,7 @@ function loadFrontend(name, bindings = {}) {
   Object.assign(globals, loadI18n(globals));
   const apiContext = vm.createContext({...globals});
   vm.runInContext(source('api.js'), apiContext, {filename: 'api.js'});
-  const api = vm.runInContext('({h, clear, msg, table, fmt, store, api, get, post, del, setConnBadge, safeTargetLabel, rememberConnId, forgetConnId, restoreConnection, httpErrorMessage})', apiContext);
+  const api = vm.runInContext('({h, clear, msg, table, fmt, store, api, get, post, del, setConnBadge, safeTargetLabel, safeTargetIdentity, rememberConnId, forgetConnId, restoreConnection, httpErrorMessage})', apiContext);
   if (!scrollModules.has(document)) {
     const scrollContext = vm.createContext({document});
     vm.runInContext(source('workbench/scroll-lock.js'), scrollContext, {filename: 'workbench/scroll-lock.js'});

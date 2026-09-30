@@ -522,31 +522,23 @@ function update() {
   }
   updateAuthenticationHint();
   function updateConfigurationBadge() {
-    badge.dataset.state = !busy && loaded && (!config || config.availability_status === 'import_error') ? 'error' :
-      !busy && loaded && (settingsStale || !config.available) ? 'warning' : '';
+    badge.dataset.state = configurationBadgeState();
+    setText(badge, configurationBadgeText());
+  }
+  function configurationBadgeState() {
+    if (busy || !loaded) return '';
+    if (!config || config.availability_status === 'import_error') return 'error';
+    return settingsStale || !config.available ? 'warning' : '';
+  }
+  function configurationBadgeText() {
     if (settingsStale) {
-      if (busy) {
-        setText(badge, tr('settings.loading'));
-      } else {
-        setText(badge, tr('settings.reloadNeeded'));
-      }
-    } else if (!loaded) {
-      setText(badge, tr('settings.loading'));
-    } else if (!config) {
-      setText(badge, tr('settings.loadFailed'));
-    } else if (!config.available) {
-      if (config.availability_status === 'import_error') {
-        setText(badge, tr('settings.importError'));
-      } else {
-        setText(badge, tr('settings.notInstalled'));
-      }
-    } else if (dirty()) {
-      setText(badge, tr('settings.unsavedBadge'));
-    } else if (config.ready) {
-      setText(badge, tr('settings.configured'));
-    } else {
-      setText(badge, tr('settings.notConfigured'));
+      return tr(busy ? 'settings.loading' : 'settings.reloadNeeded');
     }
+    if (!loaded) return tr('settings.loading');
+    if (!config) return tr('settings.loadFailed');
+    if (!config.available) return tr(config.availability_status === 'import_error' ? 'settings.importError' : 'settings.notInstalled');
+    if (dirty()) return tr('settings.unsavedBadge');
+    return tr(config.ready ? 'settings.configured' : 'settings.notConfigured');
   }
 }
 function updateAuthenticationHint() {
@@ -794,6 +786,7 @@ async function refreshEnvironment({
     }
   }
 }
+const application = item => item.category ? item.category === 'application' : ['core', 'web'].includes(item.id);
 function renderEnvironment() {
   if (!environmentInfo) {
     return;
@@ -801,7 +794,6 @@ function renderEnvironment() {
   const info = environmentInfo,
     packages = info.packages || [];
   setText(environmentSummary, tr('settings.environmentSummary', {implementation: info.python?.implementation || 'Python', version: info.python?.version || tr('settings.unknownVersion')}));
-  const application = item => item.category ? item.category === 'application' : ['core', 'web'].includes(item.id);
   const group = (title, items) => h('section', {
     class: 'settings-package-group'
   }, h('h3', {}, title), ...items.map(item => packageRow(item, info.installer)));
