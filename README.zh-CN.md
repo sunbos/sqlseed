@@ -85,6 +85,10 @@ print(result.count, result.errors)  # 100 []
 姓名和邮箱的生成规则由字段名推断，主键由数据库分配。
 每次运行会继续追加 100 行，不会清空表。生成后应同时检查 `result.count` 和 `result.errors`。
 
+当前开发源码可用 `sqlseed.FillOptions(provider="faker", seed=42)` 复用生成设置，
+通过 `fill(..., options=settings)` 传入。原有单独关键字仍可使用，详见
+[Python API 参考](docs/api.md#filloptions)。
+
 只想查看样例、不写入数据库时，可以使用：
 
 ```python
@@ -216,7 +220,7 @@ SQLite 路径与 `url` 不能同时传入。支持的外键结构和各入口差
 | 下一步 | 文档 |
 | --- | --- |
 | 配置生成器、表达式与多表数据 | [用户指南](https://sunbos.github.io/sqlseed/guide/) |
-| 使用 `fill`、`preview`、`connect`、`fill_from_config`、`load_config` | [Python API 参考](https://sunbos.github.io/sqlseed/api/) |
+| 使用 `fill`、`FillOptions`、`preview`、`connect`、`fill_from_config`、`load_config` | [Python API 参考](https://sunbos.github.io/sqlseed/api/) |
 | 跑通完整的多表示例 | [订单工作流](https://github.com/sunbos/sqlseed/tree/main/examples/order_workflow) |
 | 了解包边界和扩展 hooks | [架构文档](https://sunbos.github.io/sqlseed/architecture.zh-CN/) |
 | 升级已有安装 | [迁移指南](https://sunbos.github.io/sqlseed/migration.zh-CN/) |

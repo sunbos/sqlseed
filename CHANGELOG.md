@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add reusable `FillOptions` for single-table generation. Existing `fill()` keyword calls and defaults remain supported; explicit keywords override shared settings.
 - Add Simplified Chinese and English interface switching across the Web workbench, configurations, run history and settings, preserving edits and keeping interface language separate from generated-data locale. Bundled message resources also translate supported backend diagnostics.
 - Add light, dark and system appearance, browser-local defaults for new configurations, and a shared Web component reference with bundled fonts.
 - Support managed component changes on Windows and reviewed updates of optional components with fixed dependencies, wheel hashes and service recovery.
@@ -18,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Split complex AI parsing and graph layout stages into focused helpers, and merge duplicate CSS declarations while preserving rendering and interaction behavior. `fill()` introspection now shows grouped options and typed compatibility keywords; the complete parameter reference remains in the API guide.
 - Simplify workbench guidance, configuration actions and relationship views; add pointer-centered graph zoom, stable hover geometry and actionable cycle locations.
 - Guide SQLite clear-and-regenerate failures through a reviewed downstream-table expansion while preserving the selected write mode and final confirmation.
 - Require Core `>=0.2.5.dev0,<0.3` in development plugins for shared connection parsing and credential redaction. The published 0.2.4 set retains its own dependency metadata.
@@ -25,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Close tutorial SQLite connections and explicitly clean up temporary Notebook databases and cache settings, with complete offline execution checks for four affected notebooks.
 - Preserve SQLite `mode=memory` connection-pool behavior explicitly across SQLAlchemy 2.0/2.1, avoiding a deprecated implicit default without changing URI parsing or thread policy.
 - Reject non-object AI tool arguments through the normal format-error path, apply strict output-limit checks to streaming refinement, and ignore malformed suggestion cache envelopes.
 - Bound Web update checks across DNS and response-header waits, retain in-flight request limits after timeouts, and prevent late responses from replacing the active cache result.

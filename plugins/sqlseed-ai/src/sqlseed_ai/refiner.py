@@ -41,6 +41,20 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _merge_message_history(
+    initial_messages: list[dict[str, str]], history: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Keep retry feedback compatible with templates requiring alternating roles."""
+    messages = list(initial_messages)
+    for previous in history:
+        if messages and previous["role"] == "user" and messages[-1]["role"] == "user":
+            # A format failure has no safe assistant answer to replay.
+            messages[-1] = {"role": "user", "content": messages[-1]["content"] + "\n\n" + previous["content"]}
+        else:
+            messages.append(previous)
+    return messages
+
+
 class _RetryState:
     """Mutable state for the refinement retry loop."""
 
@@ -258,14 +272,7 @@ class AiConfigRefiner:
             if level_idx < state.min_prompt_level:
                 continue
             initial_messages = self._analyzer.build_initial_messages(schema_ctx, compact=compact, ultra_compact=ultra)
-            messages = list(initial_messages)
-            for previous in state.messages_history:
-                if messages and previous["role"] == "user" and messages[-1]["role"] == "user":
-                    # Some local chat templates require alternating roles.
-                    # A format failure has no safe assistant answer to replay.
-                    messages[-1] = {"role": "user", "content": messages[-1]["content"] + "\n\n" + previous["content"]}
-                else:
-                    messages.append(previous)
+            messages = _merge_message_history(initial_messages, state.messages_history)
             try:
                 if not (config_dict := call_fn(messages)):
                     return None, ErrorSummary(

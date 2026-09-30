@@ -260,6 +260,7 @@ a {
   font-size: 23px;
   font-weight: 650;
   letter-spacing: -1px;
+  color: var(--ink);
 }
 .brand-mark {
   width: 27px;
@@ -308,11 +309,7 @@ a {
   font-size: 11px;
   font-weight: 650;
 }
-.page {
-  max-width: 1500px;
-  margin: auto;
-  padding: 27px 30px 25px;
-}
+
 .heading {
   display: flex;
   align-items: flex-start;
@@ -386,11 +383,7 @@ h1 {
   background: var(--primary-hover);
   box-shadow: var(--primary-hover-shadow);
 }
-.btn.text {
-  background: transparent;
-  border-color: transparent;
-  color: var(--muted);
-}
+
 .btn.small {
   min-height: 29px;
   padding: 4px 9px;
@@ -675,6 +668,7 @@ h1 {
   padding: 12px 10px;
   vertical-align: middle;
   height: 61px;
+  border-color: var(--line);
 }
 .field-table td:first-child {
   padding-left: 27px;
@@ -700,6 +694,7 @@ h1 {
   padding: 0;
   text-align: left;
   max-width: 100%;
+  font-weight: 400;
 }
 .field-name:hover {
   text-decoration: underline;
@@ -728,7 +723,7 @@ h1 {
   display: block;
   color: var(--muted);
   font-size: 11px;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 .sample {
   display: block;
@@ -899,6 +894,7 @@ from {
   font-size: 10px;
   color: var(--muted);
   background: var(--surface-inset);
+  border-color: var(--line);
 }
 .statusbar span {
   display: flex;
@@ -976,12 +972,13 @@ from {
 .overlay.open {
   display: block;
 }
+
 .drawer {
   position: absolute;
-  right: 0;
-  top: 0;
-  bottom: 0;
-  width: min(390px,100%);
+  right: 22px;
+  top: 20px;
+  bottom: 20px;
+  width: min(410px,calc(100% - 44px));
   background: var(--glass-dialog);
   box-shadow: var(--glass-shadow);
   padding: 29px;
@@ -994,11 +991,13 @@ from {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 8px;
+  padding-bottom: 16px;
 }
 .drawer-head h2 {
   font: var(--font-weight-emphasis) 17px var(--mono);
   margin: 0;
   overflow-wrap: anywhere;
+  font-weight: var(--font-weight-emphasis);
 }
 .close {
   font-size: 21px;
@@ -1033,11 +1032,12 @@ from {
 }
 .segmented {
   display: flex;
-  padding: 3px;
+  padding: 4px;
   background: var(--surface-inset);
-  border-radius: 7px;
-  gap: 3px;
+  border-radius: 9px;
+  gap: 4px;
   margin-top: 8px;
+  border: 1px solid var(--glass-edge);
 }
 .segmented button {
   font-size: 12px;
@@ -1103,10 +1103,7 @@ from {
   padding: 11px 0;
   border-bottom: 1px solid var(--line);
 }
-.summary-table td:last-child {
-  text-align: right;
-  font-family: var(--mono);
-}
+
 .modal-note {
   padding: 12px 14px;
   background: var(--surface-inset);
@@ -1588,12 +1585,13 @@ from {
   padding: 10px 8px;
   background: none;
   flex: 1;
+  color: var(--ink);
 }
 .table-entry.active .table-button {
   color: var(--teal);
 }
 .table-entry:hover {
-  background: var(--control-hover);
+  background: var(--surface-inset);
 }
 .table-entry.active:hover {
   background: var(--control-selected);
@@ -1794,14 +1792,8 @@ select:focus-visible {
   stroke: var(--focus);
   stroke-width: 3;
 }
-.graph-table-name {
-  font: 14px var(--mono);
-  fill: var(--ink);
-}
-.graph-table-state {
-  font: 12px 'PingFang SC',sans-serif;
-  fill: var(--muted);
-}
+
+
 .graph-footer {
   display: flex;
   justify-content: space-between;
@@ -1987,9 +1979,6 @@ select:focus-visible {
   .count-setting input {
     width: 57px;
   }
-  .table-title h2 {
-    font-size: 16px;
-  }
   .source {
     display: block;
     border: 0;
@@ -2051,10 +2040,7 @@ select:focus-visible {
 .search input:focus-visible {
   outline: none;
 }
-.search:focus-within,.graph-search:focus-within {
-  border-color: var(--focus);
-  box-shadow: 0 0 0 3px var(--control-selected);
-}
+
 .heading-actions .btn.active {
   border-color: var(--control-selected-border);
   background: var(--control-selected);
@@ -2140,25 +2126,9 @@ select:focus-visible {
   flex-wrap: wrap;
   margin: 17px 0 12px;
 }
-.graph-filters {
-  display: flex;
-  gap: 4px;
-  padding: 3px;
-  border-radius: 7px;
-  background: var(--surface-inset);
-}
-.graph-filters button {
-  font-size: 11px;
-  padding: 6px 10px;
-  border-radius: 5px;
-  color: var(--muted);
-  min-height: 29px;
-}
-.graph-filters button[aria-pressed=true] {
-  background: var(--control-surface);
-  color: var(--teal);
-  box-shadow: var(--control-rest-shadow);
-}
+
+
+
 .graph-filters button:disabled {
   opacity: .5;
 }
@@ -2237,12 +2207,13 @@ select:focus-visible {
   overflow: auto;
   position: relative;
   border: 1px solid var(--line);
-  border-radius: 9px;
+  border-radius: var(--radius);
   background-color: var(--surface-inset);
-  background-image: radial-gradient(var(--graph-grid) 1px,transparent 1px);
+  background-image: radial-gradient(var(--graph-grid) .8px,transparent .8px);
   background-size: 18px 18px;
   cursor: grab;
   overscroll-behavior: contain;
+  border-color: var(--line);
 }
 .graph-canvas.expanded {
   height: min(680px,75vh);
@@ -3293,20 +3264,7 @@ a.btn {
   position: relative;
   min-width: 0;
 }
-.dropdown-btn {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  min-height: 36px;
-  padding: 8px 10px;
-  border: 1px solid var(--control-field-edge);
-  border-radius: 6px;
-  background: var(--paper);
-  font-size: 12px;
-  text-align: left;
-}
+
 .dropdown-btn:after {
   content: "⌄";
   color: var(--muted);
@@ -3340,10 +3298,12 @@ a.btn {
 .dropdown-item {
   display: block;
   width: 100%;
-  padding: 8px;
-  border-radius: 4px;
+  padding: 9px 30px 9px 10px;
+  border-radius: 6px;
   text-align: left;
-  font-size: 12px;
+  font-size: 13px;
+  position: relative;
+  color: var(--ink);
 }
 .dropdown-item.disabled {
   color: var(--muted);
@@ -3403,8 +3363,9 @@ a.btn {
   background: var(--control-selected);
 }
 .run-card strong {
-  font-size: 12px;
+  font-size: var(--text-body);
   overflow-wrap: anywhere;
+  font-weight: 500;
 }
 .run-card small {
   grid-column: 1 / -1;
@@ -3565,7 +3526,11 @@ body > header.top {
   background: var(--glass-shell);
   box-shadow: 0 20px 50px -28px #304b4640;
 }
-.page { padding: 28px 30px; }
+.page {
+  max-width: 1500px;
+  margin: auto;
+  padding: 28px 30px;
+}
 h1,h2,h3,h4 { font-weight: var(--font-weight-emphasis); letter-spacing: 0; }
 strong,b { font-weight: var(--font-weight-emphasis); }
 #nav button { gap: 8px; border-radius: 6px; font-weight: 400; }
@@ -3578,7 +3543,7 @@ strong,b { font-weight: var(--font-weight-emphasis); }
 }
 #nav button.active::after { background: transparent; }
 #nav button:hover { background: var(--control-hover); }
-.brand { color: var(--ink); }
+
 .brand::after { content: '.'; color: #648d79; margin-left: -9px; }
 .wb-page .wb-config-context,
 .wb-next-step,
@@ -3621,7 +3586,7 @@ strong,b { font-weight: var(--font-weight-emphasis); }
   background: var(--active-surface);
   box-shadow: var(--glass-shadow);
 }
-.table-entry:hover { background: var(--surface-inset); }
+
 .wb-page .wb-table-entry { grid-template-columns: 17px minmax(0,1fr) 28px; gap: 9px; border-radius: 10px; }
 .wb-page .wb-table-entry > input { align-self: center; margin: 0; width: 17px; height: 17px; }
 .wb-page .wb-table-name .table-name { font: 500 13px/1.5 var(--font-ui); }
@@ -3630,17 +3595,30 @@ strong,b { font-weight: var(--font-weight-emphasis); }
 .wb-table-data-heading h3,.run-table-name,.graph-search-match > strong.mono {
   font-family: var(--font-ui);
 }
-.summary-table td:last-child { font-family: var(--font-ui); font-variant-numeric: tabular-nums; }
+.summary-table td:last-child {
+  text-align: right;
+  font-family: var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
 .wb-summary-plan .execution-table { font: 400 13px/1.6 var(--font-ui); }
 .wb-setting-tile strong,.wb-provider-example,.wb-provider-example .mono { font-family: var(--font-ui); }
 .wb-provider-example code { font:inherit; font-variant-numeric:tabular-nums; }
-.field-name { font-weight: 400; }
-.wb-preview-data td,.wb-table-data td { font-family: var(--font-ui); font-size: 13px; }
-.field-table td { border-color: var(--line); }
-.field-table tbody tr:hover { background: var(--surface-inset); }
-.statusbar { background: var(--surface-inset); border-color: var(--line); }
+
+.wb-preview-data td,.wb-table-data td {
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+
+
 .wb-page .statusbar { font-size: 12px; }
-.btn.text { box-shadow: none; }
+.btn.text {
+  background: transparent;
+  border-color: transparent;
+  color: var(--muted);
+  box-shadow: none;
+}
 .wb-page .wb-config-tools .btn,
 .wb-page .selection-actions .btn,
 .wb-page .wb-structure-commands .btn { background: var(--control-surface); border-color: var(--glass-edge); }
@@ -3654,7 +3632,10 @@ strong,b { font-weight: var(--font-weight-emphasis); }
   border-color: var(--control-border);
   border-radius: 6px;
 }
-.search input,.graph-search input { background: transparent; }
+.search input,.graph-search input {
+  background: transparent;
+  font-size: var(--text-caption);
+}
 :is(input:not([type=checkbox]):not([type=radio]),textarea) {
   background: var(--control-surface);
   border-color: var(--control-field-edge);
@@ -3664,7 +3645,23 @@ strong,b { font-weight: var(--font-weight-emphasis); }
   border: 0; box-shadow: none; background: transparent;
 }
 .wb-code,:is(input:not([type=checkbox]):not([type=radio]),textarea).wb-code { font-family: var(--mono); }
-.dropdown-btn { font-size: 13px; background: var(--control-surface); box-shadow: var(--control-rest-shadow); border-color: var(--glass-edge); }
+
+.dropdown-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 36px;
+  padding: 8px 10px;
+  border: 1px solid var(--control-field-edge);
+  border-radius: 6px;
+  background: var(--control-surface);
+  font-size: 13px;
+  text-align: left;
+  box-shadow: var(--control-rest-shadow);
+  border-color: var(--glass-edge);
+}
 .dropdown-btn[aria-expanded=true] {
   background: var(--control-hover);
   box-shadow: var(--control-hover-shadow);
@@ -3676,7 +3673,7 @@ strong,b { font-weight: var(--font-weight-emphasis); }
   box-shadow: var(--picker-shadow);
   font-family: var(--font-ui);
 }
-.dropdown-item { position: relative; padding: 9px 30px 9px 10px; font-size: 13px; border-radius: 6px; color: var(--ink); }
+
 .dropdown-item.selected { background: var(--control-selected); color: var(--teal); }
 .dropdown-item.selected::after {
   content: '';
@@ -3712,21 +3709,22 @@ input[type=checkbox]:indeterminate {
   background-size: 9px 2px,auto,auto;
 }
 input[type=checkbox]:disabled { opacity: .45; cursor: not-allowed; }
-input[type=radio] { accent-color: var(--teal); }
-.overlay { background: var(--overlay-scrim); }
+
+
 .modal,.drawer {
   background: var(--glass-dialog);
   border: 1px solid var(--glass-edge);
   border-radius: 10px;
   box-shadow: 0 22px 65px -20px #203b3552;
 }
-.drawer { top: 20px; right: 22px; bottom: 20px; width: min(410px,calc(100% - 44px)); }
-.drawer-head h2 { font-weight: var(--font-weight-emphasis); }
+
+
 .drawer-help,.wb-generator-guide,.wb-editor-default,.wb-write-target,.wb-execution-plan {
   background: var(--glass);
   border: 1px solid #ffffff33;
   border-radius: 10px;
   box-shadow: var(--glass-shadow);
+  border-color: var(--glass-edge);
 }
 .modal-footer .btn,.drawer-footer .btn { min-height: 38px; font-size: 13px; }
 .wb-modal-body { line-height: 1.7; }
@@ -3785,11 +3783,13 @@ input,textarea,
   background: var(--control-surface); border-color: var(--control-field-edge);
   box-shadow: var(--control-rest-shadow);
 }
-.search input,.graph-search input { font-size: var(--text-caption); }
+
 .search:hover,.graph-search:hover { background: var(--control-hover); box-shadow: var(--control-hover-shadow); }
 .search:focus-within,.graph-search:focus-within {
   border-color: var(--control-field-edge);
-  box-shadow: var(--control-rest-shadow); outline: 2px solid var(--focus); outline-offset: 2px;
+  box-shadow: var(--control-rest-shadow);
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 :is(input:not([type=checkbox]):not([type=radio]),textarea):not(:disabled):not([aria-invalid=true]):hover {
   background: var(--control-hover); box-shadow: var(--control-hover-shadow);
@@ -3814,8 +3814,15 @@ input[type=checkbox]:hover:not(:disabled),input[type=radio]:hover:not(:disabled)
 }
 .rule-editor .control > label > input[type=checkbox] { order: -1; margin: 0; }
 input[type=radio] {
-  appearance: none; -webkit-appearance: none; width: 17px; height: 17px; flex-shrink: 0;
-  padding: 0; border: 1px solid transparent; border-radius: 50%;
+  accent-color: var(--teal);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 17px;
+  height: 17px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 50%;
   background: var(--choice-fill) padding-box,var(--choice-rim) border-box;
   box-shadow: var(--control-rest-shadow);
 }
@@ -3838,18 +3845,18 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
   background: var(--surface-inset); box-shadow: var(--control-inset-shadow);
 }
 .disclosure-action { margin-inline-start: auto; color: var(--muted); font-size: var(--text-caption); }
-.table-entry .table-button { color: var(--ink); }
+
 .table-entry .table-button .count,.field-type,.rule-meta { color: var(--muted); }
-.table-graph-shortcut[aria-pressed=true] { background: var(--control-selected); }
+
 .wb-page .table-heading { padding-top: 24px; padding-bottom: 14px; }
-.table-title h2 { font-size: 19px; font-weight: var(--font-weight-emphasis); }
+
 .tabs button,.wb-page .inspector-tabs button,.wb-field-tabs button { font-size: var(--text-body); }
 .rule-line,.generator-heading,.rule-editor,.control label { font-size: var(--text-body); }
 .rule-meta,.editor-note,.column-constraints,.wb-parameter-hint,
 .rule-editor .control small,.wb-generator-purpose,.rule-editor .generator-options .wb-generator-purpose {
   font-size: var(--text-caption); line-height: 1.75;
 }
-.rule-meta { margin-top: 4px; }
+
 .wb-generator-example,.rule-editor .generator-options .wb-generator-example {
   font: 400 var(--text-caption)/1.75 var(--font-ui);
 }
@@ -3862,7 +3869,7 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
   background: var(--table-head); color: var(--muted); font-size: var(--text-caption); font-weight: 500;
 }
 .wb-preview-data tbody tr:hover,.wb-table-data tbody tr:hover,.run-table tbody tr:hover { background: var(--surface-inset); }
-.wb-preview-data td,.wb-table-data td { font-variant-numeric: tabular-nums; }
+
 .wb-preview-data .wb-preview-placeholder { font-size: var(--text-caption); }
 .wb-preview-data .wb-preview-column-name { font-family: var(--mono); font-weight: 400; }
 .wb-setting-tile,.wb-source-card,.wb-draft-card,.connection-card,
@@ -3881,10 +3888,8 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
 .wb-modal .wb-ai-scope-choice input:focus-visible { outline: none; }
 .wb-ai-scope-summary { background: var(--surface-inset); border: 1px solid var(--line); }
 .wb-ai-evidence th { background: var(--table-head); }
-.drawer-help,.wb-generator-guide,.wb-editor-default,.wb-write-target,.wb-execution-plan {
-  border-color: var(--glass-edge); box-shadow: var(--glass-shadow);
-}
-.drawer-head { padding-bottom: 16px; }
+
+
 .drawer-footer,.modal-footer { border-color: var(--line); padding-top: 18px; }
 .wb-overlay .drawer > .drawer-body { padding: 8px 8px 18px; }
 .wb-field-tabs { margin-bottom: 18px; }
@@ -3907,32 +3912,43 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
 .runs-page .run-card { border-color: var(--glass-edge); }
 .runs-page .run-card:hover { background: var(--control-hover); border-color: var(--glass-edge); box-shadow: var(--control-hover-shadow); }
 .runs-page .run-card.active { background: var(--control-selected); box-shadow: inset 3px 0 0 var(--teal),var(--control-rest-shadow); }
-.run-card strong { font-size: var(--text-body); font-weight: 500; }
+
 .run-card small,.run-status { font-size: var(--text-caption); }
 .wb-date-day { border-radius: var(--radius-control); }
 .wb-date-day.selected { background: var(--control-selected); color: var(--teal); box-shadow: inset 0 0 0 1px var(--control-selected-border); }
 
 /* 关系图是同一套组件的延伸；生成状态内框与当前查看外圈仍独立。 */
 .path-scope,.wb-page .inspector-tabs { background: var(--surface-inset); }
-.graph-filters { background: var(--segment-track); }
+
 .graph-filters {
-  padding: 4px; gap: 4px; border: 1px solid var(--glass-edge);
-  border-radius: 9px; box-shadow: var(--control-inset-shadow);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 9px;
+  background: var(--segment-track);
+  border: 1px solid var(--glass-edge);
+  box-shadow: var(--control-inset-shadow);
 }
 .graph-filters button {
-  min-height: 32px; padding: 6px 12px; border: 1px solid transparent;
-  border-radius: var(--radius-control); font-size: var(--text-caption); color: var(--muted);
+  font-size: var(--text-caption);
+  padding: 6px 12px;
+  border-radius: var(--radius-control);
+  color: var(--muted);
+  min-height: 32px;
+  border: 1px solid transparent;
 }
 .graph-filters button:where(:not(:disabled)):hover {
   background: var(--control-hover); box-shadow: var(--control-hover-shadow);
 }
 .graph-filters button[aria-pressed=true] {
-  background: var(--segment-selected); border-color: var(--segment-edge);
-  color: var(--teal); box-shadow: var(--segment-shadow);
+  background: var(--segment-selected);
+  color: var(--teal);
+  box-shadow: var(--segment-shadow);
+  border-color: var(--segment-edge);
 }
 /* 连接与设置复用分段选择的层级，只有当前项凸起。 */
 .segmented,.settings-tabs { background: var(--segment-track); box-shadow: var(--control-inset-shadow); }
-.segmented { padding: 4px; gap: 4px; border: 1px solid var(--glass-edge); border-radius: 9px; }
+
 .segmented button,.settings-tabs .btn { border: 1px solid transparent; border-radius: var(--radius-control); background: transparent; box-shadow: none; }
 .segmented button:not(:disabled):hover,.settings-tabs .btn:not(:disabled):hover { background: var(--control-hover); box-shadow: var(--control-hover-shadow); }
 .segmented button.active,.settings-tabs .btn[aria-selected=true] {
@@ -3963,7 +3979,7 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
 :is(.graph-filters button,.graph-tools button,.path-modes button,.graph-controls [data-graph-action=focus-readable],.wb-date-trigger,.wb-date-nav,.wb-date-action,.wb-config-document,.wb-setting-tile,.wb-param-presets button,.wb-modal .close):disabled {
   box-shadow: none; cursor: not-allowed;
 }
-.graph-tools button:disabled:hover { background: var(--control-surface); }
+
 :is(.graph-filters button,.graph-tools button,.path-modes button,.graph-controls [data-graph-action=focus-readable],.wb-date-trigger,.wb-date-nav,.wb-date-action,.wb-config-document,.wb-setting-tile,.wb-param-presets button,.wb-modal .close):focus-visible {
   outline: 2px solid var(--focus); outline-offset: 2px;
 }
@@ -3972,20 +3988,23 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
   background: var(--control-surface); border-color: var(--control-field-edge);
   font-family: var(--font-ui); font-variant-numeric: tabular-nums;
 }
-.graph-canvas {
-  background-color: var(--surface-inset); background-image: radial-gradient(var(--graph-grid) .8px,transparent .8px);
-  border-color: var(--line); border-radius: var(--radius);
+
+.graph-table-name {
+  font: 500 14px var(--font-ui);
+  fill: var(--ink);
 }
-.graph-table-name { font: 500 14px var(--font-ui); fill: var(--ink); }
-.graph-table-state { font: 400 12px var(--font-ui); fill: var(--muted); }
+.graph-table-state {
+  font: 400 12px var(--font-ui);
+  fill: var(--muted);
+}
 .graph-workspace > .graph-inspector { background: var(--glass); border-color: var(--glass-edge); border-radius: var(--radius); box-shadow: var(--glass-shadow); }
 .graph-meta,.graph-footer,.graph-controls .graph-reading-guide .graph-scope-note,
 .graph-controls .graph-inspected-table,.graph-inspector p,.graph-visual .graph-tools .graph-zoom-label { font-size: var(--text-caption); }
 .graph-controls .graph-search-match,.inspector-field { background: var(--surface-inset); border-color: var(--line); }
 .graph-controls .graph-search-match:hover,.inspector-field:hover { background: var(--control-hover); }
-.graph-label rect { fill: var(--glass-picker); stroke: var(--line); }
-.graph-label.focused rect,.graph-label:hover rect { stroke: var(--graph-inspect); }
-.graph-label.problem rect { fill: var(--warning-bg); stroke: var(--warning-border); }
+
+
+
 
 @media(max-width:760px) {
   body > header.top { margin: 8px 8px 0; padding: 0 12px; }

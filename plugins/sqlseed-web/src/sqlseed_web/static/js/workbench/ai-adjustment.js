@@ -38,8 +38,8 @@ export function openSuggestionAdjustment({item, table, column, catalog, host, is
       if (reset) setText(reset, tr("assistant.adjustment.reset"));
       appendContent(body, editor.el);
       editor.el.querySelector('input:not([disabled]), textarea:not([disabled]), button:not([disabled])')?.focus({preventScroll: true});
-    } catch (failure) {
-      if (active && failure.name !== 'AbortError') setText(notice, tr("assistant.adjustment.loadFailed"));
+    } catch (error_) {
+      if (active && error_.name !== 'AbortError') setText(notice, tr("assistant.adjustment.loadFailed"));
     }
   }
   function close() {

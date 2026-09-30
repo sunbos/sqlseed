@@ -1,8 +1,9 @@
 # 评审记录
 
-- [当前项目收尾](2026-09-29-project-closure.md)：PR #20、#21 合并后的证据、真实模型补充复验、Sonar 最终处置及能力边界。
+- [当前 CodeFlow / Sonar 收口](2026-09-29-codeflow-hardening.md)：PR #23 的逐项整改、10 月 1 日全源审查和本地验证；远端结论须对应最新提交，不以绿色门禁代替零问题。
+- [此前项目收尾](2026-09-29-project-closure.md)：PR #20、#21 合并后的证据、真实模型补充复验、当时的 Sonar 处置及能力边界。
 - [PR #19 历史验收](2026-09-28-project-closure.md)：此前问题、实测范围和当时的交付状态。
-- [Sonar 整改与逐项判定](2026-09-13-sonar-remediation/README.md)：保留误报依据及 issue ledger；`sqlseed.fill` 参数数量问题按用户决定暂缓，不借整理文档改变 public API。
+- [9 月 13 日 Sonar 整改与逐项判定](2026-09-13-sonar-remediation/README.md)：保留当时的误报依据及 issue ledger；`sqlseed.fill` 参数数量当时按用户决定暂缓，本轮采用 `FillOptions` 复用设置并保留旧关键字调用，详见当前收口记录和 API 指南。
 - [历史验收与清理说明](history.md)：已完成轮次的出处和仍有效的决策。
 
 产品行为以维护中的指南、实现与当前回归为准。历史测试数量、旧扫描结果和已结束分支的合并建议不能作为当前版本的质量结论。原始运行日志、临时探针和软件包清单放在临时目录或对应 CI artifact，不继续堆入仓库。

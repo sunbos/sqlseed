@@ -1,10 +1,5 @@
 /* 正交结构图布局，不访问 DOM、外部依赖或数据库。 */
-(function (root, factory) {
-  'use strict';
-  const api = factory();
-  if (typeof module === 'object' && module.exports) module.exports = api;
-  else root.SqlseedGraphLayout = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+(function (root) {
   'use strict';
 
   const NODE_WIDTH = 210;
@@ -12,14 +7,7 @@
   const PADDING = 36;
   const LANE = 7;
 
-  /**
-   * Parents point to children. Components are strongly connected components,
-   * not disconnected subgraphs; a component is cyclic for a self-reference too.
-   * Node and edge identities must be unique strings. Invalid references throw.
-   * Returned paths contain orthogonal SVG M/L segments, ready for arrow markers.
-   * Large graphs deliberately grow the canvas instead of overlapping nodes.
-   */
-  function layoutGraph(nodes, edges) {
+  function indexLayoutGraph(nodes, edges) {
     if (!Array.isArray(nodes) || !Array.isArray(edges)) throw new TypeError('Expected node and edge arrays');
     const original = new Map();
     const adjacency = new Map();
@@ -40,8 +28,10 @@
       adjacency.get(edge.source).push(edge.target);
       reverse.get(edge.target).push(edge.source);
     }
-    const denseRouting = edges.length > 256;
+    return { original, adjacency, reverse };
+  }
 
+  function finishingNodeOrder(nodes, adjacency) {
     // Iterative Kosaraju avoids call-stack limits on long dependency chains.
     const visited = new Set();
     const finishingOrder = [];
@@ -58,6 +48,10 @@
         } else { finishingOrder.push(frame.id); stack.pop(); }
       }
     }
+    return finishingOrder;
+  }
+
+  function strongComponents(finishingOrder, reverse, original) {
     const componentOf = new Map();
     const components = [];
     for (const start of finishingOrder.reverse()) {
@@ -76,7 +70,10 @@
       nodeIds.sort((a, b) => original.get(a) - original.get(b));
       components.push({ id, nodeIds, rank: 0, cyclic: nodeIds.length > 1 });
     }
+    return { componentOf, components };
+  }
 
+  function rankComponents(components, componentOf, edges) {
     const children = components.map(() => new Set());
     const parents = components.map(() => new Set());
     for (const edge of edges) {
@@ -103,16 +100,10 @@
       const latest = Math.min(...[...children[id]].map(child => components[child].rank - 1));
       components[id].rank = Math.max(components[id].rank, latest);
     }
-    const maxRank = components.reduce((max, c) => Math.max(max, c.rank), 0);
-    const ranks = Array.from({ length: maxRank + 1 }, () => []);
-    const units = new Map();
-    for (const component of components) {
-      const unit = { id: `node-${component.id}`, component, size: component.nodeIds.length };
-      units.set(unit.id, unit);
-      ranks[component.rank].push(unit);
-    }
-    for (const rank of ranks) rank.sort((a, b) => original.get(a.component.nodeIds[0]) - original.get(b.component.nodeIds[0]));
-    const layerLinks = Array.from({ length: maxRank }, () => []);
+    return children;
+  }
+
+  function addVirtualWaypoints(components, children, units, ranks, layerLinks) {
     // Virtual waypoints let the layer sweep see long references too. They
     // reserve a narrow routing corridor, but never become schema nodes.
     for (const component of components) for (const child of children[component.id]) {
@@ -126,71 +117,108 @@
         layerLinks[rank - 1].push([previous, id]); previous = id;
       }
     }
+  }
+
+  function createLayers(components, children, original) {
+    const maxRank = components.reduce((max, c) => Math.max(max, c.rank), 0);
+    const ranks = Array.from({ length: maxRank + 1 }, () => []);
+    const units = new Map();
+    for (const component of components) {
+      const unit = { id: `node-${component.id}`, component, size: component.nodeIds.length };
+      units.set(unit.id, unit);
+      ranks[component.rank].push(unit);
+    }
+    for (const rank of ranks) rank.sort((a, b) => original.get(a.component.nodeIds[0]) - original.get(b.component.nodeIds[0]));
+    const layerLinks = Array.from({ length: maxRank }, () => []);
+    addVirtualWaypoints(components, children, units, ranks, layerLinks);
     const predecessors = new Map([...units.keys()].map(id => [id, []]));
     const successors = new Map([...units.keys()].map(id => [id, []]));
     for (const links of layerLinks) for (const [a, b] of links) {
       successors.get(a).push(b); predecessors.get(b).push(a);
     }
-    const centers = () => {
-      const values = new Map();
-      for (const rank of ranks) {
-        let row = 0;
-        for (const unit of rank) { values.set(unit.id, row + unit.size / 2); row += unit.size; }
+    return { maxRank, ranks, layerLinks, predecessors, successors };
+  }
+
+  function layerCenters(ranks) {
+    const values = new Map();
+    for (const rank of ranks) {
+      let row = 0;
+      for (const unit of rank) { values.set(unit.id, row + unit.size / 2); row += unit.size; }
+    }
+    return values;
+  }
+
+  function layerCrossings(pairs, targetCount) {
+    // Fenwick inversion count; links sharing a source or target do not
+    // cross. This remains bounded on large, dense dependency graphs.
+    const tree = new Array(targetCount + 1).fill(0);
+    let count = 0, crossings = 0;
+    for (let first = 0; first < pairs.length;) {
+      let last = first;
+      while (last < pairs.length && pairs[last][0] === pairs[first][0]) last++;
+      for (let i = first; i < last; i++) {
+        let smaller = 0;
+        for (let index = pairs[i][1] + 1; index > 0; index -= index & -index) smaller += tree[index];
+        crossings += count - smaller;
       }
-      return values;
-    };
-    const layerQuality = () => {
-      const positions = new Map();
-      ranks.forEach(rank => rank.forEach((unit, index) => positions.set(unit.id, index)));
-      const middle = centers();
-      let crossings = 0, distance = 0;
-      for (let rank = 0; rank < layerLinks.length; rank++) {
-        const pairs = layerLinks[rank].map(([a, b]) => {
-          distance += Math.abs(middle.get(a) - middle.get(b));
-          return [positions.get(a), positions.get(b)];
-        }).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
-        // Fenwick inversion count; links sharing a source or target do not
-        // cross. This remains bounded on large, dense dependency graphs.
-        const tree = new Array(ranks[rank + 1].length + 1).fill(0);
-        let count = 0;
-        for (let first = 0; first < pairs.length;) {
-          let last = first;
-          while (last < pairs.length && pairs[last][0] === pairs[first][0]) last++;
-          for (let i = first; i < last; i++) {
-            let smaller = 0;
-            for (let index = pairs[i][1] + 1; index > 0; index -= index & -index) smaller += tree[index];
-            crossings += count - smaller;
-          }
-          for (let i = first; i < last; i++) {
-            for (let index = pairs[i][1] + 1; index < tree.length; index += index & -index) tree[index]++;
-            count++;
-          }
-          first = last;
-        }
+      for (let i = first; i < last; i++) {
+        for (let index = pairs[i][1] + 1; index < tree.length; index += index & -index) tree[index]++;
+        count++;
       }
-      return { crossings, distance };
-    };
-    let bestOrder = ranks.map(rank => [...rank]), bestQuality = layerQuality();
+      first = last;
+    }
+    return crossings;
+  }
+
+  function layerQuality(ranks, layerLinks) {
+    const positions = new Map();
+    ranks.forEach(rank => rank.forEach((unit, index) => positions.set(unit.id, index)));
+    const middle = layerCenters(ranks);
+    let crossings = 0, distance = 0;
+    for (let rank = 0; rank < layerLinks.length; rank++) {
+      const pairs = layerLinks[rank].map(([a, b]) => {
+        distance += Math.abs(middle.get(a) - middle.get(b));
+        return [positions.get(a), positions.get(b)];
+      }).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      crossings += layerCrossings(pairs, ranks[rank + 1].length);
+    }
+    return { crossings, distance };
+  }
+
+  function barycenter(unit, neighbors, middle) {
+    const adjacent = neighbors.get(unit.id);
+    return adjacent.length ? adjacent.reduce((sum, id) => sum + middle.get(id), 0) / adjacent.length : middle.get(unit.id);
+  }
+
+  function sweepLayers(ranks, neighbors, maxRank, forward) {
+    const middle = layerCenters(ranks);
+    for (let index = forward ? 1 : maxRank - 1; forward ? index <= maxRank : index >= 0; index += forward ? 1 : -1) {
+      ranks[index].sort((a, b) => barycenter(a, neighbors, middle) - barycenter(b, neighbors, middle));
+      let row = 0;
+      for (const unit of ranks[index]) { middle.set(unit.id, row + unit.size / 2); row += unit.size; }
+    }
+  }
+
+  function orderLayers(ranks, layerLinks, predecessors, successors, maxRank, denseRouting) {
+    let bestOrder = ranks.map(rank => [...rank]), bestQuality = layerQuality(ranks, layerLinks);
     // Bounded two-way barycenter sweeps, with stable ties and best-order
     // retention. SCC members stay together and repeated input stays stable.
     for (let pass = 0; pass < (denseRouting ? 2 : 4); pass++) for (const forward of [true, false]) {
-      const middle = centers(), neighbors = forward ? predecessors : successors;
-      for (let index = forward ? 1 : maxRank - 1; forward ? index <= maxRank : index >= 0; index += forward ? 1 : -1) {
-        const barycenter = unit => {
-          const adjacent = neighbors.get(unit.id);
-          return adjacent.length ? adjacent.reduce((sum, id) => sum + middle.get(id), 0) / adjacent.length : middle.get(unit.id);
-        };
-        ranks[index].sort((a, b) => barycenter(a) - barycenter(b));
-        let row = 0;
-        for (const unit of ranks[index]) { middle.set(unit.id, row + unit.size / 2); row += unit.size; }
-      }
-      const quality = layerQuality();
+      sweepLayers(ranks, forward ? predecessors : successors, maxRank, forward);
+      const quality = layerQuality(ranks, layerLinks);
       if (quality.crossings < bestQuality.crossings || quality.crossings === bestQuality.crossings && quality.distance < bestQuality.distance) {
         bestQuality = quality; bestOrder = ranks.map(rank => [...rank]);
       }
     }
     ranks.splice(0, ranks.length, ...bestOrder);
+  }
 
+  function routeKind(edge, componentOf) {
+    if (edge.source === edge.target) return 'self';
+    return componentOf.get(edge.source) === componentOf.get(edge.target) ? 'cycle' : 'normal';
+  }
+
+  function allocateRoutePorts(nodes, edges, ranks, components, componentOf) {
     const rightLanes = ranks.map(() => 0), leftLanes = ranks.map(() => 0);
     const outgoing = new Map(nodes.map(n => [n.id, 0])), incoming = new Map(nodes.map(n => [n.id, 0]));
     const selfCounts = new Map(nodes.map(n => [n.id, 0]));
@@ -198,7 +226,7 @@
     const routes = edges.map(edge => {
       const sourceRank = components[componentOf.get(edge.source)].rank;
       const targetRank = components[componentOf.get(edge.target)].rank;
-      const kind = edge.source === edge.target ? 'self' : componentOf.get(edge.source) === componentOf.get(edge.target) ? 'cycle' : 'normal';
+      const kind = routeKind(edge, componentOf);
       const route = {
         edge, sourceRank, targetRank, kind, rightLane: rightLanes[sourceRank]++,
         leftLane: kind === 'normal' ? leftLanes[targetRank]++ : 0,
@@ -211,6 +239,11 @@
       if (kind === 'self') selfCounts.set(edge.source, route.selfLane + 1);
       return route;
     });
+    return { routes, rightLanes, leftLanes, outgoing, incoming, selfCounts, longCount };
+  }
+
+  function positionNodes(nodes, ranks, maxRank, original, allocation) {
+    const { routes, rightLanes, leftLanes, selfCounts, longCount } = allocation;
     const maxSelf = Math.max(0, ...selfCounts.values());
     // Cycle arrows enter the right face too. Share its allocation with outgoing
     // ports rather than using the independent left-face incoming fractions.
@@ -234,9 +267,13 @@
         }
       }
     }
+    return { positioned, rankX, cycleIncoming };
+  }
 
-    const number = value => Math.round(value * 100) / 100;
-    const pathFor = points => points.map(([x, y], i) => `${i ? 'L' : 'M'} ${number(x)} ${number(y)}`).join(' ');
+  const number = value => Math.round(value * 100) / 100;
+  const pathFor = points => points.map(([x, y], i) => `${i ? 'L' : 'M'} ${number(x)} ${number(y)}`).join(' ');
+
+  function legacyRouteGeometry(routes, positioned, outgoing, incoming, cycleIncoming, selfCounts) {
     const legacyRoutes = routes.map(route => {
       const { edge, kind } = route;
       const source = positioned.get(edge.source), target = positioned.get(edge.target);
@@ -266,19 +303,128 @@
       }
       return { ...edge, path: pathFor(points), kind, labelX: number(labelX), labelY: number(labelY), points };
     });
-    const legacyById = new Map(legacyRoutes.map(edge => [edge.id, edge]));
-    const resultNodes = nodes.map(node => positioned.get(node.id));
-    const usedPorts = new Set();
-    const reservedPorts = new Set();
-    const portKey = (node, side, point) => `${node.id}:${side}:${number(point[0])}:${number(point[1])}`;
+    return legacyRoutes;
+  }
+
+  const portKey = (node, side, point) => `${node.id}:${side}:${number(point[0])}:${number(point[1])}`;
+
+  function reserveLegacyPorts(legacyRoutes, positioned, usedPorts, reservedPorts) {
     // 环和自引用继续使用独立通道。预留尚未处理边的原端口，确保优化失败时
     // 可以安全回退；已优化的边不能抢占其他边的兜底端口。
     for (const edge of legacyRoutes) {
       const source = positioned.get(edge.source), target = positioned.get(edge.target);
       const occupied = edge.kind === 'normal' ? reservedPorts : usedPorts;
       occupied.add(portKey(source, 'right', edge.points[0]));
-      occupied.add(portKey(target, edge.kind === 'self' ? 'top' : edge.kind === 'normal' ? 'left' : 'right', edge.points.at(-1)));
+      occupied.add(portKey(target, targetPortSide(edge.kind), edge.points.at(-1)));
     }
+  }
+
+  function targetPortSide(kind) {
+    if (kind === 'self') return 'top';
+    return kind === 'normal' ? 'left' : 'right';
+  }
+
+  function simplify(points) {
+    const result = [];
+    for (const point of points) {
+      if (result.length && point[0] === result.at(-1)[0] && point[1] === result.at(-1)[1]) continue;
+      while (result.length > 1 && ((result.at(-2)[0] === result.at(-1)[0] && point[0] === result.at(-1)[0]) ||
+        (result.at(-2)[1] === result.at(-1)[1] && point[1] === result.at(-1)[1]))) result.pop();
+      result.push(point);
+    }
+    return result;
+  }
+
+  function outward(side, from, to) {
+    if (side === 'right') return to[1] === from[1] && to[0] > from[0];
+    if (side === 'left') return to[1] === from[1] && to[0] < from[0];
+    if (side === 'bottom') return to[0] === from[0] && to[1] > from[1];
+    return to[0] === from[0] && to[1] < from[1];
+  }
+
+  function intersectsNode(a, b, node, padding) {
+    const left = node.x - padding, right = node.x + node.width + padding;
+    const top = node.y - padding, bottom = node.y + node.height + padding;
+    return a[0] === b[0] ? a[0] > left && a[0] < right && Math.max(a[1], b[1]) > top && Math.min(a[1], b[1]) < bottom
+      : a[1] > top && a[1] < bottom && Math.max(a[0], b[0]) > left && Math.min(a[0], b[0]) < right;
+  }
+
+  function parallelOverlap(a, b, c, d, vertical) {
+    const axis = vertical ? 1 : 0, fixed = 1 - axis;
+    if (a[fixed] !== c[fixed]) return 0;
+    return Math.max(0, Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis])) -
+      Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis])));
+  }
+
+  function crossingKey(a, b, other, vertical) {
+    const v1 = vertical ? a : other.a, v2 = vertical ? b : other.b;
+    const h1 = vertical ? other.a : a, h2 = vertical ? other.b : b;
+    if (v1[0] >= Math.min(h1[0], h2[0]) && v1[0] <= Math.max(h1[0], h2[0]) &&
+        h1[1] >= Math.min(v1[1], v2[1]) && h1[1] <= Math.max(v1[1], v2[1])) {
+      return `${other.id}:${number(v1[0])}:${number(h1[1])}`;
+    }
+    return null;
+  }
+
+  function routeConflicts(points, nearbySegments) {
+    const crossings = new Set();
+    let overlap = 0;
+    for (let i = 1; i < points.length; i++) {
+      const a = points[i - 1], b = points[i], vertical = a[0] === b[0];
+      for (const other of nearbySegments) {
+        if (vertical === (other.a[0] === other.b[0])) {
+          overlap += parallelOverlap(a, b, other.a, other.b, vertical);
+        } else {
+          const key = crossingKey(a, b, other, vertical);
+          if (key !== null) crossings.add(key);
+        }
+      }
+    }
+    return { crossings: crossings.size, overlap };
+  }
+
+  function considerStraightRoutes(sourcePorts, targetPorts, consider) {
+    for (const from of sourcePorts) for (const to of targetPorts) consider([from.point, to.point], from, to);
+  }
+
+  function considerTwoBendRoutes(sourcePorts, targetPorts, xs, ys, consider) {
+    for (const from of sourcePorts) for (const to of targetPorts) {
+      const a = from.point, b = to.point;
+      consider([a, [b[0], a[1]], b], from, to);
+      consider([a, [a[0], b[1]], b], from, to);
+      for (const x of xs) consider([a, [x, a[1]], [x, b[1]], b], from, to);
+      for (const y of ys) consider([a, [a[0], y], [b[0], y], b], from, to);
+    }
+  }
+
+  function considerThreeBendRoutes(sourcePorts, targetPorts, xs, ys, consider) {
+    for (const from of sourcePorts) for (const to of targetPorts) {
+      const a = from.point, b = to.point;
+      for (const x of xs.slice(0, 4)) for (const y of ys.slice(0, 4)) {
+        consider([a, [x, a[1]], [x, y], [b[0], y], b], from, to);
+        consider([a, [a[0], y], [x, y], [x, b[1]], b], from, to);
+      }
+    }
+  }
+
+  function considerAllocatedRoute(route, source, target, sourcePorts, targetPorts, consider) {
+    const from = sourcePorts.find(port => port.side === 'right'), to = targetPorts.find(port => port.side === 'left');
+    if (!from || !to) return;
+    const rightX = source.x + source.width + 22 + route.rightLane * LANE;
+    const leftX = target.x - 22 - route.leftLane * LANE;
+    const top = PADDING + route.topLane * 10;
+    consider(route.topLane >= 0
+      ? [from.point, [rightX, from.point[1]], [rightX, top], [leftX, top], [leftX, to.point[1]], to.point]
+      : [from.point, [rightX, from.point[1]], [rightX, to.point[1]], to.point], from, to);
+  }
+
+  function optimizeRoutes(nodes, edges, allocation, legacyRoutes, positioned, denseRouting) {
+    const { routes, outgoing, incoming } = allocation;
+    const legacyById = new Map(legacyRoutes.map(edge => [edge.id, edge]));
+    const resultNodes = nodes.map(node => positioned.get(node.id));
+    const usedPorts = new Set();
+    const reservedPorts = new Set();
+    reserveLegacyPorts(legacyRoutes, positioned, usedPorts, reservedPorts);
     const degree = Math.max(1, ...nodes.map(node => outgoing.get(node.id) + incoming.get(node.id)));
     const clearance = 12;
     // A dense overview needs a bounded amount of routing work, not thousands
@@ -298,25 +444,6 @@
           : [value, side === 'bottom' ? node.y + node.height : node.y]}))
         .filter(port => !usedPorts.has(portKey(node, side, port.point)) && !reservedPorts.has(portKey(node, side, port.point))).slice(0, denseRouting ? 1 : 3);
     });
-    const simplify = points => {
-      const result = [];
-      for (const point of points) {
-        if (result.length && point[0] === result.at(-1)[0] && point[1] === result.at(-1)[1]) continue;
-        while (result.length > 1 && ((result.at(-2)[0] === result.at(-1)[0] && point[0] === result.at(-1)[0]) ||
-          (result.at(-2)[1] === result.at(-1)[1] && point[1] === result.at(-1)[1]))) result.pop();
-        result.push(point);
-      }
-      return result;
-    };
-    const outward = (side, from, to) => side === 'right' ? to[1] === from[1] && to[0] > from[0]
-      : side === 'left' ? to[1] === from[1] && to[0] < from[0]
-        : side === 'bottom' ? to[0] === from[0] && to[1] > from[1] : to[0] === from[0] && to[1] < from[1];
-    const intersectsNode = (a, b, node, padding) => {
-      const left = node.x - padding, right = node.x + node.width + padding;
-      const top = node.y - padding, bottom = node.y + node.height + padding;
-      return a[0] === b[0] ? a[0] > left && a[0] < right && Math.max(a[1], b[1]) > top && Math.min(a[1], b[1]) < bottom
-        : a[1] > top && a[1] < bottom && Math.max(a[0], b[0]) > left && Math.min(a[0], b[0]) < right;
-    };
     const placedSegments = [];
     const reserveRoute = edge => {
       for (let i = 1; i < edge.points.length; i++) placedSegments.push({ id: edge.id, a: edge.points[i - 1], b: edge.points[i] });
@@ -333,30 +460,6 @@
       const ys = channels([centerY, ...obstacles.flatMap(node => [node.y - clearance, node.y + node.height + clearance])], centerY);
       const nearbySegments = placedSegments.filter(({a, b}) => Math.max(a[0], b[0]) >= source.x - clearance &&
         Math.min(a[0], b[0]) <= target.x + target.width + clearance);
-      const conflicts = points => {
-        const crossings = new Set();
-        let overlap = 0;
-        for (let i = 1; i < points.length; i++) {
-          const a = points[i - 1], b = points[i], vertical = a[0] === b[0];
-          for (const other of nearbySegments) {
-            const c = other.a, d = other.b, otherVertical = c[0] === d[0];
-            if (vertical === otherVertical) {
-              const axis = vertical ? 1 : 0, fixed = 1 - axis;
-              if (a[fixed] === c[fixed]) overlap += Math.max(0,
-                Math.min(Math.max(a[axis], b[axis]), Math.max(c[axis], d[axis])) -
-                Math.max(Math.min(a[axis], b[axis]), Math.min(c[axis], d[axis])));
-            } else {
-              const v1 = vertical ? a : c, v2 = vertical ? b : d;
-              const h1 = vertical ? c : a, h2 = vertical ? d : b;
-              if (v1[0] >= Math.min(h1[0], h2[0]) && v1[0] <= Math.max(h1[0], h2[0]) &&
-                  h1[1] >= Math.min(v1[1], v2[1]) && h1[1] <= Math.max(v1[1], v2[1])) {
-                crossings.add(`${other.id}:${number(v1[0])}:${number(h1[1])}`);
-              }
-            }
-          }
-        }
-        return { crossings: crossings.size, overlap };
-      };
       let best = null, attempted = 0;
       const consider = (points, from, to) => {
         if (++attempted > candidateBudget) return;
@@ -373,7 +476,7 @@
           if (resultNodes.some(node => intersectsNode(points[i - 1], points[i], node,
             (i === 1 && node === source) || (i === points.length - 1 && node === target) ? 0 : clearance))) return;
         }
-        const {crossings, overlap} = conflicts(points);
+        const {crossings, overlap} = routeConflicts(points, nearbySegments);
         // Crossing and shared-line penalties balance legibility against the
         // distance and bends of a detour; node clearance remains mandatory.
         const score = baseScore + crossings * NODE_WIDTH * 2 + overlap * 4;
@@ -385,32 +488,14 @@
       // 有界候选：每个面最多三个可用端口，每轴最多八个邻近避障通道。
       // 综合交叉、共线、折点与曼哈顿长度，不承诺全局最优。
       // 无冲突直线已达到端口之间的最少折点及最短距离。
-      for (const from of sourcePorts) for (const to of targetPorts) consider([from.point, to.point], from, to);
-      if (!best || best.crossings || best.overlap) for (const from of sourcePorts) for (const to of targetPorts) {
-        const a = from.point, b = to.point;
-        consider([a, [b[0], a[1]], b], from, to);
-        consider([a, [a[0], b[1]], b], from, to);
-        for (const x of xs) consider([a, [x, a[1]], [x, b[1]], b], from, to);
-        for (const y of ys) consider([a, [a[0], y], [b[0], y], b], from, to);
-      }
-      if (attempted < candidateBudget && (!best || !denseRouting && (best.bends > 2 || best.crossings || best.overlap))) for (const from of sourcePorts) for (const to of targetPorts) {
-        const a = from.point, b = to.point;
-        for (const x of xs.slice(0, 4)) for (const y of ys.slice(0, 4)) {
-          consider([a, [x, a[1]], [x, y], [b[0], y], b], from, to);
-          consider([a, [a[0], y], [x, y], [x, b[1]], b], from, to);
-        }
+      considerStraightRoutes(sourcePorts, targetPorts, consider);
+      if (!best || best.crossings || best.overlap) considerTwoBendRoutes(sourcePorts, targetPorts, xs, ys, consider);
+      if (attempted < candidateBudget && (!best || !denseRouting && (best.bends > 2 || best.crossings || best.overlap))) {
+        considerThreeBendRoutes(sourcePorts, targetPorts, xs, ys, consider);
       }
       // 拥挤图仍可沿预分配的层间/顶部通道绕行，优先使用未占用端口。
       if (!best || best.bends > 2 || best.crossings || best.overlap) {
-        const from = sourcePorts.find(port => port.side === 'right'), to = targetPorts.find(port => port.side === 'left');
-        if (from && to) {
-          const rightX = source.x + source.width + 22 + route.rightLane * LANE;
-          const leftX = target.x - 22 - route.leftLane * LANE;
-          const top = PADDING + route.topLane * 10;
-          consider(route.topLane >= 0
-            ? [from.point, [rightX, from.point[1]], [rightX, top], [leftX, top], [leftX, to.point[1]], to.point]
-            : [from.point, [rightX, from.point[1]], [rightX, to.point[1]], to.point], from, to);
-        }
+        considerAllocatedRoute(route, source, target, sourcePorts, targetPorts, consider);
       }
       return best;
     };
@@ -445,6 +530,32 @@
         labelY: number((longest.a[1] + longest.b[1]) / 2 - (longest.a[1] === longest.b[1] ? 7 : 0))});
       reserveRoute({ id: route.edge.id, points });
     }
+    return { optimized, resultNodes };
+  }
+
+  /**
+   * Parents point to children. Components are strongly connected components,
+   * not disconnected subgraphs; a component is cyclic for a self-reference too.
+   * Node and edge identities must be unique strings. Invalid references throw.
+   * Returned paths contain orthogonal SVG M/L segments, ready for arrow markers.
+   * Large graphs deliberately grow the canvas instead of overlapping nodes.
+   */
+  function layoutGraph(nodes, edges) {
+    const { original, adjacency, reverse } = indexLayoutGraph(nodes, edges);
+    const denseRouting = edges.length > 256;
+
+    const finishingOrder = finishingNodeOrder(nodes, adjacency);
+    const { componentOf, components } = strongComponents(finishingOrder, reverse, original);
+    const children = rankComponents(components, componentOf, edges);
+    const { maxRank, ranks, layerLinks, predecessors, successors } = createLayers(components, children, original);
+    orderLayers(ranks, layerLinks, predecessors, successors, maxRank, denseRouting);
+
+    const allocation = allocateRoutePorts(nodes, edges, ranks, components, componentOf);
+    const { routes, rightLanes, outgoing, incoming, selfCounts } = allocation;
+    const { positioned, rankX, cycleIncoming } = positionNodes(nodes, ranks, maxRank, original, allocation);
+
+    const legacyRoutes = legacyRouteGeometry(routes, positioned, outgoing, incoming, cycleIncoming, selfCounts);
+    const { optimized, resultNodes } = optimizeRoutes(nodes, edges, allocation, legacyRoutes, positioned, denseRouting);
     let width = nodes.length ? rankX[maxRank] + NODE_WIDTH + 56 + rightLanes[maxRank] * LANE + PADDING : PADDING * 2;
     let height = resultNodes.reduce((max, node) => Math.max(max, node.y + NODE_HEIGHT + PADDING), PADDING * 2);
     const routed = legacyRoutes.map(edge => {
@@ -453,6 +564,156 @@
       return result;
     });
     return { nodes: resultNodes, edges: routed, width, height, components };
+  }
+
+  const LABEL_LINE_HEIGHT = 16, LABEL_PAD = 8, LABEL_MAX_TEXT_WIDTH = 196, LABEL_GAP = 7;
+  const characterWidth = char => char.codePointAt(0) > 255 ? 12 : 7;
+
+  function wrapCaption(text) {
+    const lines = [];
+    let line = '', width = 0;
+    for (const char of text) {
+      const nextWidth = characterWidth(char);
+      if (line && width + nextWidth > LABEL_MAX_TEXT_WIDTH) { lines.push(line); line = ''; width = 0; }
+      line += char; width += nextWidth;
+    }
+    if (line || !lines.length) lines.push(line);
+    return lines;
+  }
+
+  function pathSegments(path) {
+    const points = [...path.matchAll(/[ML] (-?[\d.]+) (-?[\d.]+)/g)].map(m => [+m[1], +m[2]]);
+    return points.slice(1).map((b, i) => [points[i], b]).filter(([a, b]) => a[0] !== b[0] || a[1] !== b[1]);
+  }
+
+  const boxesIntersect = (a, b, clearance = LABEL_GAP) => a.x < b.x + b.width + clearance && a.x + a.width + clearance > b.x &&
+    a.y < b.y + b.height + clearance && a.y + a.height + clearance > b.y;
+  const segmentCrossesBox = ([a, b], box, clearance = 3) => intersectsNode(a, b, box, clearance);
+
+  function measureCaption(caption, edgeById, seen) {
+    if (!caption || typeof caption.text !== 'string' || !caption.text || !edgeById.has(caption.edgeId)) throw new TypeError('Each caption needs a known edgeId and nonempty text');
+    if (seen.has(caption.edgeId)) throw new Error(`Duplicate caption: ${caption.edgeId}`);
+    seen.add(caption.edgeId);
+    const edge = edgeById.get(caption.edgeId), lines = wrapCaption(caption.text);
+    const boxWidth = Math.max(...lines.map(line => [...line].reduce((sum, char) => sum + characterWidth(char), 0))) + LABEL_PAD * 2;
+    const boxHeight = lines.length * LABEL_LINE_HEIGHT + 12;
+    return { edge, lines, boxWidth, boxHeight, candidates: [] };
+  }
+
+  function addLabelCandidate(context, measurement, x, y, anchor, endpoint) {
+    const { layout, placed, occupiedSegments, width, height } = context;
+    const { boxWidth, boxHeight, edge, candidates } = measurement;
+    const box = { x, y, width: boxWidth, height: boxHeight };
+    if (x < 8 || y < 8 || layout.nodes.some(node => boxesIntersect(box, node)) || placed.some(label => boxesIntersect(box, label))) return;
+    if (occupiedSegments.some(segment => segmentCrossesBox(segment, box))) return;
+    const leader = [anchor, endpoint];
+    if (layout.nodes.some(node => segmentCrossesBox(leader, node, 2)) || placed.some(label => segmentCrossesBox(leader, label, 2))) return;
+    const distance = Math.abs(endpoint[0] - anchor[0]) + Math.abs(endpoint[1] - anchor[1]);
+    const expansion = Math.max(0, x + boxWidth + LABEL_PAD - width) + Math.max(0, y + boxHeight + LABEL_PAD - height);
+    const score = distance + expansion * 2 + (Math.abs(anchor[0] - edge.labelX) + Math.abs(anchor[1] - edge.labelY)) * .2;
+    candidates.push({ ...box, anchorX: anchor[0], anchorY: anchor[1], leaderPath: pathFor(leader), score });
+  }
+
+  function addBoundaryLabelCandidate(context, measurement, anchor, horizontal, position) {
+    const { boxWidth, boxHeight } = measurement;
+    if (horizontal) {
+      if (position + boxHeight < anchor[1]) addLabelCandidate(context, measurement, anchor[0] - boxWidth / 2, position, anchor, [anchor[0], position + boxHeight]);
+      else if (position > anchor[1]) addLabelCandidate(context, measurement, anchor[0] - boxWidth / 2, position, anchor, [anchor[0], position]);
+    } else {
+      if (position + boxWidth < anchor[0]) addLabelCandidate(context, measurement, position, anchor[1] - boxHeight / 2, anchor, [position + boxWidth, anchor[1]]);
+      else if (position > anchor[0]) addLabelCandidate(context, measurement, position, anchor[1] - boxHeight / 2, anchor, [position, anchor[1]]);
+    }
+  }
+
+  function addOffsetLabelCandidates(context, measurement, anchor, horizontal) {
+    const { boxWidth, boxHeight } = measurement;
+    for (const offset of [8, 24, 44, 72, 104, 152, 224, 320]) {
+      if (horizontal) {
+        addLabelCandidate(context, measurement, anchor[0] - boxWidth / 2, anchor[1] - offset - boxHeight, anchor, [anchor[0], anchor[1] - offset]);
+        addLabelCandidate(context, measurement, anchor[0] - boxWidth / 2, anchor[1] + offset, anchor, [anchor[0], anchor[1] + offset]);
+      } else {
+        addLabelCandidate(context, measurement, anchor[0] - offset - boxWidth, anchor[1] - boxHeight / 2, anchor, [anchor[0] - offset, anchor[1]]);
+        addLabelCandidate(context, measurement, anchor[0] + offset, anchor[1] - boxHeight / 2, anchor, [anchor[0] + offset, anchor[1]]);
+      }
+    }
+  }
+
+  function labelCandidatesAtAnchor(context, measurement, anchor, horizontal) {
+    const { boxWidth, boxHeight } = measurement;
+    // Row/column boundaries provide exact clearances where a fixed step
+    // could jump over a narrow but usable space between neighboring tables.
+    const boundaries = [...context.layout.nodes, ...context.placed].flatMap(box => horizontal
+      ? [box.y - boxHeight - LABEL_GAP, box.y + box.height + LABEL_GAP]
+      : [box.x - boxWidth - LABEL_GAP, box.x + box.width + LABEL_GAP]);
+    boundaries.sort((a, b) => Math.abs(a - anchor[horizontal ? 1 : 0]) - Math.abs(b - anchor[horizontal ? 1 : 0]));
+    for (const position of [...new Set(boundaries)].slice(0, 12)) {
+      addBoundaryLabelCandidate(context, measurement, anchor, horizontal, position);
+    }
+    addOffsetLabelCandidates(context, measurement, anchor, horizontal);
+  }
+
+  function collectLabelCandidates(context, measurement) {
+    for (const [a, b] of context.edgeSegments.get(measurement.edge.id)) {
+      const horizontal = a[1] === b[1];
+      for (const fraction of [.5, .25, .75]) {
+        const anchor = [a[0] + (b[0] - a[0]) * fraction, a[1] + (b[1] - a[1]) * fraction];
+        labelCandidatesAtAnchor(context, measurement, anchor, horizontal);
+      }
+    }
+    measurement.candidates.sort((a, b) => a.score - b.score || a.y - b.y || a.x - b.x);
+  }
+
+  function moveBelowLabels(chosen, placed) {
+    while (placed.some(label => boxesIntersect(chosen, label))) {
+      chosen.y = Math.max(...placed.filter(label => boxesIntersect(chosen, label)).map(label => label.y + label.height + LABEL_GAP));
+    }
+  }
+
+  function outsideLabelBox(context, measurement) {
+    const { layout, placed, occupiedSegments } = context;
+    const { edge, boxWidth, boxHeight } = measurement;
+    // Guaranteed unclipped fallback beyond all original routes. Nearby
+    // placements take precedence, so ordinary diagrams stay compact.
+    const chosen = { x: layout.width + 24, y: Math.max(8, edge.labelY - boxHeight / 2), width: boxWidth, height: boxHeight,
+      anchorX: edge.labelX, anchorY: edge.labelY, leaderPath: '' };
+    moveBelowLabels(chosen, placed);
+    // The outside column may contain an earlier leader. Move below it.
+    while (occupiedSegments.some(segment => segmentCrossesBox(segment, chosen))) {
+      chosen.y = Math.max(...occupiedSegments.filter(segment => segmentCrossesBox(segment, chosen)).flatMap(([a, b]) => [a[1], b[1]])) + LABEL_GAP;
+      moveBelowLabels(chosen, placed);
+    }
+    return chosen;
+  }
+
+  function addLeaderCandidates(context, chosen, anchor, rows, candidates) {
+    const corridorX = chosen.x - LABEL_GAP, targetY = chosen.y + chosen.height / 2;
+    for (const row of rows) {
+      const points = [anchor, [anchor[0], row], [corridorX, row], [corridorX, targetY], [chosen.x, targetY]];
+      const parts = points.slice(1).map((b, i) => [points[i], b]);
+      if (parts.some(segment => [...context.layout.nodes, ...context.placed].some(box => segmentCrossesBox(segment, box, 2)))) continue;
+      const distance = parts.reduce((sum, [a, b]) => sum + Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]), 0);
+      candidates.push({ points, anchor, distance });
+    }
+  }
+
+  function connectOutsideLabel(context, measurement, chosen) {
+    // Gutter captions use clear rows in the route's free vertical corridor.
+    // Leaders may cross FK strokes, but never table or caption rectangles.
+    const rows = [...new Set([8, context.height + LABEL_GAP, ...[...context.layout.nodes, ...context.placed]
+      .flatMap(box => [box.y - LABEL_GAP, box.y + box.height + LABEL_GAP])])].filter(y => y >= 8);
+    const leaderCandidates = [];
+    for (const [a, b] of context.edgeSegments.get(measurement.edge.id)) for (const fraction of [.5, .25, .75]) {
+      const anchor = [a[0] + (b[0] - a[0]) * fraction, a[1] + (b[1] - a[1]) * fraction];
+      addLeaderCandidates(context, chosen, anchor, rows, leaderCandidates);
+    }
+    leaderCandidates.sort((a, b) => a.distance - b.distance);
+    if (leaderCandidates.length) {
+      const leader = leaderCandidates[0];
+      chosen.leaderPath = pathFor(leader.points);
+      chosen.anchorX = leader.anchor[0]; chosen.anchorY = leader.anchor[1];
+      context.width = Math.max(context.width, ...leader.points.map(point => point[0] + PADDING));
+      context.height = Math.max(context.height, ...leader.points.map(point => point[1] + PADDING));
+    }
   }
 
   /**
@@ -471,140 +732,29 @@
     }
     const edgeById = new Map(layout.edges.map(edge => [edge.id, edge]));
     const seen = new Set();
-    const lineHeight = 16, pad = 8, maxTextWidth = 196, gap = 7;
-    const characterWidth = char => char.codePointAt(0) > 255 ? 12 : 7;
-    const wrap = text => {
-      const lines = [];
-      let line = '', width = 0;
-      for (const char of text) {
-        const nextWidth = characterWidth(char);
-        if (line && width + nextWidth > maxTextWidth) { lines.push(line); line = ''; width = 0; }
-        line += char; width += nextWidth;
-      }
-      if (line || !lines.length) lines.push(line);
-      return lines;
-    };
-    const segments = path => {
-      const points = [...path.matchAll(/[ML] (-?[\d.]+) (-?[\d.]+)/g)].map(m => [+m[1], +m[2]]);
-      return points.slice(1).map((b, i) => [points[i], b]).filter(([a, b]) => a[0] !== b[0] || a[1] !== b[1]);
-    };
-    const edgeSegments = new Map(layout.edges.map(edge => [edge.id, segments(edge.path)]));
-    const occupiedSegments = [...edgeSegments.values()].flat();
-    const intersects = (a, b, clearance = gap) => a.x < b.x + b.width + clearance && a.x + a.width + clearance > b.x &&
-      a.y < b.y + b.height + clearance && a.y + a.height + clearance > b.y;
-    const crosses = ([a, b], box, clearance = 3) => {
-      const left = box.x - clearance, right = box.x + box.width + clearance;
-      const top = box.y - clearance, bottom = box.y + box.height + clearance;
-      return a[0] === b[0]
-        ? a[0] > left && a[0] < right && Math.max(a[1], b[1]) > top && Math.min(a[1], b[1]) < bottom
-        : a[1] > top && a[1] < bottom && Math.max(a[0], b[0]) > left && Math.min(a[0], b[0]) < right;
-    };
-    const placed = [];
-    let width = layout.width, height = layout.height;
-    const pathFor = points => points.map(([x, y], i) => `${i ? 'L' : 'M'} ${Math.round(x * 100) / 100} ${Math.round(y * 100) / 100}`).join(' ');
+    const edgeSegments = new Map(layout.edges.map(edge => [edge.id, pathSegments(edge.path)]));
+    const context = { layout, edgeSegments, occupiedSegments: [...edgeSegments.values()].flat(), placed: [], width: layout.width, height: layout.height };
     for (const caption of captions) {
-      if (!caption || typeof caption.text !== 'string' || !caption.text || !edgeById.has(caption.edgeId)) throw new TypeError('Each caption needs a known edgeId and nonempty text');
-      if (seen.has(caption.edgeId)) throw new Error(`Duplicate caption: ${caption.edgeId}`);
-      seen.add(caption.edgeId);
-      const edge = edgeById.get(caption.edgeId), lines = wrap(caption.text);
-      const boxWidth = Math.max(...lines.map(line => [...line].reduce((sum, char) => sum + characterWidth(char), 0))) + pad * 2;
-      const boxHeight = lines.length * lineHeight + 12;
-      const candidates = [];
-      const addCandidate = (x, y, anchor, endpoint) => {
-        const box = { x, y, width: boxWidth, height: boxHeight };
-        if (x < 8 || y < 8 || layout.nodes.some(node => intersects(box, node)) || placed.some(label => intersects(box, label))) return;
-        if (occupiedSegments.some(segment => crosses(segment, box))) return;
-        const leader = [anchor, endpoint];
-        if (layout.nodes.some(node => crosses(leader, node, 2)) || placed.some(label => crosses(leader, label, 2))) return;
-        const distance = Math.abs(endpoint[0] - anchor[0]) + Math.abs(endpoint[1] - anchor[1]);
-        const expansion = Math.max(0, x + boxWidth + pad - width) + Math.max(0, y + boxHeight + pad - height);
-        const score = distance + expansion * 2 + (Math.abs(anchor[0] - edge.labelX) + Math.abs(anchor[1] - edge.labelY)) * .2;
-        candidates.push({ ...box, anchorX: anchor[0], anchorY: anchor[1], leaderPath: pathFor(leader), score });
-      };
-      for (const [a, b] of edgeSegments.get(edge.id)) {
-        const horizontal = a[1] === b[1];
-        for (const fraction of [.5, .25, .75]) {
-          const anchor = [a[0] + (b[0] - a[0]) * fraction, a[1] + (b[1] - a[1]) * fraction];
-          // Row/column boundaries provide exact clearances where a fixed step
-          // could jump over a narrow but usable space between neighboring tables.
-          const boundaries = [...layout.nodes, ...placed].flatMap(box => horizontal
-            ? [box.y - boxHeight - gap, box.y + box.height + gap]
-            : [box.x - boxWidth - gap, box.x + box.width + gap]);
-          boundaries.sort((a, b) => Math.abs(a - anchor[horizontal ? 1 : 0]) - Math.abs(b - anchor[horizontal ? 1 : 0]));
-          for (const position of [...new Set(boundaries)].slice(0, 12)) {
-            if (horizontal) {
-              if (position + boxHeight < anchor[1]) addCandidate(anchor[0] - boxWidth / 2, position, anchor, [anchor[0], position + boxHeight]);
-              else if (position > anchor[1]) addCandidate(anchor[0] - boxWidth / 2, position, anchor, [anchor[0], position]);
-            } else {
-              if (position + boxWidth < anchor[0]) addCandidate(position, anchor[1] - boxHeight / 2, anchor, [position + boxWidth, anchor[1]]);
-              else if (position > anchor[0]) addCandidate(position, anchor[1] - boxHeight / 2, anchor, [position, anchor[1]]);
-            }
-          }
-          for (const offset of [8, 24, 44, 72, 104, 152, 224, 320]) {
-            if (horizontal) {
-              addCandidate(anchor[0] - boxWidth / 2, anchor[1] - offset - boxHeight, anchor, [anchor[0], anchor[1] - offset]);
-              addCandidate(anchor[0] - boxWidth / 2, anchor[1] + offset, anchor, [anchor[0], anchor[1] + offset]);
-            } else {
-              addCandidate(anchor[0] - offset - boxWidth, anchor[1] - boxHeight / 2, anchor, [anchor[0] - offset, anchor[1]]);
-              addCandidate(anchor[0] + offset, anchor[1] - boxHeight / 2, anchor, [anchor[0] + offset, anchor[1]]);
-            }
-          }
-        }
-      }
-      candidates.sort((a, b) => a.score - b.score || a.y - b.y || a.x - b.x);
-      let chosen = candidates[0];
+      const measurement = measureCaption(caption, edgeById, seen);
+      collectLabelCandidates(context, measurement);
+      let chosen = measurement.candidates[0];
       if (!chosen) {
-        // Guaranteed unclipped fallback beyond all original routes. Nearby
-        // placements above take precedence, so ordinary diagrams stay compact.
-        chosen = { x: layout.width + 24, y: Math.max(8, edge.labelY - boxHeight / 2), width: boxWidth, height: boxHeight,
-          anchorX: edge.labelX, anchorY: edge.labelY, leaderPath: '' };
-        while (placed.some(label => intersects(chosen, label))) {
-          chosen.y = Math.max(...placed.filter(label => intersects(chosen, label)).map(label => label.y + label.height + gap));
-        }
-        // The outside column contains no original FK path. It may contain a
-        // leader from a previous caption; move below it instead of erasing it.
-        while (occupiedSegments.some(segment => crosses(segment, chosen))) {
-          chosen.y = Math.max(...occupiedSegments.filter(segment => crosses(segment, chosen)).flatMap(([a, b]) => [a[1], b[1]])) + gap;
-          while (placed.some(label => intersects(chosen, label))) {
-            chosen.y = Math.max(...placed.filter(label => intersects(chosen, label)).map(label => label.y + label.height + gap));
-          }
-        }
-        // A gutter caption is still connected to its own relation. Try clear
-        // horizontal rows via the source route's free vertical corridor; thin
-        // leaders may cross FK strokes but never table or caption rectangles.
-        const corridorX = chosen.x - gap, targetY = chosen.y + chosen.height / 2;
-        const rows = [...new Set([8, height + gap, ...[...layout.nodes, ...placed].flatMap(box => [box.y - gap, box.y + box.height + gap])])].filter(y => y >= 8);
-        const leaderCandidates = [];
-        for (const [a, b] of edgeSegments.get(edge.id)) for (const fraction of [.5, .25, .75]) {
-          const anchor = [a[0] + (b[0] - a[0]) * fraction, a[1] + (b[1] - a[1]) * fraction];
-          for (const row of rows) {
-            const points = [anchor, [anchor[0], row], [corridorX, row], [corridorX, targetY], [chosen.x, targetY]];
-            const parts = points.slice(1).map((b, i) => [points[i], b]);
-            if (parts.some(segment => [...layout.nodes, ...placed].some(box => crosses(segment, box, 2)))) continue;
-            const distance = parts.reduce((sum, [a, b]) => sum + Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]), 0);
-            leaderCandidates.push({ points, anchor, distance });
-          }
-        }
-        leaderCandidates.sort((a, b) => a.distance - b.distance);
-        if (leaderCandidates.length) {
-          const leader = leaderCandidates[0];
-          chosen.leaderPath = pathFor(leader.points);
-          chosen.anchorX = leader.anchor[0]; chosen.anchorY = leader.anchor[1];
-          width = Math.max(width, ...leader.points.map(point => point[0] + PADDING));
-          height = Math.max(height, ...leader.points.map(point => point[1] + PADDING));
-        }
+        chosen = outsideLabelBox(context, measurement);
+        connectOutsideLabel(context, measurement, chosen);
       }
       const geometry = { ...chosen };
       delete geometry.score;
-      const label = { edgeId: caption.edgeId, text: caption.text, lines, lineHeight, ...geometry,
-        textX: chosen.x + pad, textY: chosen.y + 17 };
-      placed.push(label);
-      if (label.leaderPath) occupiedSegments.push(...segments(label.leaderPath));
-      width = Math.max(width, label.x + label.width + PADDING);
-      height = Math.max(height, label.y + label.height + PADDING);
+      const label = { edgeId: caption.edgeId, text: caption.text, lines: measurement.lines, lineHeight: LABEL_LINE_HEIGHT, ...geometry,
+        textX: chosen.x + LABEL_PAD, textY: chosen.y + 17 };
+      context.placed.push(label);
+      if (label.leaderPath) context.occupiedSegments.push(...pathSegments(label.leaderPath));
+      context.width = Math.max(context.width, label.x + label.width + PADDING);
+      context.height = Math.max(context.height, label.y + label.height + PADDING);
     }
-    return { ...layout, labels: placed, width, height };
+    return { ...layout, labels: context.placed, width: context.width, height: context.height };
   }
 
-  return { layoutGraph, placeEdgeLabels };
-});
+  const api = { layoutGraph, placeEdgeLabels };
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  else root.SqlseedGraphLayout = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this);

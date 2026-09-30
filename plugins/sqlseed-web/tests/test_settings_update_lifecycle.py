@@ -195,7 +195,8 @@ def test_successful_read_completed_after_its_deadline_is_discarded(
     assert isinstance(check, updates._VersionCheck)
     assert check.task.wait(2)
     result = updates._version_result("sqlseed", check, 0)
-    assert result["latest"] is None and result["error"] is True
+    assert result["latest"] is None
+    assert result["error"] is True
     assert updates._CACHE["sqlseed"][1]["latest"] is None
     assert not updates._PENDING
 
@@ -223,7 +224,8 @@ def test_earlier_observer_deadline_does_not_discard_a_newer_shared_check(
         observer = updates._version_check("sqlseed", observer_deadline)
         assert observer is owner
         result = updates._version_result("sqlseed", observer, observer_deadline)
-        assert result["error"] is True and result["latest"] is None
+        assert result["error"] is True
+        assert result["latest"] is None
         assert not owner.discarded
         assert "sqlseed" not in updates._CACHE
         assert updates._PENDING["sqlseed"] is owner
@@ -231,10 +233,12 @@ def test_earlier_observer_deadline_does_not_discard_a_newer_shared_check(
         release.set()
         assert owner.task.wait(2)
     result = updates._version_result("sqlseed", owner, owner_deadline)
-    assert result["latest"] == "2.0" and result["error"] is False
+    assert result["latest"] == "2.0"
+    assert result["error"] is False
     assert calls == ["sqlseed"]
     cached = updates._remote_version("sqlseed")
-    assert cached["latest"] == "2.0" and cached["cached"] is True
+    assert cached["latest"] == "2.0"
+    assert cached["cached"] is True
     assert not updates._PENDING
 
 
@@ -255,7 +259,8 @@ def test_unexpected_worker_exception_releases_its_slot_for_a_fresh_read(
     assert not updates._PENDING
     assert not updates._CACHE
     result = updates._remote_version("sqlseed")
-    assert result["latest"] == "2.0" and result["error"] is False
+    assert result["latest"] == "2.0"
+    assert result["error"] is False
     assert calls == ["sqlseed", "sqlseed"]
 
 
@@ -265,10 +270,12 @@ def test_excessively_nested_index_is_failed_metadata_without_poisoning_retries(
     raw = b"[" * 10_000 + b"0" + b"]" * 10_000
     monkeypatch.setattr(updates, "_fetch_index", lambda project: json.loads(raw))
     result = updates._remote_version("sqlseed")
-    assert result["error"] is True and result["latest"] is None
+    assert result["error"] is True
+    assert result["latest"] is None
     assert not updates._PENDING
     updates._CACHE.clear()
     monkeypatch.setattr(updates, "_fetch_index", lambda project: _index(project, "2.0"))
     recovered = updates._remote_version("sqlseed")
-    assert recovered["error"] is False and recovered["latest"] == "2.0"
+    assert recovered["error"] is False
+    assert recovered["latest"] == "2.0"
     assert not updates._PENDING

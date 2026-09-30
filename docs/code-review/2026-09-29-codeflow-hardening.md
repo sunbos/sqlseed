@@ -157,6 +157,33 @@
 
 随后补充七项行为回归：网络线程无法启动后仍可完成真实本地 HTTP 请求，互斥与完成后的再次准入均保留；三个 AI MCP 工具分别拒绝缺失表和 SQL 文本形式表名，未发出模型 HTTP 请求，真实 SQLite 文件与原始行不变。两个修改文件联合验收 **19 passed、3 deselected**（排除真实模型用例），四类资源/SQLAlchemy warning 均按 error；Ruff / format 与 diff 检查通过。该补充未修改生产代码，线上结果仍须核对对应新提交。
 
+### 10 月 1 日 Sonar 明细与全源收口
+
+用户完成 Sonar CLI 登录后，已读取 `sunbos_sqlseed` 的实际明细：PR #23 有 14 条新增问题，main 的旧分析有 245 条未解决 code smell，涉及 54 个文件。两者是不同范围，quality gate 成功和 commit 状态为 success 均不能替代问题数量核验。
+
+| main 原始范围 | 数量 | 源码处置与验证 |
+| --- | ---: | --- |
+| CSS | 104 | 合并 94 项同作用域重复 selector，修正原型 10 项对比度。正式界面 8 种状态的计算样式无差异；原型 8 种状态仅预期颜色变化，最低实测对比度 6.18:1。 |
+| 正式前端 JS | 67 | 拆分引导、关系图、预览与设置逻辑，保留实时翻译、异步版本守卫、连接身份和写入门禁；没有将显示标签复用为目标标识。 |
+| 原型 JS / HTML | 16 | 拆分验证与渲染，使用原生 `output` 状态元素；真实浏览器验证无效域名、应用规则、预览、关系与生成计划，控制台无 warning / error。 |
+| Python source | 14 | 11 项复杂度及参数/常量问题按实际函数体处置。独立 AST 审查先回算 main，11 项原分数全部匹配；当前被报告函数和新 helper 均不超过 15。辅助审查不是官方远端扫描。 |
+| Python tests | 40 | 拆开独立断言，将异常用例的构造移到受测调用之前；保留真实 SQLite、输出、失败次序与无副作用验证。 |
+| Notebook | 4 | 消除嵌套条件、重复字符串和不可达的 AI 条件；在线 AI 改为显式环境变量选择，默认仍离线。 |
+
+增加 `FillOptions` 复用单表生成设置，保留旧关键字调用、默认值及显式 `False` / `None` 覆盖；未知关键字仍在打开数据库前拒绝。函数签名内省现在显示分组参数和带类型的兼容关键字，这一变化已同步 API 文档、双语 README、CHANGELOG 和维护指南。真实 SQLite 对照旧调用与新分组调用的持久数据及资源边界。
+
+执行示例时另外发现真实资源泄漏：SQLite connection 的普通上下文管理器不会关闭连接。已修复共享建库脚本和四本 Notebook 的连接、临时目录及缓存环境恢复。完整离线执行 42 个代码单元，资源警告、unraisable 和网络请求均为 0；最后常量调整后的同组 8 项回归再次通过。未打开或修改用户数据库。
+
+首轮完整 pytest 为 4,162 passed、95 skipped、3 failed，失败均涉及启动或任务等待。隔离复验两项通过；Windows 测试的 10 秒包含两次解释器导入和 spawn，真实 ready 在约 12 秒产生。现将启动就绪预算与父进程硬退出预算分开，父退出、继承锁拒绝和最终释放断言保留。三个模块随后 11 项通过，完整复测 **4,165 passed、95 skipped**，612.43 秒，0 failed、无非预期 warning。四类资源 / SQLAlchemy warning 仍按 error，没有降低业务解析预算或屏蔽诊断。
+
+额外扫描完整正式 JS 及原型 64 个文件，发现原始 245 清单之外的 33 项作用域与图布局复杂度提示，已继续修复。图布局 100 图、413 次旧新完整结果对照全部一致；依赖路径 83 图、4,882 次对照保留顺序、角色、对象身份与输入不变。独立复审另验证空图、循环、自引用、并行边、257 边的稠密预算边界、14 类非法输入和三种导出模式，没有 P1 / P2 发现。
+
+源码冻结后的最终 Node 为 **962 passed、0 failed、0 skipped**，18.11 秒；64 个 JS 文件的本地 SonarJS / Unicorn 规则复扫为 **0 条提示**，模块语法检查通过。这是针对已报告规则的辅助验证，不能替代完整 SonarCloud 分析。全部改动 Python 的 Pylint 为 `[]`；Ruff / format（488 文件）、Windows / Linux mypy（174 source files）、3 项 import-linter 边界、依赖一致性、文档同步、MkDocs strict 和提交钩子通过。默认 mutation gate 的目标与两份测试未改，沿用已验证的 246/246 killed，不将其解释为全项目变异覆盖。
+
+真实浏览器使用隔离的 26 表 / 55 外键样板验证全图、字段标签、42.5% 手动缩放与双语切换、适应画布、`tenants` 的 10 行预览及切换语言不重新采样；跨表循环仍明确阻断生成计划，控制台 warning / error 均为空。验收后断开并移除该样板会话，关闭测试页；未执行样板数据库写入。
+
+远端必须检查本轮提交的精确 head SHA。Sonar 当前配置为 automatic analysis，只分析 main 与 PR；PR 结果只覆盖新增代码，main 全源数字需要合并后重扫才能刷新。没有降低阈值、扩大排除范围、接受 / 标记误报或关闭任何 issue 来达到数字清零；本次不包含合并、tag 或发布。
+
 ## 证据归属
 
 原始文件保留于任务系统 TEMP，不作为产品运行依赖：
@@ -170,5 +197,11 @@
 - `sqlseed-hardening-pytest-final.log` / `.xml`、`sqlseed-hardening-node.log`：稳定代码的完整 Python / Node 结果。
 - `sqlseed-hardening-mutation-isolated.log`、`sqlseed-hardening-mutation-results.txt`：独立工作区的默认 mutation gate 结果。
 - `sqlseed-pool-final-2.0.log`、`sqlseed-pool-final-2.1.log`：兼容性补充的双版本验收；后续全量复验另存 `sqlseed-hardening-pytest-pool-final.log` / `.xml`。
+- `sqlseed-sonar-main-inventory.json`、`sqlseed-sonar-main-245-assignment-ledger.json`、`sqlseed-css-104-ledger.json`：认证后获取的原始明细、逐项负责人及 CSS 处置证据；保留原始远端 OPEN 状态，源码修复不冒充远端清零。
+- `sqlseed-python-complexity-review.json`、`sqlseed-python-cognitive-audit.json`：两个独立函数体审查及原分数校准。JS、本地语法与 Pylint 是辅助分析，不能替代完整 SonarCloud 重扫。
+- `sqlseed-sonar-final-pytest.log` / `.xml`、`sqlseed-sonar-final-pytest-clean.log` / `.xml`：首轮和修复后的完整结果，不能只保留成功批次而遗漏首轮失败。
+- `sqlseed-sonar-timing-final.log`、`sqlseed-notebook-cache-constant-pytest.log`：等待边界与 Notebook 最后常量调整的实际验收。
+- `sqlseed-sonar-final-node-clean.log`、`sqlseed-sonar-all-js-final-check.json`、`sqlseed-sonar-final-python-pylint.json`、`sqlseed-sonar-final-precommit.log`、`sqlseed-sonar-final-docs.log`：冻结后的前端、辅助规则、Python、提交钩子与文档结果。
+- `sqlseed-layout-differential.log`、`sqlseed-graph-layout-independent-review.json`、`sqlseed-dependency-view-review/differential-result.json`：图布局与依赖投影的旧新结果对照和独立复审。
 
 本轮使用隔离测试数据库、临时缓存与受控协议输入；没有以清理告警为由删除用户数据、停止用户预览服务或安装 / 卸载用户环境组件。真实模型和跨平台验证仅以各自实际运行结果为准。

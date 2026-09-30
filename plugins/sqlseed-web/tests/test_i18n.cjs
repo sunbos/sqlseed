@@ -2,6 +2,29 @@ const assert = require('node:assert/strict');
 const test = require('node:test');
 const {Element, createDom, loadFrontend, loadI18n} = require('./frontend_helpers.cjs');
 
+test('count validation keys stay stable while an existing error changes language without changing the draft', () => {
+  const context = loadFrontend('workbench/model.js');
+  const model = require('node:vm').runInContext("new WorkbenchDocument({schema_hash:'s1',tables:[{name:'orders'}]},{tables:[{name:'orders',count:100,columns:[]}]})", context);
+  const raw = '9007199254740993';
+  assert.equal(context.generationCountErrorKey(raw), 'flow.count.tooLarge');
+  assert.equal(context.generationCountErrorKey(''), 'flow.count.positive');
+  assert.equal(context.generationCountErrorKey('100'), '');
+  assert.equal(model.setCount('orders', raw), false);
+  const issue = model.inputIssues()[0];
+  const output = context.h('p', {}, issue.message);
+  context.document.body.append(output);
+  assert.match(output.textContent, /orders.*可精确表示/);
+  const before = JSON.stringify({document: model.document, view: model.view, epoch: model.epoch});
+  context.setLanguage('en');
+  assert.match(output.textContent, /orders.*9,007,199,254,740,991/);
+  assert.doesNotMatch(output.textContent, /可精确表示/);
+  assert.equal(model.inputIssues()[0].message, issue.message);
+  assert.equal(JSON.stringify({document: model.document, view: model.view, epoch: model.epoch}), before);
+  assert.equal(model.canRun(), false);
+  assert.equal(model.setCount('orders', '100'), true);
+  assert.equal(model.errors.size, 0);
+});
+
 test('JSON language resources share an awaited fetch across callers and language changes', async () => {
   let resolveResponse;
   const pending = new Promise(resolve => { resolveResponse = resolve; });

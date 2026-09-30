@@ -124,7 +124,8 @@ def _assert_generated_rows(database: Path, table: TableConfig) -> None:
     with DataOrchestrator(str(database), provider_name="base", optimize_pragma=False) as orch:
         assert orch.get_row_count("events") == 0
         generated = orch.fill_table("events", count=3, column_configs=table.columns, skip_ai=True)
-        assert generated.count == 3 and not generated.errors
+        assert generated.count == 3
+        assert not generated.errors
         assert orch.query("SELECT value FROM events") == [{"value": 7}] * 3
 
 
@@ -163,11 +164,10 @@ def test_bad_json_keeps_existing_attempt_limits_and_never_writes(
     with sqlite_connection(database) as db:
         db.execute("CREATE TABLE events(value INTEGER)")
     requests: list[dict[str, object]] = []
-    with (
-        _completion_server([(_BROKEN_JSON, "stop")], requests) as base_url,
-        pytest.raises(AISuggestionFailedError, match="not valid JSON") as captured,
-    ):
-        _refiner(database, base_url).generate_and_refine("events", max_retries=max_retries, no_cache=True)
+    with _completion_server([(_BROKEN_JSON, "stop")], requests) as base_url:
+        refiner = _refiner(database, base_url)
+        with pytest.raises(AISuggestionFailedError, match="not valid JSON") as captured:
+            refiner.generate_and_refine("events", max_retries=max_retries, no_cache=True)
     assert len(requests) == expected_requests
     assert "PRIVATE_RESPONSE_MARKER" not in str(captured.value)
     with sqlite_connection(database) as db:
@@ -188,11 +188,10 @@ def test_unknown_generator_is_feedback_instead_of_an_uncaught_exception(events_d
 def test_unknown_generator_exhausts_original_budget_without_writing(events_database: Path) -> None:
     requests: list[dict[str, object]] = []
     bad_config = _VALID_JSON.replace('"integer"', '"random_int"')
-    with (
-        _completion_server([(bad_config, "stop")], requests) as base_url,
-        pytest.raises(AISuggestionFailedError, match=r"Failed after 1 retries.*random_int.*does not exist"),
-    ):
-        _refiner(events_database, base_url).generate_and_refine("events", max_retries=1, no_cache=True)
+    with _completion_server([(bad_config, "stop")], requests) as base_url:
+        refiner = _refiner(events_database, base_url)
+        with pytest.raises(AISuggestionFailedError, match=r"Failed after 1 retries.*random_int.*does not exist"):
+            refiner.generate_and_refine("events", max_retries=1, no_cache=True)
     assert len(requests) == 2
     messages = requests[1]["messages"]
     assert isinstance(messages, list)

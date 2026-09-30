@@ -42,6 +42,20 @@ if TYPE_CHECKING:
 logger = get_logger(__name__)
 
 
+def _parse_tool_arguments(args_str: str, *, strict_json: bool) -> dict[str, Any] | None:
+    """Decode an argument object without changing text fallback or strict failures."""
+    try:
+        result = json.loads(args_str)
+    except json.JSONDecodeError:
+        logger.debug("Failed to parse tool call arguments", args=args_str[:200])
+        return None
+    if isinstance(result, dict):
+        return result
+    if strict_json:
+        raise JSONResponseError("invalid_json")
+    return None
+
+
 class ToolCallingMixin:
     """Mixin providing native function calling support (gemma4 / openai protocols).
 
@@ -66,7 +80,7 @@ class ToolCallingMixin:
         # -> abstract-method). RuntimeError avoids all three. Real impl
         # lives in JsonParserMixin and DOES return a value.
         def _parse_json_response(self, content: str, *, preserve_names: bool = False) -> dict[str, Any]:
-            del content
+            del content, preserve_names
             raise RuntimeError("provided by JsonParserMixin")
 
     def _extract_tool_call_result(self, choice: Any, *, strict_json: bool = False) -> dict[str, Any] | None:
@@ -74,22 +88,17 @@ class ToolCallingMixin:
         if not choice.message.tool_calls:
             return None
         for tool_call in choice.message.tool_calls:
-            if tool_call.function.name == "analyze_schema" and (args_str := tool_call.function.arguments):
-                try:
-                    result = json.loads(args_str)
-                    if not isinstance(result, dict):
-                        if strict_json:
-                            raise JSONResponseError("invalid_json")
-                        continue
-                    logger.info(
-                        "Native function calling succeeded",
-                        tool="analyze_schema",
-                        protocol=self._config.tool_calling_protocol if self._config else "gemma4",
-                        model=self._config.model if self._config else "unknown",
-                    )
-                    return result
-                except json.JSONDecodeError:
-                    logger.debug("Failed to parse tool call arguments", args=args_str[:200])
+            if tool_call.function.name != "analyze_schema" or not (args_str := tool_call.function.arguments):
+                continue
+            if (result := _parse_tool_arguments(args_str, strict_json=strict_json)) is None:
+                continue
+            logger.info(
+                "Native function calling succeeded",
+                tool="analyze_schema",
+                protocol=self._config.tool_calling_protocol if self._config else "gemma4",
+                model=self._config.model if self._config else "unknown",
+            )
+            return result
         return None
 
     def _parse_tool_choice(self, choice: Any, *, preserve_names: bool, strict_json: bool) -> dict[str, Any] | None:

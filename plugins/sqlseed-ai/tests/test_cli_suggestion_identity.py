@@ -88,7 +88,8 @@ def test_export_keeps_real_table_and_column_identifiers(
     assert exported["tables"][0]["columns"][0]["name"] == column
     assert database.read_bytes() == before
     filled = fill_from_config(output)
-    assert filled[0].count == 2 and not filled[0].errors
+    assert filled[0].count == 2
+    assert not filled[0].errors
     with sqlite_connection(database) as db:
         assert db.execute(f"SELECT {quote_identifier(column)} FROM {quote_identifier(table)}").fetchall() == [
             (7,),
@@ -113,7 +114,8 @@ def test_other_target_is_rejected_without_overwriting_existing_output(
     with _completion_server([(json.dumps(candidate), "stop")], requests) as base_url:
         result = cli_runner.invoke(ai_suggest, _arguments(database, output, base_url, ".events", options))
     assert result.exit_code == 1, result.output
-    assert "table" in result.output.lower() and ".events" in result.output
+    assert "table" in result.output.lower()
+    assert ".events" in result.output
     assert output.read_text(encoding="utf-8") == "user-owned output"
     assert database.read_bytes() == before
 
@@ -130,7 +132,8 @@ def test_missing_cli_target_fails_before_model_request(
     with _completion_server([('{"name":"missing", "columns":[]}', "stop")], requests) as base_url:
         result = cli_runner.invoke(ai_suggest, _arguments(database, output, base_url, "missing", options))
     assert result.exit_code == 1, result.output
-    assert "missing" in result.output and "does not exist" in result.output
+    assert "missing" in result.output
+    assert "does not exist" in result.output
     assert not requests
     assert not output.exists()
     assert database.read_bytes() == before

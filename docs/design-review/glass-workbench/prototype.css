@@ -40,21 +40,26 @@ body {
     margin: 0;
     min-width: 360px;
     background: #e5ebec;
+    line-height: 1.55;
+    font-weight: 400;
 }
 button,
 input,
 select {
     font: inherit;
     color: inherit;
+    font-family: var(--font-ui);
 }
 button,
 a,
 input,
 select {
     -webkit-tap-highlight-color: transparent;
+    outline-offset: 4px;
 }
 button {
     cursor: pointer;
+    border: 0;
 }
 button:disabled {
     cursor: not-allowed;
@@ -64,15 +69,8 @@ a {
     color: inherit;
     text-decoration: none;
 }
-button {
-    border: 0;
-}
-button,
-input,
-select,
-a {
-    outline-offset: 4px;
-}
+
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
@@ -301,8 +299,8 @@ p {
     align-items: center;
 }
 .prototype-badge {
-    font-size: 11px;
-    color: #64766b;
+    font-size: 10px;
+    color: #667e58;
     white-space: nowrap;
     display: flex;
     align-items: center;
@@ -375,7 +373,7 @@ p {
     background: #38644913;
     border: 1px solid #67866e22;
     border-radius: 10px;
-    color: #46795d;
+    color: #365449;
 }
 .database-symbol svg {
     width: 19px;
@@ -391,6 +389,7 @@ p {
     font-size: 10px;
     color: #7c8b7c;
     margin-top: 5px;
+    white-space: nowrap;
 }
 .database-button small span {
     padding: 0 5px;
@@ -415,7 +414,7 @@ p {
     padding: 0 9px;
     margin-bottom: 25px;
     box-shadow: inset 0 1px 2px #3e5b3410;
-    color: #8a9b85;
+    color: #3d5c4d;
 }
 .search-box input {
     width: 100%;
@@ -492,13 +491,13 @@ p {
 }
 .table-select strong {
     font-family: var(--font-mono);
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 500;
 }
 .table-select small {
     display: block;
-    font-size: 10px;
-    color: #86947e;
+    font-size: 11px;
+    color: #6e8065;
     margin-top: 5px;
 }
 .table-item.active strong {
@@ -506,16 +505,16 @@ p {
 }
 .table-item .table-amount {
     margin-left: auto;
-    font-size: 10px;
-    color: #8d9b83;
+    font-size: 11px;
+    color: #748468;
     font-variant-numeric: tabular-nums;
     padding-top: 3px;
 }
 .sidebar-note {
     display: flex;
     gap: 7px;
-    color: #829079;
-    font-size: 10px;
+    color: #6c7e60;
+    font-size: 11px;
     line-height: 1.85;
     margin: 19px 8px 36px;
 }
@@ -542,8 +541,8 @@ p {
     font-weight: 500;
 }
 .sidebar-bottom p {
-    font-size: 9px;
-    color: #87957c;
+    font-size: 10px;
+    color: #748569;
     margin-top: 7px;
     line-height: 1.6;
 }
@@ -556,8 +555,8 @@ p {
     display: flex;
     justify-content: space-between;
     gap: 8px;
-    font-size: 9px;
-    color: #809076;
+    font-size: 10px;
+    color: #6f8062;
     white-space: nowrap;
 }
 .connection-status > span:first-child {
@@ -582,8 +581,8 @@ p {
     display: flex;
     align-items: center;
     gap: 11px;
-    color: #829083;
-    font-size: 10px;
+    color: #718166;
+    font-size: 11px;
     margin-bottom: 18px;
 }
 .breadcrumb > span:nth-child(2) {
@@ -611,8 +610,8 @@ h1 {
     line-height: 1.4;
 }
 .page-heading p {
-    font-size: 11px;
-    color: #80907c;
+    font-size: 12px;
+    color: #6f805f;
     margin-top: 7px;
     letter-spacing: 0.4px;
 }
@@ -627,16 +626,14 @@ h1 {
     gap: 7px;
     background: linear-gradient(180deg, #fffffff0, #ffffff8a);
     border: 1px solid #ffffffd9;
-    box-shadow:
-        0 2px 4px #2c4e3410,
+    box-shadow: 0 2px 4px #2c4e3410,
         inset 0 1px 0 #ffffffc9;
     border-radius: var(--radius-control);
     padding: 9px 13px;
-    font-size: 11px;
+    font-size: 12px;
     min-height: 35px;
     white-space: nowrap;
-    transition:
-        transform 0.16s,
+    transition: transform 0.16s,
         box-shadow 0.16s,
         background 0.16s;
 }
@@ -695,13 +692,13 @@ h1 {
     color: #798978;
 }
 .config-name strong {
-    font-size: 12px;
+    font-size: 13px;
     font-weight: 550;
 }
 .config-name small {
     display: block;
-    font-size: 9px;
-    color: #8d9b86;
+    font-size: 10px;
+    color: #748368;
     margin-top: 5px;
 }
 .config-options {
@@ -709,8 +706,8 @@ h1 {
     gap: 18px;
 }
 .config-options label {
-    font-size: 9px;
-    color: #7a8b72;
+    font-size: 10px;
+    color: #718363;
     display: flex;
     flex-direction: column;
     gap: 5px;
@@ -721,16 +718,18 @@ h1 {
     background: var(--control-bg);
     border-radius: var(--radius-control);
     padding: 5px 8px;
-    font-size: 11px;
+    font-size: 12px;
     height: 32px;
     max-width: 135px;
     color: #3f5e42;
 }
 .config-options select {
     padding-right: 8px;
+    min-width: 102px;
+    max-width: 150px;
 }
 .config-options input {
-    width: 57px;
+    width: 65px;
     font-family: var(--font-mono);
 }
 .editor-surface {
@@ -760,7 +759,7 @@ h1 {
     background: #edf2e9;
     border: 1px solid #dbe6d9;
     border-radius: 10px;
-    color: #5d7b58;
+    color: #365449;
 }
 .table-symbol svg {
     width: 19px;
@@ -771,8 +770,8 @@ h1 {
     letter-spacing: -0.5px;
 }
 .current-table p {
-    font-size: 10px;
-    color: #8a9783;
+    font-size: 11px;
+    color: #728163;
     margin-top: 4px;
 }
 .dot-divider {
@@ -782,8 +781,8 @@ h1 {
     display: flex;
     align-items: center;
     gap: 9px;
-    font-size: 10px;
-    color: #87937d;
+    font-size: 11px;
+    color: #6e805e;
 }
 .row-count input {
     width: 91px;
@@ -818,8 +817,8 @@ h1 {
     gap: 7px;
     background: none;
     padding: 13px 0 14px;
-    color: #8a9682;
-    font-size: 11px;
+    color: #768665;
+    font-size: 12px;
     white-space: nowrap;
 }
 .tab.active {
@@ -846,7 +845,7 @@ h1 {
     gap: 6px;
     background: transparent;
     padding: 6px 0;
-    font-size: 10px;
+    font-size: 11px;
     color: #657d5e;
     white-space: nowrap;
 }
@@ -869,8 +868,8 @@ h1 {
 }
 .rules-table th {
     background: #f4f7ef94;
-    color: #96a18b;
-    font-size: 9px;
+    color: #3d5c4d;
+    font-size: 10px;
     font-weight: 500;
     padding: 11px 12px;
     letter-spacing: 0.5px;
@@ -891,19 +890,22 @@ h1 {
     width: 45px;
     text-align: center;
     padding-left: 22px;
-    color: #b0baa5;
+    color: #3d5c4d;
     font-size: 9px;
 }
 .field-name {
     display: block;
     font: 500 12px var(--font-mono);
     color: #42513e;
+    font-size: 13px;
+    font-weight: 400;
 }
 .field-type {
     display: block;
     margin-top: 4px;
-    color: #97a18f;
+    color: #7b866e;
     font: 9px var(--font-mono);
+    font-size: 10px;
 }
 .rule-button {
     display: flex;
@@ -913,7 +915,7 @@ h1 {
     background: transparent;
     text-align: left;
     color: #5a7050;
-    font-size: 11px;
+    font-size: 12px;
 }
 .rule-button:hover .rule-label {
     text-decoration: underline;
@@ -928,7 +930,7 @@ h1 {
     font:
         11px Georgia,
         serif;
-    color: #7c8e66;
+    color: #365449;
 }
 .generator-icon svg {
     width: 12px;
@@ -936,21 +938,23 @@ h1 {
 }
 .rule-description {
     display: block;
-    font-size: 9px;
-    color: #99a28e;
+    font-size: 10px;
+    color: #7b896c;
     margin-top: 3px;
+    max-width: 250px;
+    overflow-wrap: anywhere;
 }
 .constraint-tag {
     display: inline-flex;
     align-items: center;
     gap: 4px;
-    font:
-        8px "Segoe UI",
+    font: 8px "Segoe UI",
         sans-serif;
-    color: #94a089;
+    color: #7a896d;
     letter-spacing: 0.2px;
     margin-right: 9px;
     white-space: nowrap;
+    font-size: 9px;
 }
 .constraint-tag.pk {
     color: #a59059;
@@ -974,8 +978,8 @@ h1 {
     display: flex;
     gap: 10px;
     justify-content: space-between;
-    font-size: 9px;
-    color: #97a28e;
+    font-size: 10px;
+    color: #768768;
     line-height: 1.6;
 }
 .editor-foot > span:first-child {
@@ -1008,26 +1012,26 @@ h1 {
     height: 31px;
     width: 31px;
     background: #5c895310;
-    color: #7d9870;
+    color: #365449;
     border-radius: 8px;
 }
 .selected-summary strong {
-    font-size: 11px;
+    font-size: 12px;
     font-weight: 550;
     display: block;
 }
 .selected-summary div > span {
     display: block;
-    color: #89997d;
-    font-size: 9px;
+    color: #748568;
+    font-size: 10px;
     margin-top: 4px;
 }
 .execution-note {
     margin-left: auto;
     display: flex;
     gap: 5px;
-    color: #8a9b7e;
-    font-size: 9px;
+    color: #748569;
+    font-size: 10px;
 }
 .execution-note svg {
     height: 12px;
@@ -1040,8 +1044,8 @@ h1 {
     display: flex;
     justify-content: space-between;
     margin-top: 19px;
-    font-size: 8px;
-    color: #94a184;
+    font-size: 9px;
+    color: #768a68;
     letter-spacing: 1.3px;
 }
 .workspace-caption > span:last-child {
@@ -1053,8 +1057,8 @@ h1 {
     align-items: center;
     padding: 10px 23px;
     border-top: 1px solid var(--line);
-    font-size: 9px;
-    color: #91a084;
+    font-size: 10px;
+    color: #3d5c4d;
     background: #ffffff21;
 }
 .app-footer > span:first-child {
@@ -1069,7 +1073,7 @@ h1 {
     font-family: var(--font-mono);
 }
 .footer-right > span {
-    color: #aeb9a1;
+    color: #3d5c4d;
 }
 .footer-separator {
     width: 1px;
@@ -1082,8 +1086,8 @@ h1 {
     justify-content: space-between;
     gap: 8px;
     padding: 18px 22px;
-    color: #8c9a80;
-    font-size: 10px;
+    color: #718462;
+    font-size: 11px;
 }
 .preview-caption > span:first-child {
     display: flex;
@@ -1098,7 +1102,7 @@ h1 {
 .preview-table th {
     padding: 14px 15px;
     background: #f2f6ec;
-    font-size: 11px;
+    font-size: 12px;
     color: #526b45;
     font-weight: 500;
     border-bottom: 1px solid #e4eadc;
@@ -1106,13 +1110,14 @@ h1 {
 .preview-table td {
     padding: 19px 15px;
     border-bottom: 1px solid #edf1e5;
-    color: #69795d;
+    color: #496254;
     white-space: nowrap;
-    font-size: 10px;
+    font-size: 12px;
 }
 .preview-table td.auto-value {
-    color: #a8b19e;
+    color: #81916f;
     font-family: inherit;
+    font-size: 10px;
 }
 .preview-table th button {
     font: inherit;
@@ -1141,7 +1146,7 @@ h1 {
     align-items: center;
     justify-content: center;
     gap: 15px;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
 }
 .relation-node {
     border: 1px solid #d7e4cb;
@@ -1150,16 +1155,16 @@ h1 {
     border-radius: 10px;
     box-shadow: 0 5px 10px #48663508;
     text-align: left;
-    min-width: 145px;
+    min-width: 110px;
 }
 .relation-node strong {
     font: 13px var(--font-mono);
     display: block;
 }
 .relation-node small {
-    font-size: 9px;
+    font-size: 10px;
     display: block;
-    color: #8f9f82;
+    color: #71865d;
     margin-top: 9px;
 }
 .relation-node.current {
@@ -1175,10 +1180,11 @@ h1 {
     color: #809b6a;
     text-align: center;
     font-size: 22px;
+    flex-shrink: 0;
 }
 .relation-arrow small {
     display: block;
-    font-size: 8px;
+    font-size: 10px;
 }
 .secondary-view h1 {
     margin: 35px 0 10px;
@@ -1324,7 +1330,7 @@ dialog::backdrop {
     display: flex;
     align-items: center;
     gap: 6px;
-    font-size: 10px;
+    font-size: 11px;
     color: #769160;
 }
 .sample-card svg {
@@ -1342,7 +1348,7 @@ dialog::backdrop {
     display: block;
     font: 400 15px/1.65 var(--font-ui);
     font-variant-numeric: tabular-nums;
-    color: #49633a;
+    color: #38594c;
     margin: 22px 0 15px;
     overflow-wrap: anywhere;
 }
@@ -1364,7 +1370,7 @@ dialog::backdrop {
     margin-top: 2px;
 }
 .form-error {
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.8;
     color: #b35c42;
     margin-top: 16px;
@@ -1412,7 +1418,7 @@ dialog::backdrop {
     background: #ffffff42;
     border-radius: var(--radius-panel);
     padding: 9px 8px 13px;
-    color: #728566;
+    color: #3d5c4d;
 }
 .material-choice.selected {
     border-color: #85a974;
@@ -1450,15 +1456,15 @@ dialog::backdrop {
 }
 .material-choice strong {
     display: block;
-    font-size: 11px;
+    font-size: 12px;
     margin-top: 10px;
     font-weight: 500;
 }
 .material-choice small {
     display: block;
-    font-size: 9px;
+    font-size: 10px;
     margin-top: 5px;
-    color: #8d9e80;
+    color: #3d5c4d;
 }
 .switch-row {
     border-top: 1px solid #cadbbd80;
@@ -1547,7 +1553,7 @@ dialog::backdrop {
     display: flex;
     gap: 8px;
     align-items: center;
-    color: #507a43;
+    color: #315b2c;
     font-size: 11px;
     background: #e6f0de;
     padding: 12px;
@@ -1555,7 +1561,7 @@ dialog::backdrop {
     line-height: 1.7;
 }
 .check-success.error {
-    color: #a35b45;
+    color: #8b4230;
     background: #f7ece1;
 }
 .check-success .ui-icon {
@@ -1735,9 +1741,7 @@ body.reduce-motion *:after {
         padding: 9px 11px;
         font-size: 11px;
     }
-    .prototype-badge {
-        font-size: 9px;
-    }
+
     .header-end {
         gap: 7px;
     }
@@ -1754,18 +1758,12 @@ body.reduce-motion *:after {
     .config-name {
         gap: 5px;
     }
-    .config-name strong {
-        font-size: 11px;
-    }
+
     .config-symbol {
         width: 24px;
     }
-    .config-options label {
-        font-size: 8px;
-    }
-    .config-options select {
-        font-size: 10px;
-    }
+
+
     .execution-note {
         display: none;
     }
@@ -1778,7 +1776,6 @@ body.reduce-motion *:after {
         padding-right: 9px;
     }
     .constraint-tag {
-        font-size: 7px;
         margin-right: 4px;
     }
     .editor-tabs {
@@ -1828,9 +1825,7 @@ body.reduce-motion *:after {
     .table-select {
         gap: 6px;
     }
-    .table-select strong {
-        font-size: 11px;
-    }
+
     .table-amount {
         display: none;
     }
@@ -1841,9 +1836,7 @@ body.reduce-motion *:after {
     .database-button strong {
         font-size: 11px;
     }
-    .sidebar-bottom p {
-        font-size: 8px;
-    }
+
     .page-heading {
         align-items: flex-start;
     }
@@ -1879,7 +1872,6 @@ body.reduce-motion *:after {
         gap: 12px;
     }
     .tab {
-        font-size: 10px;
         gap: 4px;
     }
     .editor-toolbar > .text-button {
@@ -1899,14 +1891,11 @@ body.reduce-motion *:after {
         padding-left: 12px;
         width: 30px;
     }
-    .workspace-caption {
-        font-size: 7px;
-    }
+
     .editor-foot {
         padding: 11px 15px;
     }
     .sidebar-note {
-        font-size: 9px;
         margin-left: 3px;
     }
     .connection-status {
@@ -1920,7 +1909,6 @@ body.reduce-motion *:after {
         gap: 10px;
     }
     .relation-node {
-        min-width: 120px;
         padding: 13px;
     }
 }
@@ -2002,18 +1990,14 @@ body.reduce-motion *:after {
         padding: 9px;
         gap: 7px;
     }
-    .table-select strong {
-        font-size: 12px;
-    }
+
     .table-select small {
-        font-size: 9px;
         margin-top: 3px;
     }
     .workspace {
         padding: 20px 16px;
     }
     .breadcrumb {
-        font-size: 9px;
         margin-bottom: 14px;
     }
     .page-heading {
@@ -2038,12 +2022,8 @@ body.reduce-motion *:after {
     .configuration-bar {
         margin-bottom: 17px;
     }
-    .config-options label {
-        font-size: 9px;
-    }
-    .config-options select {
-        font-size: 11px;
-    }
+
+
     .current-table h2 {
         font-size: 17px;
     }
@@ -2057,11 +2037,8 @@ body.reduce-motion *:after {
     .current-table {
         gap: 8px;
     }
-    .current-table p {
-        font-size: 9px;
-    }
+
     .row-count {
-        font-size: 9px;
         flex-wrap: wrap;
         max-width: 111px;
         justify-content: flex-end;
@@ -2079,9 +2056,7 @@ body.reduce-motion *:after {
         width: 100%;
         justify-content: space-between;
     }
-    .tab {
-        font-size: 11px;
-    }
+
     .editor-toolbar > .text-button {
         margin-left: auto;
         padding: 10px 0;
@@ -2089,17 +2064,12 @@ body.reduce-motion *:after {
     .rules-table {
         min-width: 450px;
     }
-    .rules-table th {
-        font-size: 9px;
-    }
-    .constraint-tag {
-        font-size: 8px;
-    }
+
+
     .edit-rule {
         opacity: 1;
     }
     .editor-foot {
-        font-size: 8px;
         flex-wrap: wrap;
     }
     .bottom-summary {
@@ -2112,7 +2082,6 @@ body.reduce-motion *:after {
     }
     .app-footer {
         padding: 10px 15px;
-        font-size: 8px;
     }
     .footer-right {
         gap: 6px;
@@ -2126,7 +2095,6 @@ body.reduce-motion *:after {
         padding: 23px;
     }
     .preview-caption {
-        font-size: 9px;
         padding: 14px;
     }
     .compact-dialog {
@@ -2156,9 +2124,7 @@ body.reduce-motion *:after {
     .material-choice {
         padding: 7px 5px 12px;
     }
-    .material-choice small {
-        font-size: 8px;
-    }
+
 }
 @media (prefers-reduced-motion: reduce) {
     *,
@@ -2200,140 +2166,41 @@ body.reduce-motion *:after {
     }
 }
 /* 可读性收敛：桌面与小窗口都保留清晰的正文、元数据和操作标签。 */
-.database-button small {
-    white-space: nowrap;
-    font-size: 10px;
-}
-.table-select strong {
-    font-size: 13px;
-}
-.table-select small {
-    font-size: 11px;
-    color: #6e8065;
-}
-.table-item .table-amount {
-    font-size: 11px;
-    color: #748468;
-}
-.sidebar-note {
-    font-size: 11px;
-    color: #6c7e60;
-}
-.sidebar-bottom p {
-    font-size: 10px;
-    color: #748569;
-}
-.connection-status {
-    font-size: 10px;
-    color: #6f8062;
-}
-.breadcrumb {
-    font-size: 11px;
-    color: #718166;
-}
-.page-heading p {
-    font-size: 12px;
-    color: #6f805f;
-}
-.button {
-    font-size: 12px;
-}
-.config-name strong {
-    font-size: 13px;
-}
-.config-name small {
-    font-size: 10px;
-    color: #748368;
-}
-.config-options label {
-    font-size: 10px;
-    color: #718363;
-}
-.config-options select,
-.config-options input {
-    font-size: 12px;
-}
-.current-table p {
-    font-size: 11px;
-    color: #728163;
-}
-.row-count {
-    font-size: 11px;
-    color: #6e805e;
-}
-.tab {
-    font-size: 12px;
-    color: #768665;
-}
-.text-button {
-    font-size: 11px;
-}
-.rules-table th {
-    font-size: 10px;
-    color: #778768;
-}
-.field-name {
-    font-size: 13px;
-}
-.field-type {
-    font-size: 10px;
-    color: #7b866e;
-}
-.rule-button {
-    font-size: 12px;
-}
-.rule-description {
-    font-size: 10px;
-    color: #7b896c;
-    max-width: 250px;
-    overflow-wrap: anywhere;
-}
-.constraint-tag {
-    font-size: 9px;
-    color: #7a896d;
-}
-.editor-foot {
-    font-size: 10px;
-    color: #768768;
-}
-.selected-summary strong {
-    font-size: 12px;
-}
-.selected-summary div > span {
-    font-size: 10px;
-    color: #748568;
-}
-.execution-note {
-    font-size: 10px;
-    color: #748569;
-}
-.workspace-caption {
-    font-size: 9px;
-    color: #768a68;
-}
-.prototype-badge {
-    font-size: 10px;
-    color: #667e58;
-}
-.app-footer {
-    font-size: 10px;
-    color: #728365;
-}
-.preview-caption {
-    font-size: 11px;
-    color: #718462;
-}
-.preview-table td {
-    font-size: 12px;
-    color: #596e4d;
-}
-.preview-table td.auto-value {
-    font-size: 10px;
-    color: #81916f;
-}
-.preview-table th {
-    font-size: 12px;
-}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 .drawer-intro,
 .form-label {
     font-size: 12px;
@@ -2345,47 +2212,27 @@ body.reduce-motion *:after {
     font-size: 11px;
     color: #788b65;
 }
-.sample-card > div {
-    font-size: 11px;
-}
-.material-choice strong {
-    font-size: 12px;
-}
-.material-choice small {
-    font-size: 10px;
-    color: #778a64;
-}
+
+
+
 .relation-paths {
     width: 100%;
     display: flex;
     flex-direction: column;
     gap: 30px;
 }
-.relation-node small {
-    font-size: 10px;
-    color: #71865d;
-}
-.relation-arrow small {
-    font-size: 10px;
-}
+
+
 .relations-canvas .form-help {
     text-align: center;
 }
-.relation-node {
-    min-width: 110px;
-}
-.relation-flow {
-    flex-wrap: nowrap;
-}
+
+
 .relation-flow .relation-node {
     padding: 17px 13px;
 }
-.relation-arrow {
-    flex-shrink: 0;
-}
-.form-error {
-    font-size: 12px;
-}
+
+
 @media (max-width: 1180px) {
     .config-options {
         gap: 12px;
@@ -2394,7 +2241,6 @@ body.reduce-motion *:after {
         font-size: 12px;
     }
     .config-options select {
-        max-width: 112px;
         font-size: 11px;
     }
     .configuration-bar {
@@ -2448,9 +2294,7 @@ body.reduce-motion *:after {
     .config-options label {
         font-size: 10px;
     }
-    .config-options select {
-        max-width: 145px;
-    }
+
     .database-symbol {
         width: 25px;
         height: 30px;
@@ -2495,15 +2339,11 @@ body.reduce-motion *:after {
     .config-options {
         gap: 8px;
     }
-    .config-options select {
-        max-width: 122px;
-    }
+
     .config-options label {
         font-size: 9px;
     }
-    .config-options input {
-        width: 49px;
-    }
+
     .rules-table {
         min-width: 485px;
     }
@@ -2582,12 +2422,8 @@ body.reduce-motion *:after {
     background-position: right 9px center;
     cursor: pointer;
 }
-.config-options select {
-    min-width: 94px;
-}
-.config-options input {
-    width: 65px;
-}
+
+
 .config-options :is(select, input),
 .form-label :is(select, input),
 .row-count input,
@@ -2744,15 +2580,8 @@ select:disabled {
     }
 }
 /* 文字层级：正文与操作使用界面字体，等宽字体只用于代码标识。 */
-body {
-    line-height: 1.55;
-    font-weight: 400;
-}
-button,
-input,
-select {
-    font-family: var(--font-ui);
-}
+
+
 h1,
 .modal-heading h2,
 .drawer-label {
@@ -2784,9 +2613,7 @@ h1,
 .relation-node strong {
     font-family: var(--font-mono);
 }
-.field-name {
-    font-weight: 400;
-}
+
 .rule-button,
 .preview-table td,
 .action-message,
@@ -2815,10 +2642,7 @@ h1,
 .preview-table td.auto-value {
     font-size: 12px;
 }
-.config-options select {
-    max-width: 150px;
-    min-width: 102px;
-}
+
 .config-options label,
 .row-count,
 .selected-summary div > span,
@@ -2831,12 +2655,8 @@ h1,
     font-family: var(--font-ui);
     font-variant-numeric: tabular-nums;
 }
-.sample-card output {
-    color: #38594c;
-}
-.preview-table td {
-    color: #496254;
-}
+
+
 .modal-footer .button {
     min-height: 38px;
     padding: 9px 15px;

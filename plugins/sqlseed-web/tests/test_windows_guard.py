@@ -115,14 +115,15 @@ def test_guard_body_failure_reaps_running_children_before_propagating(
 ) -> None:
     failure = ValueError("caller failed while the child was running")
     parent_handle = guard_job.handle
-    with (
-        pytest.raises(ValueError) as raised,
-        windows._guard_child(guard_job, [parent_handle], _child_command(guard_job, tmp_path)) as process,
-    ):
+    with ExitStack() as cleanup:
+        process = cleanup.enter_context(
+            windows._guard_child(guard_job, [parent_handle], _child_command(guard_job, tmp_path))
+        )
         _wait_for_started(process, tmp_path)
         with pytest.raises(TimeoutError, match="has not finished draining"):
             guard_job.wait_empty(timeout=0)
-        raise failure
+        with pytest.raises(ValueError) as raised, cleanup as _:
+            raise failure
     assert raised.value is failure
     assert process.poll() is not None
     assert not (tmp_path / "finished").exists(), "The worker must be terminated before its natural completion"
