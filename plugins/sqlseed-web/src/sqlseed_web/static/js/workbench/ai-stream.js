@@ -14,6 +14,22 @@ function responseError(body, status) {
   return error;
 }
 
+function readerResults(reader, checkAbort) {
+  let ended = false;
+  return {
+    [Symbol.asyncIterator]() { return this; },
+    async next() {
+      if (ended) return {done: true};
+      checkAbort();
+      const result = await reader.read();
+      checkAbort();
+      ended = result.done;
+      // Deliver EOF once so the decoder can flush a final line without a newline.
+      return {value: result, done: false};
+    }
+  };
+}
+
 // A terminal result is required: an HTTP 200 or a progress event alone never
 // makes suggestions reviewable. The caller owns epoch and modal lifecycle checks.
 export async function requestAISuggestions(path, request, {
@@ -85,13 +101,7 @@ export async function requestAISuggestions(path, request, {
     throw invalid();
   }
   try {
-    for (;;) {
-      checkAbort();
-      const {
-        value,
-        done
-      } = await reader.read();
-      checkAbort();
+    for await (const {value, done} of readerResults(reader, checkAbort)) {
       const lines = decodedLines(done, value);
       const terminal = consumeLines(lines);
       if (terminal) return terminal.result;

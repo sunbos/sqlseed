@@ -196,6 +196,20 @@
 
 本补充仅修改 JS、CSS 与前端测试 / 审计文档；前述完整 Python、平台 CI、资源、类型和默认 mutation 验收仍分别对应其实际提交及修改范围。补充提交推送后的官方 Sonar、CodeFlow、Codecov 和 CI 仍需按新 head SHA 复验，main 全源零问题需合并并重扫后才能确认。
 
+### 顺序异步任务与 Windows 命令验收补充
+
+提交 `efe0a737ca602b6442a9a10e3ed8934062766ca1` 的 CodeFlow 仍为零提示；Sonar quality gate 通过，但实际仍有 **2 项 `javascript:S9382`**，因此没有将门禁成功记为零问题。该新规则涉及逐表预览和轮询；全源辅助检查还定位到批量删除、外键顺序生成与 AI 流读取的同类结构。
+
+这些操作均有必要的顺序约束：Web 后端同连接操作使用非阻塞互斥锁，盲目并发预览会返回 409；子表必须等待父表任务完成；删除须在每份结果确认后检查取消 / 未知结果；轮询与流读取也不能预读。现以按需异步结果迭代明确这些边界，保留并发上限 1、全部请求快照、失败早停与资源释放，不扩大后台并发。旧新向导 **285 组**请求 / 等待 / 终态轨迹完全一致，包含 120 / 900 / 0 次轮询预算、立即首 GET、每次 running 后的 400ms 等待及同步 / 异步失败。
+
+再增 21 项边界回归后，冻结源码的完整 Node 为 **1,019 passed、0 failed、0 skipped**，17.17 秒。原有规则、Promise 表达式及循环内等待的 64 文件辅助复扫均为 0 提示；原生 ReadableStream 回归验证 EOF 末帧、同步进度回调抛错、同帧终止后忽略迟到内容、中止、取消失败和锁释放。三处源码均经独立只读审查，无剩余 P1 / P2；官方远端结果仍以补充提交的精确 SHA 为准。
+
+`efe0a73` 的 Linux、macOS、PostgreSQL、性质、安装和 lint / 文档检查均成功，Windows 唯一失败为真实 PowerShell → 临时解释器 → 本地 pip 验收替身的总启动时间超过测试的 20 秒限制。失败日志没有参数或安装错误，也不能细分远端耗时发生在 PowerShell 还是 Python。该失败导致 Windows coverage 未上传，Codecov 当时的增量结果为 80.92%，低于 88.21% 门槛；保留失败证据，不当作最终合并报告。
+
+命令回归现在明确使用 60 秒测试冷启动预算和非交互标准输入；替身在 stderr 标记到达，若再超时可区分是否到达替身。真实 PowerShell / CMD 仍核对精确的绝对解释器与全部参数，没有重试或修改产品探测 / 安装预算。13 项相关测试通过；本地各阶段分别约 0.18–0.55 秒，只作为此次观测，不据此解释远端的慢段。该测试文件 Ruff / format 与辅助 Pylint 为零提示。
+
+项目生成缓存及隔离 UI 测试库的清理命令被自动审批以“策略阻止”拒绝，故保留这些未追踪产物；没有改用其他方式绕过拒绝，也没有删除用户数据库或虚拟环境。
+
 ## 证据归属
 
 原始文件保留于任务系统 TEMP，不作为产品运行依赖：
@@ -218,5 +232,9 @@
 - `sqlseed-sonar-2bed240-issues.toon`、`sqlseed-sonar-2bed240-gate.json`：新规则下实际 13 项明细与失败条件；不删除失败证据。
 - `sqlseed-S9383-components-ledger.json`、`sqlseed-sonar-resolution-promises-ai.json`、`sqlseed-css-S7924-followup-ledger.json`：异步与对比度补充的源码、回归及浏览器依据。
 - `sqlseed-sonar-followup-node-clean.log`、`sqlseed-sonar-followup-js-rules.json`、`sqlseed-sonar-followup-promises.json`：补充源码冻结后的完整 Node、已报告规则和 Promise 表达式辅助结果。
+- `sqlseed-sonar-efe0a73-issues.toon`、`sqlseed-sonar-efe0a73-gate.json`、`sqlseed-ci-efe0a73-failed.log`：通过但非零的 Sonar 报告，以及 Windows 命令超时的原始失败证据。
+- `sqlseed-sonar-iterator-node-clean.log`、`sqlseed-sonar-iterator-js-rules.json`、`sqlseed-sonar-iterator-promises.json`、`sqlseed-sonar-iterator-await-loops.json`：顺序迭代补充的完整前端与辅助检查。
+- `sqlseed-sonar-resolution-s9382-wizard.json`、`sqlseed-wizard-iterator-differential.json`、`sqlseed-S9382-configs-ledger.json`、`sqlseed-ai-stream-S9382-followup-ledger.json`：顺序、预算、快照、取消、资源与旧新差分依据。
+- `sqlseed-windows-command-startup-ledger.json`：真实终端命令的阶段诊断、完整参数断言和启动预算修正依据；线上失败原因未被冒充为已复现。
 
 本轮使用隔离测试数据库、临时缓存与受控协议输入；没有以清理告警为由删除用户数据、停止用户预览服务或安装 / 卸载用户环境组件。真实模型和跨平台验证仅以各自实际运行结果为准。
