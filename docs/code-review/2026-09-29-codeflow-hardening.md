@@ -141,8 +141,8 @@
 | --- | --- |
 | 1、7 | AI MCP 使用 Core 公共接口和路径模块调用，消除重复导入段；不增加跨插件依赖。 |
 | 9–18、21–22、29–30 | 可选 AI 包使用标准导入边界，只在缺少顶层 `sqlseed_ai` 时跳过；实际 Core-only 环境五个模块均 skip，内部模块损坏和依赖损坏的实际副本均报 collection error。 |
-| 31–33 | Win32 API、句柄拥有者、子进程 guard 的职责分开；Popen 上下文先终止并排空 Job，再等待和关闭句柄。创建失败仍保留锁直到确认排空。 |
-| 36 | 继承环境锁先处理 POSIX 返回路径，Windows spawn 仍复制同一文件对象；删除多余 else 不改变锁语义。 |
+| 32–34 | Win32 API、句柄拥有者、子进程 guard 的职责分开；Popen 上下文先终止并排空 Job，再等待和关闭句柄。创建失败仍保留锁直到确认排空。 |
+| 38 | 继承环境锁先处理 POSIX 返回路径，Windows spawn 仍复制同一文件对象；删除多余 else 不改变锁语义。 |
 | 43–44 | 网络准入上下文通过 ExitStack 交给真实工作线程，观察者超时不释放槽位；下载地址分为可信来源和包路径校验，全部六项条件保留。 |
 | 54 | 将迭代 DFS 完成顺序与反向图遍历分离；132,134 次穷举对比及 50,000 节点深链、整环、阻塞下游场景保持精确成员与顺序。 |
 | 58、69–70、73–75、77、79–80、83 | SQLite 事务/关闭、HTTP 协议、生命周期 Controller 与有界资源管理使用共同 helper；业务断言、故障顺序、五秒等待、真实进程与锁回收验证保留。 |
@@ -151,7 +151,11 @@
 
 本地完整 pytest 为 **4,137 passed、95 skipped**，551.46 秒，四类资源/SQLAlchemy warning 均按 error。最后平台结构调整后的相关回归另为 **154 passed、3 skipped**；Ruff、格式、Windows/Linux mypy（174 文件）、import-linter、文档同步和 MkDocs strict 通过。Core 默认 mutation gate 的目标和测试文件本次未改，仍对应前述 246/246 killed 的证据。独立代码复审发现的平台类型和启动中断所有权问题均已修正。
 
-线上 CodeFlow、Codecov、CI 必须以继续收口提交的准确 head 为准，尚未用本地结果替代。Sonar CLI 登录仍待用户完成；此前 success 摘要中的九项新问题还未读取明细，因此当前不能宣称整个项目的所有外部分析已经归零。
+继续收口提交为 `bc52f89a91710cbcbf14ed967e2a7a0e2d6d8ae0`。该提交的 [CI](https://github.com/sunbos/sqlseed/actions/runs/36728340320) 和 [文档同步](https://github.com/sunbos/sqlseed/actions/runs/36728339438) 全部通过；Windows 实测 **4,142 passed、93 skipped**，PR 的 docs 部署仍按条件跳过。Codecov 已合并同一 SHA 的 Linux 和 Windows 两份报告：总覆盖率 **89.04%**、PR 增量覆盖率 **94.19%**，门槛仍为 **88.21%**；27 行增量代码未覆盖，不宣称全覆盖。
+
+[CodeFlow 提交详情](https://app.getcodeflow.com/github/sunbos/sqlseed/commits/bc52f89a91710cbcbf14ed967e2a7a0e2d6d8ae0) 显示 `No new issues`，GitHub 提交状态为 `Good job! No issues.`；独立 PR 详情仍显示此前的 33 条报告，不能将两个范围混用为已核实的全项目零告警。Sonar 对该提交报告 **14 条新增问题**，虽 quality gate 成功，明细仍待用户完成 CLI 登录后核验。因此当前不能宣称整个项目的所有外部分析已经归零。
+
+随后补充七项行为回归：网络线程无法启动后仍可完成真实本地 HTTP 请求，互斥与完成后的再次准入均保留；三个 AI MCP 工具分别拒绝缺失表和 SQL 文本形式表名，未发出模型 HTTP 请求，真实 SQLite 文件与原始行不变。两个修改文件联合验收 **19 passed、3 deselected**（排除真实模型用例），四类资源/SQLAlchemy warning 均按 error；Ruff / format 与 diff 检查通过。该补充未修改生产代码，线上结果仍须核对对应新提交。
 
 ## 证据归属
 
