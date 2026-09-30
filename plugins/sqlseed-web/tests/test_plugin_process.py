@@ -7,6 +7,7 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
 from pathlib import Path
@@ -89,40 +90,18 @@ def test_installer_reaps_child_when_output_worker_cannot_start(
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Win32 Job Object cleanup failure")
 def test_unconfirmed_job_cleanup_keeps_resources_until_explicit_retry(
-    monkeypatch: pytest.MonkeyPatch, recorded_processes: list[subprocess.Popen[bytes]]
+    pending_cleanup: InstallerCleanupPending, recorded_processes: list[subprocess.Popen[bytes]]
 ) -> None:
-    from sqlseed_web._windows_process import WindowsJob
-
-    original = WindowsJob.wait_empty
-
-    def query_failure(self: WindowsJob, **kwargs: object) -> None:
-        raise OSError("job query unavailable")
-
-    monkeypatch.setattr(WindowsJob, "wait_empty", query_failure)
-    with pytest.raises(InstallerCleanupPending) as raised:
-        run_installer([sys.executable, "-c", "print('done')"], lambda text: None)
     assert recorded_processes[0].stdout is not None
     assert not recorded_processes[0].stdout.closed
-    monkeypatch.setattr(WindowsJob, "wait_empty", original)
-    raised.value.retry()
+    pending_cleanup.retry()
     assert recorded_processes[0].stdout.closed
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="Win32 Job handle lifetime across cleanup retries")
 def test_cleanup_resource_error_does_not_stop_an_already_closed_job_again(
-    monkeypatch: pytest.MonkeyPatch, recorded_processes: list[subprocess.Popen[bytes]]
+    pending_cleanup: InstallerCleanupPending, recorded_processes: list[subprocess.Popen[bytes]]
 ) -> None:
-    from sqlseed_web._windows_process import WindowsJob
-
-    original = WindowsJob.wait_empty
-
-    def query_failure(self: WindowsJob, **kwargs: object) -> None:
-        raise OSError("job query unavailable")
-
-    monkeypatch.setattr(WindowsJob, "wait_empty", query_failure)
-    with pytest.raises(InstallerCleanupPending) as raised:
-        run_installer([sys.executable, "-c", "print('done')"], lambda text: None)
-    monkeypatch.setattr(WindowsJob, "wait_empty", original)
     resources = ExitStack()
 
     def release_failure() -> None:
@@ -130,15 +109,34 @@ def test_cleanup_resource_error_does_not_stop_an_already_closed_job_again(
         raise PermissionError("temporary directory cleanup unavailable")
 
     resources.callback(release_failure)
-    raised.value.hold(resources)
+    pending_cleanup.hold(resources)
     with pytest.raises(PermissionError, match="temporary directory"):
-        raised.value.retry()
+        pending_cleanup.retry()
     # ExitStack runs every callback despite the error, including Job.close().
     process = recorded_processes[0]
     assert process.poll() is not None
     assert process.stdout is not None and process.stdout.closed
     # Successful draining is durable: a later retry must not use the closed Job.
-    raised.value.retry()
+    pending_cleanup.retry()
+
+
+@pytest.fixture(name="pending_cleanup")
+def fixture_pending_cleanup(
+    monkeypatch: pytest.MonkeyPatch, recorded_processes: list[subprocess.Popen[bytes]]
+) -> Iterator[InstallerCleanupPending]:
+    from sqlseed_web._windows_process import WindowsJob
+
+    def query_failure(self: WindowsJob, **kwargs: object) -> None:
+        raise OSError("job query unavailable")
+
+    with monkeypatch.context() as failure:
+        failure.setattr(WindowsJob, "wait_empty", query_failure)
+        with pytest.raises(InstallerCleanupPending) as raised:
+            run_installer([sys.executable, "-c", "print('done')"], lambda text: None)
+    try:
+        yield raised.value
+    finally:
+        raised.value.retry()
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Managed package operations require POSIX process groups")

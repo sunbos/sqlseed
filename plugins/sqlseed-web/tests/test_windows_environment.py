@@ -12,6 +12,8 @@ import pytest
 
 from sqlseed_web.plugin_environment import EnvironmentLock, _WindowsEnvironmentHandle
 
+from .component_test_support import bounded_process
+
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Win32 handle sharing semantics")
 
 
@@ -61,19 +63,18 @@ def test_worker_holds_environment_after_spawning_parent_exits(tmp_path: Path) ->
         encoding="utf-8",
     )
     contender = EnvironmentLock(tmp_path, exclusive=True)
-    process = subprocess.Popen(
-        [sys.executable, "-I", str(script), str(tmp_path)], creationflags=subprocess.CREATE_NO_WINDOW
-    )
     try:
-        assert process.wait(timeout=10) == 0
-        assert ready.exists()
-        with pytest.raises(RuntimeError):
-            contender.acquire()
+        with bounded_process(
+            [sys.executable, "-I", str(script), str(tmp_path)], creationflags=subprocess.CREATE_NO_WINDOW
+        ) as process:
+            try:
+                assert process.wait(timeout=10) == 0
+                assert ready.exists()
+                with pytest.raises(RuntimeError):
+                    contender.acquire()
+            finally:
+                finish.touch()
     finally:
-        finish.touch()
-        if process.poll() is None:
-            process.kill()
-            process.wait()
         deadline = time.monotonic() + 5
         while True:
             try:

@@ -13,7 +13,7 @@
 - [test_runtime.py](test_runtime.py) 覆盖非交互工厂与 client 关闭；[test_healer_candidate_contract.py](test_healer_candidate_contract.py) 覆盖候选配置拒绝；[test_quality_error_boundaries.py](test_quality_error_boundaries.py) 区分无效模型输入与编程错误。
 - [test_auto_heal_sonar_boundaries.py](test_auto_heal_sonar_boundaries.py) 用子进程超时验证长畸形状态子句的解析边界；保留其隔离方式，避免回归时卡住整个 pytest 进程。
 - [property/test_matrix_completeness.py](property/test_matrix_completeness.py) 使用 Hypothesis 与内存 SQLite；`hypothesis` 来自本包 `[dev]` extra，不是 Core 的运行时依赖。
-- 新增依赖插件可选安装的测试入口使用 `pytest.importorskip("sqlseed_ai")`，或沿用所在文件已有的 module-level ImportError skip；不要伪造缺失依赖。
+- 新增依赖插件可选安装的测试入口使用可选包导入边界：`try` 导入，只在 `ModuleNotFoundError.name == "sqlseed_ai"` 时 module-level skip；SDK 导入位于此边界之后。已有 `pytest.importorskip("sqlseed_ai")` 可沿用，不用内部子模块 skip 掩盖损坏安装；不要伪造缺失依赖。
 
 ## Fixtures 与断言
 

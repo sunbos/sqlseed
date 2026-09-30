@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import sqlite3
 import tempfile
-from contextlib import closing
+from contextlib import ExitStack, closing
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
@@ -132,7 +132,9 @@ def create_database(path: Path) -> None:
     """Create only a new fixture file; never overwrite an existing database."""
     if path.exists():
         raise FileExistsError(path)
-    with closing(sqlite3.connect(path)) as connection, connection:
+    with ExitStack() as cleanup:
+        connection = cleanup.enter_context(closing(sqlite3.connect(path)))
+        cleanup.enter_context(connection)
         connection.executescript(DDL)
         if violations := connection.execute("PRAGMA foreign_key_check").fetchall():
             raise RuntimeError(f"Fixture has invalid foreign keys: {violations}")

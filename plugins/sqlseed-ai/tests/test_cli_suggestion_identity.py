@@ -7,28 +7,36 @@ from typing import TYPE_CHECKING
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from sqlseed import fill_from_config
 from sqlseed._utils.sql_safe import quote_identifier
 from tests._helpers import clear_llm_env
 from tests.sqlite_helpers import sqlite_connection
 
-if TYPE_CHECKING:
-    from pathlib import Path
-
-pytest.importorskip("sqlseed_ai")
-
-from sqlseed_ai.cli.ai_commands import ai_suggest
+try:
+    from sqlseed_ai.cli.ai_commands import ai_suggest
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai is not installed", allow_module_level=True)
 
 from .test_refiner_json_recovery import _completion_server
 
+if TYPE_CHECKING:
+    from pathlib import Path
 
-@pytest.fixture(autouse=True)
-def isolated_backend(monkeypatch: pytest.MonkeyPatch) -> None:
+    from click.testing import CliRunner
+
+
+@pytest.fixture(name="cli_runner")
+def fixture_cli_runner(monkeypatch: pytest.MonkeyPatch) -> CliRunner:
+    """Create a fresh command runner with an isolated OpenAI-compatible backend."""
+    from click.testing import CliRunner
+
     clear_llm_env(monkeypatch)
     monkeypatch.setenv("SQLSEED_AI_BACKEND", "openai_compat")
     monkeypatch.setenv("SQLSEED_AI_API_KEY", "test-key")
+    return CliRunner()
 
 
 def _arguments(database: Path, output: Path, base_url: str, table: str, options: list[str]) -> list[str]:
@@ -51,7 +59,9 @@ def _arguments(database: Path, output: Path, base_url: str, table: str, options:
 
 @pytest.mark.parametrize("options", [["--no-verify"], ["--max-retries", "0"], ["--max-retries", "1"]])
 @pytest.mark.parametrize("prefix", [".", ":"])
-def test_export_keeps_real_table_and_column_identifiers(tmp_path: Path, prefix: str, options: list[str]) -> None:
+def test_export_keeps_real_table_and_column_identifiers(
+    tmp_path: Path, prefix: str, options: list[str], cli_runner: CliRunner
+) -> None:
     database, output = tmp_path / "names.db", tmp_path / "output.yaml"
     table, column = prefix + "events", prefix + "value"
     with sqlite_connection(database) as db:
@@ -71,7 +81,7 @@ def test_export_keeps_real_table_and_column_identifiers(tmp_path: Path, prefix: 
     }
     requests: list[dict[str, object]] = []
     with _completion_server([(json.dumps(candidate), "stop")], requests) as base_url:
-        result = CliRunner().invoke(ai_suggest, _arguments(database, output, base_url, table, options))
+        result = cli_runner.invoke(ai_suggest, _arguments(database, output, base_url, table, options))
     assert result.exit_code == 0, result.output
     exported = yaml.safe_load(output.read_text(encoding="utf-8"))
     assert exported["tables"][0]["name"] == table
@@ -88,7 +98,9 @@ def test_export_keeps_real_table_and_column_identifiers(tmp_path: Path, prefix: 
 
 
 @pytest.mark.parametrize("options", [["--no-verify"], ["--max-retries", "0"], ["--max-retries", "1"]])
-def test_other_target_is_rejected_without_overwriting_existing_output(tmp_path: Path, options: list[str]) -> None:
+def test_other_target_is_rejected_without_overwriting_existing_output(
+    tmp_path: Path, options: list[str], cli_runner: CliRunner
+) -> None:
     database, output = tmp_path / "targets.db", tmp_path / "output.yaml"
     with sqlite_connection(database) as db:
         db.execute('CREATE TABLE ".events"(value INTEGER)')
@@ -99,7 +111,7 @@ def test_other_target_is_rejected_without_overwriting_existing_output(tmp_path: 
     candidate = {"name": "events", "columns": [{"name": "value", "generator": "integer"}]}
     requests: list[dict[str, object]] = []
     with _completion_server([(json.dumps(candidate), "stop")], requests) as base_url:
-        result = CliRunner().invoke(ai_suggest, _arguments(database, output, base_url, ".events", options))
+        result = cli_runner.invoke(ai_suggest, _arguments(database, output, base_url, ".events", options))
     assert result.exit_code == 1, result.output
     assert "table" in result.output.lower() and ".events" in result.output
     assert output.read_text(encoding="utf-8") == "user-owned output"
@@ -107,14 +119,16 @@ def test_other_target_is_rejected_without_overwriting_existing_output(tmp_path: 
 
 
 @pytest.mark.parametrize("options", [["--no-verify"], ["--max-retries", "0"], ["--max-retries", "1"]])
-def test_missing_cli_target_fails_before_model_request(tmp_path: Path, options: list[str]) -> None:
+def test_missing_cli_target_fails_before_model_request(
+    tmp_path: Path, options: list[str], cli_runner: CliRunner
+) -> None:
     database, output = tmp_path / "missing.db", tmp_path / "output.yaml"
     with sqlite_connection(database) as db:
         db.execute("CREATE TABLE existing(value INTEGER)")
     before = database.read_bytes()
     requests: list[dict[str, object]] = []
     with _completion_server([('{"name":"missing", "columns":[]}', "stop")], requests) as base_url:
-        result = CliRunner().invoke(ai_suggest, _arguments(database, output, base_url, "missing", options))
+        result = cli_runner.invoke(ai_suggest, _arguments(database, output, base_url, "missing", options))
     assert result.exit_code == 1, result.output
     assert "missing" in result.output and "does not exist" in result.output
     assert not requests

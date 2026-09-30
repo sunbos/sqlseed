@@ -7,21 +7,25 @@ from typing import TYPE_CHECKING
 
 import pytest
 import yaml
-from click.testing import CliRunner
 
 from tests._helpers import clear_llm_env
 from tests.sqlite_helpers import sqlite_connection
 
-if TYPE_CHECKING:
-    from pathlib import Path
+try:
+    from sqlseed_ai import AIBackend, AIConfig, SchemaAnalyzer
+    from sqlseed_ai._json_utils import JSONResponseError
+    from sqlseed_ai.cli.ai_commands import ai_suggest
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai is not installed", allow_module_level=True)
 
-pytest.importorskip("sqlseed_ai")
-
-from sqlseed_ai import AIBackend, AIConfig, SchemaAnalyzer
-from sqlseed_ai._json_utils import JSONResponseError
-from sqlseed_ai.cli.ai_commands import ai_suggest
+from click.testing import CliRunner
 
 from .test_refiner_json_recovery import _completion_server
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 _VALID_JSON = json.dumps(
     {

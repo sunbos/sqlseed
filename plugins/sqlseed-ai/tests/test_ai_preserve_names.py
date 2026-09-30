@@ -9,15 +9,19 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
-if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
-
-pytest.importorskip("sqlseed_ai")
+try:
+    from sqlseed_ai import AIBackend, AIConfig, SchemaAnalyzer
+    from sqlseed_ai._json_utils import JSONResponseError, parse_json_response
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai is not installed", allow_module_level=True)
 
 import httpx
 from openai import OpenAI
-from sqlseed_ai import AIBackend, AIConfig, SchemaAnalyzer
-from sqlseed_ai._json_utils import JSONResponseError, parse_json_response
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
 
 _CONFIG = {
     "name": ".events",
