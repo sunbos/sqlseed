@@ -35,9 +35,13 @@ except ImportError:
     # importorskip + wrong-import-position disable needed.
     pytest.skip("sqlseed-ai[mcp] not installed", allow_module_level=True)
 
-from tests._helpers import configure_llm_backend_env, create_simple_users_db
+import httpx
+
+from tests._helpers import clear_llm_env, configure_llm_backend_env, create_simple_users_db
+from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -46,6 +50,70 @@ def _ai_available() -> bool:
         return AIConfig.from_env().has_real_api_key
     except ImportError:
         return False
+
+
+@pytest.fixture(name="no_ai_requests")
+def fixture_no_ai_requests(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Isolate configuration and fail at the HTTP boundary before any network I/O."""
+    clear_llm_env(monkeypatch)
+    settings = {
+        "SQLSEED_AI_BACKEND": "openai_compat",
+        "SQLSEED_AI_BASE_URL": "http://protocol.invalid/v1",
+        "SQLSEED_AI_MODEL": "mcp-table-validation-test",
+        "SQLSEED_AI_API_KEY": "protocol-test-key",
+        "SQLSEED_AI_TOOL_CALLING_PROTOCOL": "none",
+        "SQLSEED_CACHE_DIR": str(tmp_path / "cache"),
+    }
+    for name, value in settings.items():
+        monkeypatch.setenv(name, value)
+    requests: list[str] = []
+
+    def reject_request(_transport: httpx.HTTPTransport, request: httpx.Request) -> httpx.Response:
+        requests.append(str(request.url))
+        pytest.fail("Invalid table names must be rejected before an AI request")
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", reject_request)
+    return requests
+
+
+@pytest.mark.parametrize("table_name", ["missing_users", "users; DROP TABLE users;--"])
+@pytest.mark.parametrize(
+    "tool",
+    [sqlseed_ai_generate_yaml, sqlseed_gemma4_analyze, sqlseed_gemma4_agent_fill],
+    ids=["generate-yaml", "analyze", "agent-fill"],
+)
+def test_invalid_table_is_rejected_before_ai_and_preserves_database(
+    tmp_path: Path,
+    no_ai_requests: list[str],
+    tool: Callable[..., str | dict[str, object]],
+    table_name: str,
+) -> None:
+    """Exercise real schema lookup, error conversion and the refiner's early guard."""
+    db_path = tmp_path / "existing.db"
+    with sqlite_connection(db_path) as connection:
+        connection.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, age INTEGER NOT NULL)")
+        connection.execute("INSERT INTO users (id, age) VALUES (1, 37)")
+    original = db_path.read_bytes()
+
+    result = tool(str(db_path), table_name)
+
+    if isinstance(result, str):
+        assert result.startswith("# Error: ")
+        error = result
+    else:
+        assert set(result) <= {"error", "model"}
+        error = result["error"]
+    assert isinstance(error, str)
+    assert table_name in error
+    if tool is sqlseed_gemma4_agent_fill and ";" in table_name:
+        assert "contains dangerous characters and is rejected" in error
+    else:
+        assert "does not exist" in error
+    assert not no_ai_requests
+    assert db_path.read_bytes() == original
+    with sqlite_connection(db_path) as connection:
+        assert connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall() == [("users",)]
+        assert connection.execute("SELECT id, age FROM users").fetchall() == [(1, 37)]
 
 
 class TestAiMcpTools:

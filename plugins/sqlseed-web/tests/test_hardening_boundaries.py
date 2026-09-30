@@ -6,7 +6,10 @@ import copy
 import pickle
 import subprocess
 import sys
-from contextlib import ExitStack
+import threading
+from contextlib import ExitStack, closing
+from http.client import HTTPConnection
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 
@@ -53,6 +56,56 @@ def test_wheel_selection_rejects_a_non_object_index_without_echoing_it(payload: 
     with pytest.raises(TypeError) as raised:
         plugin_updates._select_wheel(payload, "mimesis", "2.0")
     assert "private invalid index" not in str(raised.value)
+
+
+def test_failed_network_worker_start_releases_admission_for_a_real_request(monkeypatch: pytest.MonkeyPatch) -> None:
+    # An isolated real semaphore keeps a failing ownership regression from
+    # contaminating later tests while retaining the production one-slot policy.
+    monkeypatch.setattr(plugin_updates, "_NETWORK_SLOT", threading.BoundedSemaphore(1))
+    requests: list[str] = []
+    body = b'{"version":"2.0"}'
+    failure = RuntimeError("cannot start update worker")
+
+    class Handler(BaseHTTPRequestHandler):
+        def do_GET(self) -> None:
+            requests.append(self.path)
+            self.send_response(200)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    def failed_start(*args: object, **kwargs: object) -> None:
+        raise failure
+
+    with HTTPServer(("127.0.0.1", 0), Handler) as server:
+        server.timeout = 3
+
+        def read_metadata() -> bytes:
+            # The retry must still own the sole slot for its whole request.
+            with pytest.raises(ValueError):
+                plugin_updates._bounded_network(lambda: pytest.fail("concurrent operation was admitted"), timeout=0)
+            with closing(HTTPConnection("127.0.0.1", server.server_port, timeout=2)) as connection:
+                connection.request("GET", "/metadata")
+                response = connection.getresponse()
+                assert response.status == 200
+                return response.read()
+
+        with monkeypatch.context() as fault:
+            fault.setattr(plugin_updates, "DaemonTask", failed_start)
+            with pytest.raises(RuntimeError) as raised:
+                plugin_updates._bounded_network(read_metadata, timeout=5)
+        assert raised.value is failure
+        assert not requests
+
+        worker = threading.Thread(target=server.handle_request, name="test-update-metadata", daemon=True)
+        worker.start()
+        try:
+            assert plugin_updates._bounded_network(read_metadata, timeout=5) == body
+        finally:
+            worker.join(timeout=5)
+        assert not worker.is_alive()
+    assert requests == ["/metadata"]
+    assert plugin_updates._bounded_network(lambda: "admission released again", timeout=2) == "admission released again"
 
 
 def test_missing_verified_update_fails_before_installer_and_restores_service(update_manager: Any) -> None:
