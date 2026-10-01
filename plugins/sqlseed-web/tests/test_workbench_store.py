@@ -168,6 +168,7 @@ def test_run_snapshots_are_fixed_while_status_and_progress_change(tmp_path: Path
     "field", ["document", "schema_hash", "draft_id", "revision", "target_key", "id", "created_at", "atomic_append"]
 )
 def test_run_snapshot_fields_cannot_be_replaced(tmp_path: Path, field: str) -> None:
+    """Runtime progress updates must not mutate or introduce fields belonging to the accepted snapshot."""
     from sqlseed_web.workbench_store import WorkspaceStore
 
     store = WorkspaceStore(tmp_path / "workspace.db")
@@ -179,18 +180,21 @@ def test_run_snapshot_fields_cannot_be_replaced(tmp_path: Path, field: str) -> N
 
 @pytest.mark.parametrize("atomic_append", [None, 0, 1, "false", "true"])
 def test_invalid_atomic_append_is_rejected_without_persisting_a_run(tmp_path: Path, atomic_append: Any) -> None:
+    """Reject non-boolean execution facts before persistence and preserve every previously stored run."""
     from sqlseed_web.workbench_store import WorkspaceStore
 
     store = WorkspaceStore(tmp_path / "workspace.db")
     preserved = store.create_run(run_payload(status="done"))
+    invalid_run = run_payload(atomic_append=atomic_append)
     with pytest.raises(ValueError, match="atomic_append must be a boolean"):
-        store.create_run(run_payload(atomic_append=atomic_append))
+        store.create_run(invalid_run)
     assert store.list_runs() == [preserved]
     assert WorkspaceStore(store.path).list_runs() == [preserved]
 
 
 @pytest.mark.parametrize("atomic_append", [False, True])
 def test_atomic_append_snapshot_survives_restart_and_cannot_change(tmp_path: Path, atomic_append: bool) -> None:
+    """Persist the exact boolean execution mode across store restarts and reject later mode changes."""
     from sqlseed_web.workbench_store import WorkspaceStore
 
     store = WorkspaceStore(tmp_path / "workspace.db")

@@ -518,6 +518,7 @@ def _foreign_key_sources(
 def _dependency_plan(
     config: GeneratorConfig, schema: dict[str, Any], orch: DataOrchestrator, issues: list[dict[str, Any]]
 ) -> tuple[list[str], list[list[str]], set[str], dict[str, Any]]:
+    """Build source evidence and generation layers, admitting only verified existing-key cycles."""
     tables = {table["name"]: table for table in schema["tables"]}
     selected = {table.name for table in config.tables}
     dependencies = {table.name: set[str]() for table in config.tables if table.name in tables}
@@ -806,6 +807,7 @@ def _preview_tables(
 def _check_generation(
     config: GeneratorConfig, schema: dict[str, Any], result: dict[str, Any], options: _PreviewOptions
 ) -> None:
+    """Collect validation and bounded samples in an isolated session without inserting rows."""
     issues = result["issues"]
     if not config.tables:
         _issue(issues, "empty_plan", tr("backend.workbench_runtime.select_at_least_one_table_to_generate"))
@@ -1216,6 +1218,7 @@ class _RunProgress:
 
 
 def _current_run_check(conn: Connection, run: dict[str, Any]) -> dict[str, Any]:
+    """Revalidate queued schema, rules and parent-source evidence before any database mutation."""
     checked = check_document(conn, run["document"], run["schema_hash"])
     if not checked["ok"] or checked["config_hash"] != run["config_hash"]:
         raise WorkbenchError(
@@ -1348,6 +1351,7 @@ def execute_run(
 def _execute_loaded_run(
     run: dict[str, Any], conn_id: str, job_id: str, registry: UIState, store: WorkspaceStore
 ) -> None:
+    """Hold connection ownership through execution and publish a terminal outcome even on failure."""
     run_id = run["id"]
     tables = run["tables"]
     progress = _RunProgress(rows_inserted=0, errors=[])

@@ -49,6 +49,10 @@ runs:
         # or trust in it to certify unrelated keys. Only this keyring is affected.
         gpg --homedir "$key_home" --batch --import "$key_home/codecov.asc"
         printf '%s:5:\n' "$expected" | gpg --homedir "$key_home" --batch --import-ownertrust
+        # Upstream downloads/imports the key again. Restrict those later imports
+        # to this already verified primary key; another signer cannot enter the
+        # isolated keyring, even if the second download returns a different key.
+        printf 'import-options merge-only\nno-auto-key-import\nno-auto-key-retrieve\n' >> "$key_home/gpg.conf"
 
     - name: Upload coverage with signature and SHA256 verification
       uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0

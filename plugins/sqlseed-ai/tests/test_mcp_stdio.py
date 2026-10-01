@@ -29,6 +29,7 @@ class _FixedCompletionHandler(BaseHTTPRequestHandler):
     log_message = quiet_http_log
 
     def do_POST(self) -> None:
+        """Return deterministic field rules while leaving MCP transport and SQLite writes real."""
         self.rfile.read(int(self.headers["Content-Length"]))
         config = {
             "name": "items",
