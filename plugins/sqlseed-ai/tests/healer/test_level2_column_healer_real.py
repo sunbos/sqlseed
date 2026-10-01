@@ -27,6 +27,7 @@ def fixture_snapshot_with_products(tmp_path):
     return SchemaSnapshot(db_path=db_path)
 
 
+@pytest.mark.integration
 def test_level2_heal_column_real(llm_client, llm_model, snapshot_with_products):
     """Level2ColumnHealer.heal_column() returns a structured Level2Result.
 

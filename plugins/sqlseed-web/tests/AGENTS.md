@@ -31,6 +31,7 @@ node --test plugins/sqlseed-web/tests/test_*.cjs
 - 新增测试文件沿用 `test_*.py` / `test_*.cjs` 命名，分别由根 pytest 和 CI Node 命令自动收集。
 - `test_workbench_acceptance.py` 用临时 SQLite 跑完整 HTTP 保存→检查/预览→多表运行→持久记录，并核对实际行数。隔离 `api.state`、`workbench.state` 和 workspace 文件；不能访问用户数据库。
 - `test_workbench_schema.py` / `test_workbench_runtime.py` / `test_workbench_store.py` 分别验证真实约束/目录、完整配置执行、并发版本/重启恢复；复合 FK 不拆成单列假关系。
+- `test_workbench_postgresql_cycles.py` 使用根 `pg_url` fixture、独占 schema 和真实 HTTP 验证工作台拒绝暂不支持的 PostgreSQL 循环追加，检查记录与序列均无副作用；由 CI PostgreSQL service job 显式运行。未提供 PostgreSQL 服务时的跳过不能计为数据库实测通过。
 - `complex_graph_fixture.py` / `complex_business_graph.json` 与 Python/Node 复杂图回归验证真实 schema 到图投影的契约。循环断言精确 SCC 成员与内部边，排除被阻塞下游和环间桥；组合键问题比较完整列组并保留含逗号列名。`plan` 只保留生成/引用节点以及指向生成目标的有效边，不能引入未选下游或仅引用表之间的无关边；`all` 仍保留完整结构，切换范围不得修改生成勾选。
 - `test_workbench_page.cjs` 与 `test_runs.cjs` 加载实际模型/组件，使用可控 Promise 测离页、输入恢复和过期响应；不以 DOM 替身声称已完成浏览器视觉验收。
 

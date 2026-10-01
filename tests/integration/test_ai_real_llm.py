@@ -1,12 +1,12 @@
 """Real-LLM integration tests for the sqlseed-ai plugin.
 
 These tests exercise the AI plugin's end-to-end behavior with a real LLM
-backend (Ollama / LM Studio / Google AI Studio). They are automatically
-marked as ``integration`` via ``tests/integration/conftest.py`` and skip
+backend (Ollama / LM Studio / Google AI Studio). They are explicitly
+marked as ``integration`` and skip
 gracefully when no LLM backend is available (via ``available_llm_backend``)
 or when ``sqlseed-ai`` is not installed.
 
-Unlike the mocked unit tests in ``tests/test_ai_*.py``, these tests verify
+Unlike the unit tests in ``plugins/sqlseed-ai/tests/``, these tests verify
 the paths that mocks cannot faithfully reproduce:
 
 * ``AiConfigRefiner.generate_and_refine`` — non-streaming self-correction loop
@@ -21,7 +21,7 @@ Run explicitly via::
     pytest tests/integration/test_ai_real_llm.py -v
     pytest -m integration -v          # all integration tests
 
-Critical constraints verified (see project_memory.md):
+Critical constraints verified (see tests/integration/AGENTS.md):
 
 * Streaming must not mutate ``analyzer.config`` state across retries
 * ``generate_and_refine_streaming`` implements normal -> compact -> ultra-compact
@@ -41,7 +41,9 @@ try:
     from sqlseed_ai.analyzer import SchemaAnalyzer
     from sqlseed_ai.config import AIConfig
     from sqlseed_ai.refiner import AiConfigRefiner, AISuggestionFailedError
-except ImportError:
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
     pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
 
 from sqlseed_cli.main import cli
@@ -55,6 +57,8 @@ from tests._helpers import configure_llm_backend_env
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+pytestmark = pytest.mark.integration
 
 
 def _make_analyzer(monkeypatch: pytest.MonkeyPatch, backend: str, model: str) -> SchemaAnalyzer:
@@ -152,7 +156,7 @@ class TestAiConfigRefinerRealLLM:
     ) -> None:
         """generate_and_refine_streaming returns a dict and does not mutate config state.
 
-        Critical constraint (project_memory.md): streaming LLM calls must not
+        Critical constraint: streaming LLM calls must not
         modify instance configuration state, otherwise retries see inconsistent
         config. We snapshot ``analyzer.config.model`` before the call and
         assert it is unchanged afterward.
@@ -185,7 +189,7 @@ class TestAiConfigRefinerRealLLM:
 
         # Critical: streaming must not mutate analyzer configuration state.
         # This guarantees retry consistency and is a hard constraint from
-        # project_memory.md.
+        # the integration test contract.
         assert analyzer.config is not None
         assert analyzer.config.model == model_before, (
             "Streaming mutated analyzer.config.model — retries would see inconsistent state"
@@ -233,13 +237,13 @@ class TestAISqlseedPluginHookRealLLM:
     monkeypatched environment.
     """
 
-    def test_hookimpl_returns_dict_or_none(
+    def test_hookimpl_returns_valid_configuration(
         self,
         tmp_db: str,
         available_llm_backend: dict[str, str],
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """sqlseed_ai_analyze_table hookimpl returns a dict or None."""
+        """A reachable backend must produce suggestions through the plugin hook."""
         configure_llm_backend_env(
             monkeypatch,
             available_llm_backend["backend"],
@@ -255,13 +259,13 @@ class TestAISqlseedPluginHookRealLLM:
 
         result = ai_plugin_singleton.sqlseed_ai_analyze_table(**schema_ctx)
 
-        # The hookimpl contract: dict on success, None on recoverable failure
-        assert result is None or isinstance(result, dict), f"hookimpl must return dict|None, got {type(result)}"
-        if result is not None:
-            # A successful result should mention tables or columns
-            assert "tables" in result or "columns" in result, (
-                f"hookimpl result missing tables/columns key: {list(result.keys())}"
-            )
+        # The hook can return None for recoverable runtime failures, but that
+        # fallback is not a successful real-backend acceptance result.
+        assert isinstance(result, dict), "Live backend returned no suggestions through the plugin hook"
+        assert result, "Live backend returned empty suggestions through the plugin hook"
+        assert "tables" in result or "columns" in result, (
+            f"hookimpl result missing tables/columns key: {list(result.keys())}"
+        )
 
 
 class TestAISuggestCLIRealLLM:
@@ -327,9 +331,9 @@ class TestAISuggestCLIRealLLM:
         """ai-suggest --verify --max-retries 1 exercises the self-correction CLI path.
 
         The ``--verify`` flag routes through ``AiConfigRefiner`` rather than the
-        direct LLM call. ``--max-retries 1`` bounds runtime. If the LLM is too
-        slow or the backend cannot converge in time, the test is skipped
-        rather than failed (real-LLM latency is environment-dependent).
+        direct LLM call. ``--max-retries 1`` bounds runtime. Once the backend
+        prerequisite is satisfied, timeouts, invalid output, and failure to
+        converge fail acceptance instead of being reported as missing services.
         """
         configure_llm_backend_env(
             monkeypatch,
@@ -356,12 +360,10 @@ class TestAISuggestCLIRealLLM:
             catch_exceptions=False,
         )
 
-        if result.exit_code != 0:
-            pytest.skip(
-                f"ai-suggest --verify did not converge within max_retries=1 "
-                f"(exit={result.exit_code}). This is environment-dependent; "
-                f"output:\n{result.output}"
-            )
+        assert result.exit_code == 0, (
+            f"ai-suggest --verify failed (exit={result.exit_code}):\n"
+            f"output:\n{result.output}\nexception: {result.exception}"
+        )
 
         assert out_yaml.exists(), "Output YAML file was not created"
         with out_yaml.open("r", encoding="utf-8") as f:
@@ -374,6 +376,6 @@ class TestAISuggestCLIRealLLM:
         # The verified config should name the target table
         first_table = data["tables"][0]
         assert isinstance(first_table, dict)
-        assert "name" in first_table
+        assert first_table.get("name") == "users"
         # A verified config should also have columns (the refiner validates this)
         assert "columns" in first_table, f"Verified table config missing 'columns': {list(first_table.keys())}"

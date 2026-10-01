@@ -135,6 +135,10 @@ explicit backend, then known URL patterns, then OpenAI-compatible behavior. It d
 not probe every service as a fallback chain. The `tool_calling_protocol` setting and
 its resolver choose the response protocol; a model name alone is insufficient.
 
+AI requests to `localhost` and loopback IP addresses connect directly even when
+an HTTP proxy is configured. Remote services keep the environment proxy settings;
+`SSL_CERT_FILE` and `SSL_CERT_DIR` remain effective for HTTPS certificate validation.
+
 For Python callers, `SchemaAnalyzer.call_llm(..., strict_json=True)` and
 `call_llm_streaming(..., strict_json=True)` distinguish empty replies, invalid JSON,
 and output-limit truncation using content-free `JSONResponseError.code` values.
@@ -142,8 +146,11 @@ JSON parsing can complete missing final `}` or `]`
 delimiters, including inside code fences, but never fills missing values or strings.
 An output-limit response is rejected even if its prefix parses, including a streaming
 length marker in a separate empty terminal chunk. Both methods default to
-`strict_json=False`; enabling this optional mode adds no model requests. The CLI's
-direct path and both refiner modes opt in while keeping their existing retry budgets.
+`strict_json=False`. Strict local calls request JSON sampling constraints: LM Studio
+uses its JSON-schema grammar interface, and Ollama uses JSON object mode. A server
+that explicitly rejects the format gets one text-mode compatibility attempt;
+the same strict parser still rejects invalid or truncated output. The CLI's direct
+path and both refiner modes keep their existing prompt/refinement retry budgets.
 Strict tool calling also rejects arrays, scalars and `null` arguments as `invalid_json`;
 compatibility mode may still fall back to response text. Parsed suggestions still
 require scope and rule validation.
@@ -161,7 +168,7 @@ when developing from source.
 - Python `>=3.10`
 - `sqlseed>=0.2.5.dev0,<0.3`
 - `sqlseed-cli>=0.2.4.dev0,<0.3`
-- `openai>=1.0`
+- `openai>=1.55.3` (SDK transport defaults with HTTPX 0.28 compatibility)
 - `httpx>=0.24.0`
 - `networkx>=3.0`
 - Optional `mcp` extra: `mcp>=1.0,<2`

@@ -152,6 +152,8 @@
       "生成任务",
       "Generation task"
     ],
+    "atomicAppendRolledBack": ["本次追加已全部回滚，原有数据已保留；没有新增已提交记录。", "This append was fully rolled back. Existing data is preserved and no new records were committed."],
+    "atomicAppendInProgress": ["正在同一事务中追加，全部成功后才确认提交。", "Appending in one transaction. Nothing is confirmed committed until all operations succeed."],
     "rolledBack": [
       "本次清空和生成已回滚，原有数据已保留；本次没有新增已提交记录。",
       "Clearing and generation were rolled back. Existing data is preserved and no new records were committed."

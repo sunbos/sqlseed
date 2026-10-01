@@ -46,9 +46,11 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - `SchemaAnalyzer` 是 mixin 组合的 package：`_caller.py` 管请求与模型 fallback，`_streaming.py` 管流式分派，`_tool_calling.py` 管协议，`_context.py` 管上下文，`_json_parser.py` 管解析和分析入口。修改放入对应职责文件。
 - 单表上下文明确要求一个 JSON 对象且只配置请求表，保留标识符原文；数据库中的其他表名仅作参考，不扩张输出范围。该提示不能替代响应与缓存的目标身份校验。
 - OpenAI client 与异常类型统一通过 [_client.py](_client.py)；不要在 `analyzer/` 直接导入 `openai` 或重复构造 timeout。环境默认配置走 `AIConfig.from_env()`。
+- `_client.build_openai_client()` 由 analyzer 与 runtime 工厂共用；仅对明确的 loopback host（`localhost`、回环 IPv4/IPv6 地址）挂载直连路由。保留环境 TLS CA、远程代理和 SDK 默认连接池/重定向设置，不通过全局 `NO_PROXY` 或 `trust_env=False` 改变其它服务。
 - `AIConfig.resolve_*()` 返回解析值，不能改写公开配置字段；调用方必须使用返回值。`timeout=0` 和 `max_tokens=0` 表示自动解析，不能作为真实请求的零预算。
 - `gemma4` 协议仅 Google AI Studio 支持；`openai` 支持 Google AI Studio / OpenAI-compatible；LM Studio / Ollama 或不支持的请求协议回退 `none`。两个工具协议共用 [_tools.py](_tools.py) 的 `GEMMA_TOOLS`。
 - 工具调用失败回退 JSON / text；非结构化 LLM 文本交给 [_json_utils.py](_json_utils.py) 的 `parse_json_response()`，保留 channel / fence / raw-decode 兼容处理。
+- 严格本地分析请求 JSON 采样约束：LM Studio 使用 JSON Schema 的对象语法，Ollama 使用 JSON 对象模式；只约束序列化，不取代目标表列、参数及业务规则校验。显式不支持格式时只回退一次文本请求，认证、网络及其它服务错误不作为格式兼容回退；流式和非流式保持相同规则。普通 `strict_json=False` 本地调用沿用文本模式。
 - JSON 容错仅按括号嵌套补齐末尾最多 8 个 `}` / `]`，包括围栏内的 JSON；不补业务值、字符串、逗号或字段。`SchemaAnalyzer.call_llm(strict_json=True)` 和 `call_llm_streaming(strict_json=True)` 用不含原文的 `JSONResponseError.code` 区分 `empty_response` / `invalid_json` / `truncated_response`，其中 `finish_reason=length` 即使含可解析前缀也必须拒绝；流式还要检查无正文的独立终止帧。该参数默认 `False`，保持既有直接 Python 调用行为；CLI 直接分析与 refiner 的普通、流式路径均显式启用，保留现有重试预算。严格工具调用同样要求参数为 JSON 对象，数组、标量与 `null` 返回 `invalid_json`；兼容模式仍可回退到正文。解析成功仍须由调用方验证业务契约与修改范围。
 - [_prompts.py](_prompts.py) 的 full → compact → ultra-compact 提供上下文降级，选择优先级是 ultra-compact > compact > full；本地 E2B / E4B 使用 ultra-compact 并关闭 streaming。模板值使用独立 `TEMPLATE_SYSTEM_PROMPT`。
 - `APITimeoutError` / `APIConnectionError` 的模型 fallback 由 `_model_selector.py` 和 `_caller.py` 管理；本地 fallback 必须先验证模型可用，保留有界重试和最终错误。

@@ -22,7 +22,7 @@ env:
 jobs:
   # ── Fast gate: lint + type check + layer contracts (~45s) ────
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -54,7 +54,7 @@ jobs:
   # Exercise the distributions users install, including sdist-to-wheel builds.
   packages:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -97,7 +97,7 @@ jobs:
   # ── Core tests: Linux × {3.10, 3.12, 3.13} ─────────────────
   test:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
@@ -126,13 +126,9 @@ jobs:
 
       - name: Upload coverage (3.12 only)
         if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f  # v7.0.0
+        uses: ./.github/actions/upload-coverage
         with:
-          files: coverage.xml
-          disable_search: true
-          plugins: noop
-          use_oidc: true
-          fail_ci_if_error: true
+          file: coverage.xml
 
   # ── Platform compat: macOS + Windows on 3.12 ────────────────
   test-compat:
@@ -171,19 +167,15 @@ jobs:
 
       - name: Upload Windows coverage
         if: matrix.os == 'windows-latest'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: ./.github/actions/upload-coverage
         with:
-          files: coverage-windows.xml
-          disable_search: true
-          plugins: noop
+          file: coverage-windows.xml
           name: windows-python-3.12
-          use_oidc: true
-          fail_ci_if_error: true
 
   # ── Integration tests: PostgreSQL 16 (real DB) ──────────────
   integration:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     services:
@@ -193,6 +185,7 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: testdb
+          POSTGRES_INITDB_ARGS: "--auth-local=scram-sha-256 --auth-host=scram-sha-256"
         ports:
           - 5432:5432
         options: >-
@@ -214,7 +207,9 @@ jobs:
           python-version: "3.12"
 
       - name: Run PostgreSQL integration tests
-        run: pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py -v --tb=short
+        run: >-
+          pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py
+          plugins/sqlseed-web/tests/test_workbench_postgresql_cycles.py -v --tb=short
 
   # ── Property-based tests: contract matrix completeness ──────
   # Runs Hypothesis-based property tests separately because they are
@@ -222,7 +217,7 @@ jobs:
   # gaps in the contract matrix before they hit production (Section 12).
   property-tests:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:

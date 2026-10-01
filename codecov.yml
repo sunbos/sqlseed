@@ -1,0 +1,19 @@
+# Wait for both measured reports (Linux and Windows) before publishing coverage.
+codecov:
+  notify:
+    after_n_builds: 2
+    wait_for_ci: true
+
+coverage:
+  status:
+    project:
+      default:
+        # Keep any organization-level target; never allow coverage to fall below it.
+        threshold: 0
+        if_not_found: failure
+        informational: false
+    patch:
+      default:
+        threshold: 0
+        if_not_found: failure
+        informational: false

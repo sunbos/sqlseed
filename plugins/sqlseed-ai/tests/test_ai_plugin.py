@@ -16,15 +16,14 @@ from tests._helpers import (
 from tests.conftest import make_column_info
 
 try:
-    from openai import APITimeoutError
     from sqlseed_ai.analyzer import SchemaAnalyzer
     from sqlseed_ai.config import AIConfig
-except ImportError:
-    # pytest.skip with allow_module_level=True raises NoReturn — mypy
-    # understands the except branch does not fall through, so the names
-    # imported in the try branch are definitely bound for the rest of
-    # the module. No placeholder None assignments or type: ignore needed.
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
     pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
+
+from openai import APITimeoutError
 
 
 class TestAIConfig:
@@ -435,6 +434,7 @@ class TestSchemaAnalyzerDialect:
         configure_llm_backend_env(monkeypatch, backend, model)
         return SchemaAnalyzer(AIConfig.from_env())
 
+    @pytest.mark.integration
     def test_analyze_schema_sqlite_real_llm(
         self, tmp_db: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -451,6 +451,7 @@ class TestSchemaAnalyzerDialect:
         assert isinstance(result, dict), f"LLM response should be a dict, got: {type(result)}"
         assert "tables" in result or "columns" in result, f"Unexpected LLM response structure: {result}"
 
+    @pytest.mark.integration
     def test_analyze_schema_postgresql_real_llm(
         self, pg_url: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -480,6 +481,7 @@ class TestSchemaAnalyzerDialect:
         assert result is not None, "LLM should return a valid configuration"
         assert isinstance(result, dict), f"LLM response should be a dict, got: {type(result)}"
 
+    @pytest.mark.integration
     def test_analyze_schema_dialect_in_prompt(
         self, pg_url: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -507,6 +509,7 @@ class TestSchemaAnalyzerDialect:
             f"PG dialect was not propagated to the LLM prompt, prompt content: {context_message['content'][:200]}"
         )
 
+    @pytest.mark.integration
     def test_analyze_schema_llm_response_structure(
         self, tmp_db: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:

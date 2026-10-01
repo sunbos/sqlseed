@@ -63,6 +63,7 @@ def test_runtime_config_preserves_env_backend_and_explicit_overrides(monkeypatch
 def test_runtime_client_uses_selected_backend_and_parses_completion(
     monkeypatch: pytest.MonkeyPatch, backend: AIBackend, base_url: str, key: str
 ) -> None:
+    """Verify real SDK dispatch, credentials and timeout propagation without mutating AIConfig."""
     runtime = importlib.import_module("sqlseed_ai.runtime")
     import openai
 
@@ -77,12 +78,13 @@ def test_runtime_client_uses_selected_backend_and_parses_completion(
     before = config.model_dump()
 
     def completion(request: httpx.Request) -> httpx.Response:
+        """Validate the outgoing backend request before returning a decodable SDK completion."""
         assert str(request.url) == base_url + "chat/completions"
         assert request.headers["Authorization"] == f"Bearer {key}"
         body = json.loads(request.content)
         assert body["model"] == "requested-model"
         assert body["max_tokens"] == 17
-        assert request.extensions["timeout"]["read"] == 75
+        assert request.extensions["timeout"] == {"connect": 75, "read": 75, "write": 75, "pool": 75}
         return httpx.Response(
             200,
             json={
@@ -94,14 +96,15 @@ def test_runtime_client_uses_selected_backend_and_parses_completion(
             },
         )
 
-    monkeypatch.setattr(
-        openai,
-        "OpenAI",
-        lambda **kwargs: sdk_client(
-            **kwargs,
-            http_client=httpx.Client(transport=httpx.MockTransport(completion), trust_env=False),
-        ),
-    )
+    def fixed_completion_client(**kwargs):
+        """Replace only the HTTP peer and close any transport owned by the production factory."""
+        if owned_client := kwargs.pop("http_client", None):
+            owned_client.close()
+        return sdk_client(
+            **kwargs, http_client=httpx.Client(transport=httpx.MockTransport(completion), trust_env=False)
+        )
+
+    monkeypatch.setattr(openai, "OpenAI", fixed_completion_client)
     client = runtime.build_llm_client(config)
     try:
         result = client.chat_completions_create(

@@ -232,6 +232,18 @@ function plannedRunCounts(run, tables) {
   const planned = tables.length && tables.every(table => knownCount(plannedCount(table))) ? tables.reduce((total, table) => total + plannedCount(table), 0) : null;
   return {plannedCount, planned};
 }
+function atomicRunNotices(run, replacement) {
+  const notices = [];
+  if (run.result?.rolled_back) {
+    const message = replacement ? 'runs.rolledBack' : 'runs.atomicAppendRolledBack';
+    notices.push(h('p', {class: 'run-rollback', role: 'status'}, tr(message)));
+  }
+  if ((replacement || run.atomic_append) && run.status === 'running') {
+    const message = replacement ? 'runs.atomicInProgress' : 'runs.atomicAppendInProgress';
+    notices.push(h('p', {class: 'muted'}, tr(message)));
+  }
+  return notices;
+}
 function drawRun(run) {
   const focusedKey = captureRunView(run);
   const recovery = remainingRun(run);
@@ -290,12 +302,7 @@ function drawRun(run) {
     class: 'muted run-identity'
   }, tr('runs.identity', {revision: run.revision ?? '—', id: run.id})), h('p', {
     class: 'run-execution'
-  }, executionDescription()), run.result?.rolled_back ? h('p', {
-    class: 'run-rollback',
-    role: 'status'
-  }, tr('runs.rolledBack')) : null, replacement && run.status === 'running' ? h('p', {
-    class: 'muted'
-  }, tr('runs.atomicInProgress')) : null, h('div', {
+  }, executionDescription()), ...atomicRunNotices(run, replacement), h('div', {
     class: 'run-metrics'
   }, h('div', {
     class: 'run-total run-planned'

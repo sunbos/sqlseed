@@ -1,0 +1,86 @@
+name: Upload measured coverage
+description: Verify the Codecov signing key in an isolated keyring and upload one XML report.
+
+inputs:
+  file:
+    description: Coverage XML produced by pytest.
+    required: true
+  name:
+    description: Optional upload name.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Prepare isolated Codecov verification key
+      id: key
+      shell: bash
+      run: |
+        set -euo pipefail
+        temp_root="$RUNNER_TEMP"
+        if [[ "$RUNNER_OS" == Windows ]]; then
+          temp_root="$(cygpath -u "$temp_root")"
+        fi
+        key_home="$(mktemp -d "${temp_root}/sqlseed-codecov-gnupg.XXXXXX")"
+        chmod 700 "$key_home"
+        native_home="$key_home"
+        gpg_conf="$(command -v gpgconf)"
+        if [[ "$RUNNER_OS" == Windows ]]; then
+          native_home="$(cygpath -m "$key_home")"
+          gpg_conf="$(cygpath -m "$gpg_conf")"
+          [[ "$gpg_conf" == *.exe ]] || gpg_conf+=".exe"
+        fi
+        printf 'home=%s\ngpg-home=%s\ngpgconf=%s\n' "$native_home" "$key_home" "$gpg_conf" >> "$GITHUB_OUTPUT"
+        printf 'trust-model direct\n' > "$key_home/gpg.conf"
+        # The fingerprint is published in Codecov's CLI integrity-checking guide.
+        # The URL matches the pinned codecov-action v7 verification source.
+        expected=27034E7FDB850E0BBC2C62FF806BB28AED779869
+        curl --proto '=https' --proto-redir '=https' --fail --silent --show-error --location --retry 3 \
+          https://keybase.io/codecovsecops/pgp_keys.asc -o "$key_home/codecov.asc"
+        fingerprints="$(gpg --homedir "$key_home" --batch --with-colons \
+          --import-options show-only --import "$key_home/codecov.asc" \
+          | awk -F: '$1 == "pub" { primary = 1; next } primary && $1 == "fpr" { print $10; primary = 0 }')"
+        if [[ "$fingerprints" != "$expected" ]]; then
+          echo "Unexpected Codecov signing key; review the official key rotation before uploading." >&2
+          exit 1
+        fi
+        # Direct trust records the verified key's validity, not ultimate ownership
+        # or trust in it to certify unrelated keys. Only this keyring is affected.
+        gpg --homedir "$key_home" --batch --import "$key_home/codecov.asc"
+        printf '%s:5:\n' "$expected" | gpg --homedir "$key_home" --batch --import-ownertrust
+        # Upstream downloads/imports the key again. Restrict those later imports
+        # to this already verified primary key; another signer cannot enter the
+        # isolated keyring, even if the second download returns a different key.
+        printf 'import-options merge-only\nno-auto-key-import\nno-auto-key-retrieve\n' >> "$key_home/gpg.conf"
+
+    - name: Upload coverage with signature and SHA256 verification
+      uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+      env:
+        GNUPGHOME: ${{ steps.key.outputs.gpg-home }}
+      with:
+        files: ${{ inputs.file }}
+        name: ${{ inputs.name }}
+        disable_search: true
+        plugins: noop
+        use_oidc: true
+        fail_ci_if_error: true
+
+    - name: Remove isolated verification keyring
+      if: always() && steps.key.outputs.home != ''
+      shell: pwsh
+      env:
+        CODECOV_KEY_HOME: ${{ steps.key.outputs.home }}
+        CODECOV_GPG_HOME: ${{ steps.key.outputs.gpg-home }}
+        CODECOV_GPGCONF: ${{ steps.key.outputs.gpgconf }}
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $keyHome = (Resolve-Path -LiteralPath $env:CODECOV_KEY_HOME).Path
+        $runnerTemp = (Resolve-Path -LiteralPath $env:RUNNER_TEMP).Path
+        if ((Split-Path -Parent $keyHome) -ne $runnerTemp -or
+            (Split-Path -Leaf $keyHome) -notlike 'sqlseed-codecov-gnupg.*') {
+          throw 'Refusing to remove a keyring outside the runner temporary directory.'
+        }
+        & $env:CODECOV_GPGCONF --homedir $env:CODECOV_GPG_HOME --kill gpg-agent
+        if ($LASTEXITCODE -ne 0) { throw 'Could not stop the isolated GPG agent.' }
+        Remove-Item -LiteralPath $keyHome -Recurse -Force

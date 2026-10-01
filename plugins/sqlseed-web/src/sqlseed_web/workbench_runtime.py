@@ -9,7 +9,7 @@ import re
 import sqlite3
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -44,6 +44,17 @@ from sqlseed_web.operation_errors import generation_errors
 from sqlseed_web.runtime_lifecycle import start_background
 from sqlseed_web.settings_environment import package_availability
 from sqlseed_web.state import Connection, UIState, state
+from sqlseed_web.workbench_cycles import (
+    ExistingSourceOrchestrator,
+    existing_cycle_sources,
+)
+from sqlseed_web.workbench_cycles import (
+    cyclic_components as _cyclic_components,
+)
+from sqlseed_web.workbench_cycles import (
+    dependency_layers as _layers,
+)
+from sqlseed_web.workbench_cycles import read_source_values as _source_values
 from sqlseed_web.workbench_execution import build_execution_plan, normalize_execution
 from sqlseed_web.workbench_schema import inspect_connection
 from sqlseed_web.workbench_store import WorkspaceStore, get_store
@@ -175,67 +186,6 @@ def export_document(conn: Connection, document: dict[str, Any]) -> dict[str, Any
 
 def _issue(issues: list[dict[str, Any]], code: str, message: str, *, severity: str = "error", **context: Any) -> None:
     issues.append({"severity": severity, "code": code, "message": message, **context})
-
-
-def _layers(dependencies: dict[str, set[str]]) -> tuple[list[str], list[list[str]]]:
-    pending = {name: set(parents) for name, parents in dependencies.items()}
-    layers: list[list[str]] = []
-    while pending:
-        if not (layer := [name for name, parents in pending.items() if not parents]):
-            break
-        layers.append(layer)
-        for name in layer:
-            del pending[name]
-        for parents in pending.values():
-            parents.difference_update(layer)
-    return [name for layer in layers for name in layer], layers
-
-
-def _dependency_finish_order(dependencies: dict[str, set[str]]) -> list[str]:
-    """Postorder DFS without recursion, including graphs deeper than Python's stack."""
-    visited: set[str] = set()
-    finished: list[str] = []
-    for start in dependencies:
-        stack = [(start, False)]
-        while stack:
-            name, done = stack.pop()
-            if done:
-                finished.append(name)
-            elif name not in visited:
-                visited.add(name)
-                stack.append((name, True))
-                stack.extend((parent, False) for parent in sorted(dependencies[name], reverse=True))
-    return finished
-
-
-def _cyclic_components(dependencies: dict[str, set[str]]) -> list[set[str]]:
-    """Find actual cross-table SCCs, excluding descendants merely blocked by them."""
-    children: dict[str, list[str]] = {name: [] for name in dependencies}
-    for name, parents in dependencies.items():
-        for parent in parents:
-            children[parent].append(name)
-    visited: set[str] = set()
-    components: list[set[str]] = []
-    for start in reversed(_dependency_finish_order(dependencies)):
-        pending = [start]
-        component: set[str] = set()
-        while pending:
-            if (name := pending.pop()) not in visited:
-                visited.add(name)
-                component.add(name)
-                pending.extend(children[name])
-        if len(component) > 1:
-            components.append(component)
-    return components
-
-
-def _source_values(orch: DataOrchestrator, table: str, columns: list[str]) -> list[dict[str, Any]]:
-    quoted = [quote_identifier(column) for column in columns]
-    return orch.query(
-        f"SELECT DISTINCT {', '.join(quoted)} FROM {quote_identifier(table)} "
-        f"WHERE {' AND '.join(f'{column} IS NOT NULL' for column in quoted)} "
-        f"ORDER BY {', '.join(quoted)} LIMIT 10000"
-    )
 
 
 def _can_omit(column: dict[str, Any]) -> bool:
@@ -568,6 +518,7 @@ def _foreign_key_sources(
 def _dependency_plan(
     config: GeneratorConfig, schema: dict[str, Any], orch: DataOrchestrator, issues: list[dict[str, Any]]
 ) -> tuple[list[str], list[list[str]], set[str], dict[str, Any]]:
+    """Build source evidence and generation layers, admitting only verified existing-key cycles."""
     tables = {table["name"]: table for table in schema["tables"]}
     selected = {table.name for table in config.tables}
     dependencies = {table.name: set[str]() for table in config.tables if table.name in tables}
@@ -620,6 +571,11 @@ def _dependency_plan(
 
     _foreign_key_sources(tables, dependencies, source, issues)
     _association_sources(config, tables, dependencies, source, issues)
+    components = _cyclic_components(dependencies)
+    pinned = existing_cycle_sources(config, schema, evidence["source_checks"], components)
+    evidence["existing_cycle_sources"] = pinned
+    for source_info in pinned:
+        dependencies[source_info["table"]].discard(source_info["source_table"])
     order, layers = _layers(dependencies)
     if len(order) != len(dependencies):
         components = _cyclic_components(dependencies)
@@ -851,6 +807,7 @@ def _preview_tables(
 def _check_generation(
     config: GeneratorConfig, schema: dict[str, Any], result: dict[str, Any], options: _PreviewOptions
 ) -> None:
+    """Collect validation and bounded samples in an isolated session without inserting rows."""
     issues = result["issues"]
     if not config.tables:
         _issue(issues, "empty_plan", tr("backend.workbench_runtime.select_at_least_one_table_to_generate"))
@@ -861,7 +818,7 @@ def _check_generation(
     normalized = config.model_dump(mode="json", exclude={"db_path", "url"})
     orch: DataOrchestrator | None = None
     try:
-        with DataOrchestrator.from_config(config) as orch:
+        with ExistingSourceOrchestrator.for_config(config) as orch:
             options.guard()
             if orch._provider_name != config.provider.value:
                 raise WorkbenchError(
@@ -872,7 +829,15 @@ def _check_generation(
                 )
             orch._registry.get(config.provider.value).set_locale(config.locale)
             order, layers, deferred, evidence = _dependency_plan(config, schema, orch, issues)
-            result.update(order=order, layers=layers, preview_complete=not deferred, sources=evidence["source_checks"])
+            pinned = evidence["existing_cycle_sources"]
+            orch.pin_cycle_sources(pinned)
+            result.update(
+                order=order,
+                layers=layers,
+                preview_complete=not deferred,
+                sources=evidence["source_checks"],
+                existing_cycle_sources=pinned,
+            )
             result["config_hash"] = _hash(
                 {"document": normalized, "schema_hash": schema["schema_hash"], "sources": evidence}
             )
@@ -1024,7 +989,13 @@ def plan_execution(
     with registry.connection_operation(conn_id) as conn:
         draft, schema, checked = _checked_saved(conn, store, draft_id, revision, schema_hash, config_hash)
         return build_execution_plan(
-            conn, bind_document(conn, draft["document"]), schema, checked["order"], options, config_hash
+            conn,
+            bind_document(conn, draft["document"]),
+            schema,
+            checked["order"],
+            options,
+            config_hash,
+            atomic_append=bool(checked.get("existing_cycle_sources")),
         )
 
 
@@ -1046,7 +1017,13 @@ def start_run(
     with registry.connection_operation(conn_id, write=True) as conn:
         draft, schema, checked = _checked_saved(conn, store, draft_id, revision, schema_hash, config_hash)
         plan = build_execution_plan(
-            conn, bind_document(conn, draft["document"]), schema, checked["order"], options, config_hash
+            conn,
+            bind_document(conn, draft["document"]),
+            schema,
+            checked["order"],
+            options,
+            config_hash,
+            atomic_append=bool(checked.get("existing_cycle_sources")),
         )
         _require_execution_plan(plan, plan_hash)
         tables_by_name = {table["name"]: table for table in draft["document"]["tables"]}
@@ -1063,6 +1040,7 @@ def start_run(
             "plan_hash": plan["plan_hash"],
             "status": "queued",
             "order": checked["order"],
+            "atomic_append": options["mode"] == "append" and plan["atomic"],
             "rows_inserted": 0,
             "errors": [],
             "tables": [
@@ -1177,30 +1155,42 @@ def _fill_replacement_tables(
     return staged
 
 
-def _execute_replacement(
+def _execute_atomic_run(
     conn: Connection,
     run: dict[str, Any],
     store: WorkspaceStore,
     tables: list[dict[str, Any]],
     outcome: dict[str, Any],
+    *,
+    replacing: bool,
 ) -> int:
-    """Keep every delete, sequence reset, FK read and streamed batch in one transaction."""
+    """Keep sources, optional deletes and streamed inserts in one SQLite transaction."""
     config = bind_document(conn, run["document"])
-    with DataOrchestrator.from_config(config) as orch:
+    with ExistingSourceOrchestrator.for_config(config) as orch:
         orch.get_table_names()
         adapter = orch.database_adapter
         if not isinstance(adapter, SQLAlchemyAdapter):
-            raise WorkbenchError(
-                tr("backend.workbench_runtime.clear_and_generate_requires_sqlalchemyadapter"), code="execution_blocked"
-            )
+            raise WorkbenchError(tr("backend.workbench_runtime.cycle_source_rules_not_supported"))
         with adapter.transaction():
             outcome["rolled_back"] = True
-            schema, plan = _replacement_plan(replace(conn, orchestrator=orch), config, run)
-            _clear_replacement_tables(adapter, plan, schema, run["execution"]["reset_identity"])
-            orch._relation.clear_cache()
-            orch._shared_pool.clear()
+            orch._preflight_generation([table.name for table in config.tables])
+            active = Connection(
+                conn_id=conn.conn_id,
+                target=conn.target,
+                provider=conn.provider,
+                locale=conn.locale,
+                orchestrator=orch,
+            )
+            if replacing:
+                schema, plan = _replacement_plan(active, config, run)
+                _clear_replacement_tables(adapter, plan, schema, run["execution"]["reset_identity"])
+                orch._relation.clear_cache()
+                orch._shared_pool.clear()
+            else:
+                checked = _current_run_check(active, run)
+                orch.pin_cycle_sources(checked["existing_cycle_sources"])
             staged = _fill_replacement_tables(orch, config, run, store, tables)
-        # Only the successful context exit above makes staged counts committed.
+        # A successful context exit is the first point that counts are committed.
         outcome.update(committed=True, rolled_back=False)
         for item in tables:
             item.update(status="done", **staged[item["name"]])
@@ -1227,13 +1217,14 @@ class _RunProgress:
     errors: list[str]
 
 
-def _current_run_config(conn: Connection, run: dict[str, Any]) -> GeneratorConfig:
+def _current_run_check(conn: Connection, run: dict[str, Any]) -> dict[str, Any]:
+    """Revalidate queued schema, rules and parent-source evidence before any database mutation."""
     checked = check_document(conn, run["document"], run["schema_hash"])
     if not checked["ok"] or checked["config_hash"] != run["config_hash"]:
         raise WorkbenchError(
             tr("backend.workbench_runtime.configuration_sources_or_schema_changed_while_queued"), code="check_stale"
         )
-    return bind_document(conn, run["document"])
+    return checked
 
 
 def _append_run_tables(
@@ -1360,25 +1351,28 @@ def execute_run(
 def _execute_loaded_run(
     run: dict[str, Any], conn_id: str, job_id: str, registry: UIState, store: WorkspaceStore
 ) -> None:
+    """Hold connection ownership through execution and publish a terminal outcome even on failure."""
     run_id = run["id"]
     tables = run["tables"]
     progress = _RunProgress(rows_inserted=0, errors=[])
     started = time.monotonic()
     replacing = run.get("execution", {}).get("mode") == "replace_selected"
-    outcome: dict[str, Any] = {"atomic": replacing, "committed": False, "rolled_back": False}
+    atomic = replacing or bool(run.get("atomic_append"))
+    outcome: dict[str, Any] = {"atomic": atomic, "committed": False, "rolled_back": False}
     conn: Connection | None = None
     finished = False
     try:
         with registry.connection_operation(conn_id, job_id=job_id) as conn:
-            config = _current_run_config(conn, run)
+            _current_run_check(conn, run)
+            config = bind_document(conn, run["document"])
             store.update_run(run_id, {"status": "running", "started_at": time.time()})
-            if replacing:
-                progress.rows_inserted = _execute_replacement(conn, run, store, tables, outcome)
+            if atomic:
+                progress.rows_inserted = _execute_atomic_run(conn, run, store, tables, outcome, replacing=replacing)
             else:
                 _append_run_tables(config, run_id, store, tables, progress)
         finished = True
     except generation_errors(conn.orchestrator if conn is not None else None, additional=(KeyError,)) as exc:
-        _run_execution_failure(exc, tables, progress, outcome, replacing)
+        _run_execution_failure(exc, tables, progress, outcome, atomic)
         finished = True
     finally:
         if not finished:
@@ -1387,8 +1381,8 @@ def _execute_loaded_run(
                 tables,
                 progress,
                 outcome,
-                replacing,
+                atomic,
             )
         _publish_run_terminal(
-            run_id, job_id, registry, store, _run_terminal(tables, progress, started, outcome, replacing), progress
+            run_id, job_id, registry, store, _run_terminal(tables, progress, started, outcome, atomic), progress
         )

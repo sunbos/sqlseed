@@ -46,7 +46,7 @@
 - 保存校验 schema hash 和乐观 revision；开始运行时在 store 同一事务校验当前 revision 与快照，再保留不可变文档。检查和运行都重新读取真实结构及来源，不能相信前端的成功标记。
 - 旧 `/api/connections/{id}/tables/{table}/schema` 的 `unique_columns`、`skippable` 和 `ColumnInfo` 驱动历史面板；FK 字段为 `column`/`ref_table`/`ref_column`，均是单数。新工作台必须使用独立完整 schema 契约，保留成组列映射和 namespace，不能沿用此简化形状。
 - 结构图方向父→子；复合 FK 是同一条边的成组列映射。跨 namespace 或不存在的来源保留只读节点，不能把它们映射到同名默认 schema 表。
-- 跨表循环问题由 `workbench_runtime.py` 的迭代强连通分量计算给出精确 `tables` 和 `edge_ids`：只包含真正成环的成员及同一环内边，不把被阻塞的下游或不同环之间的桥标为循环。准确定位不改变跨表通用循环仍被阻止的执行边界。来源问题增加结构化 `columns` 时保留既有 `column` 与 sources evidence 契约；组合键必须按完整列组匹配，不能拆成单列或误拆含逗号的列名。
+- 跨表循环问题由 `workbench_runtime.py` 的迭代强连通分量计算给出精确 `tables` 和 `edge_ids`：只包含真正成环的成员及同一环内边，不把被阻塞的下游或不同环之间的桥标为循环。SQLite 环内全部单列 FK 已有可用父键时可原子追加，预览/写入通过 workbench_cycles.py 冻结既有父键，环内新增记录不得互相引用；空来源、组合或重叠 FK、配置关联及 PostgreSQL 循环仍阻止。来源问题增加结构化 `columns` 时保留既有 `column` 与 sources evidence 契约；组合键必须按完整列组匹配，不能拆成单列或误拆含逗号的列名。
 - SQLite rowid 分配优先使用 core 的 `ColumnInfo.is_rowid_alias` 事实，仅旧 metadata 缺失时使用兼容查询。部分索引不得进入无条件 `unique_constraints`；其条件保留在 `conditional_indexes` 并参与 schema hash，谓词变化会使旧检查失效。
 - 空父表在所选生成计划内是合法依赖。预览不能虚构尚未生成的父键，但仍须验证独立字段的生成器参数和表达式。
 - 未选父表存在有效引用键时可以只读引用；未选且缺少必需来源时才阻止对应生成。依赖检查返回来源是否可用、数量与范围事实，不向浏览器暴露实际父键列表。追加写入的自增 ID 由数据库分配，不能为改善预览展示而重置序列。
@@ -58,7 +58,8 @@
 - 工作台的保存、检查和执行不依赖 AI；AI 仅在用户请求时分析并产出待审阅建议，用户选中应用后进入同一份配置，仍由确定性检查验证。执行保持 `fill_table(skip_ai=True)`，不能在写入过程中隐式更改已经确认的规则。SQLite 清空使用明确执行策略和单事务，不能通过 core 配置 clear_before 隐式开启；PostgreSQL 清空、任意服务器 Python transform、跨表通用循环等未接入能力必须明确阻止，不可忽略。
 - Worker 持有连接操作锁并逐表执行，失败后其余表 `not_run`。已提交数量来自 `GenerationResult.count`，不能用总行数差冒充精确值。记录异常文本先脱敏，避免 SQLAlchemy 参数和连接密码落盘。
 - `workbench_execution.py` 负责只读清空规划。POST execution-plan 使用保存的 draft/revision/schema/config 绑定，返回实际表/行数、删除顺序、能力和 plan_hash。POST runs 固定 execution/plan_hash；append 为兼容默认，replace_selected 必须重新验证确认计划。
-- SQLite replace 使用 SQLAlchemyAdapter.transaction()，父键读取、清空、自引用更新和批次写入共用连接；不关闭 FK、不自动 CASCADE、不在事务提交前报告已提交。失败回滚原行与序列，运行结果明确 rolled_back。PostgreSQL replace、范围外引用、触发器和未覆盖自引用等通过服务端能力检查阻止。
+- SQLite replace 与已验证的已有来源循环追加使用 SQLAlchemyAdapter.transaction()，父键读取、清空、自引用更新和批次写入共用连接；不关闭 FK、不自动 CASCADE、不在事务提交前报告已提交。失败回滚原行与序列，运行结果明确 rolled_back。PostgreSQL replace、清空跨表循环、范围外引用、清空触发器和未覆盖自引用等通过服务端能力检查阻止。已有来源循环的 atomic_append 为不可变运行快照事实，与执行计划的 atomic 保持一致；普通无环追加仍保留原来的逐批提交语义。
+- `ExistingSourceOrchestrator` 是内部 Web 会话，预览与执行统一通过 `for_config()` 构造；工厂在连接与 metadata 缓存初始化前组合专用 `RelationResolver`，保留同一 adapter、shared pool 与配置关联。冻结池仍在原有检查/写入事务内读取，只替换已接受的单列循环 FK 来源；普通 FK 与关联继续由 Core 解析。不得通过重写整段 `_resolve_specs` 改动规则解析顺序或关键字契约；直接构造后调用 `pin_cycle_sources()` 必须明确报错，不得静默失去冻结策略。
 - AI DEFAULT 保护按当前实际生成模式判断；生成器主动提供值时可优化，真正省略使用 DEFAULT 时保持保护。PK/FK、计算列及已有派生/原生规则继续保护。追加失败只有完整精确计数才能创建剩余配置，扣除已提交行数，保留原快照与已完成表草稿，不自动提交；中断/未知计数/清空模式不能直接推导剩余量。
 
 ## 只读当前数据

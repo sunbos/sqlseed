@@ -182,3 +182,29 @@ test('a lifecycle change invalidates an in-flight execution plan and makes its s
  assert.match(ui.root().querySelector('.dependency-summary').textContent,/清空方案待重新检查/);
  assert.equal(written(ui).length,0);
 });
+
+
+test('existing-source cycle append confirmation consistently describes atomic writes in both languages',async()=>{
+ const ui=harness();
+ ui.routes.set('/api/workbench/check',()=>({ok:true,config_hash:'cycle-rules',order:['users'],issues:[],samples:{},
+  existing_cycle_sources:[{table:'users',column:'id',target_table:'orders',target_columns:['user_id']}]}));
+ await ui.mount();ui.modelState().toggleTable('users',true);await ui.button('查看生成计划').click();
+ const dialog=ui.document.querySelector('.modal'),planArea=dialog.querySelector('.wb-execution-plan');
+ assert.match(planArea.textContent,/不清空表.*运行开始前已有的父键.*全部所选表在同一事务中追加.*回滚本次新增记录/);
+ assert.doesNotMatch(dialog.textContent,/已经提交的数据保留|按此顺序逐表写入/);
+ assert.equal(ui.button('写入数据库',dialog).disabled,false);
+ const requests=ui.requests.length;ui.context.setLanguage('en');
+ assert.match(planArea.textContent,/without clearing tables.*before this run.*All selected tables append in one transaction.*rolls back the new rows/);
+ assert.doesNotMatch(dialog.textContent,/committed data is retained|Tables are written in this order/);
+ assert.equal(ui.requests.length,requests);
+ ui.context.setLanguage('zh-CN');
+ ui.routes.set('/api/workbench/execution-plan',()=>({...plan,ok:false,issues:[{severity:'error',code:'replacement_cycle_not_supported',message:'清空会删除循环所需的已有父键'}]}));
+ await setMode(ui);
+ assert.match(planArea.textContent,/清空会删除循环所需的已有父键/);
+ assert.doesNotMatch(dialog.textContent,/全部所选表在同一事务中追加/);
+ assert.equal(ui.button('清空并生成',dialog).disabled,true);
+ const append=dialog.querySelector('[aria-label="追加数据"]');append.checked=true;await append.dispatchEvent('change');
+ assert.match(planArea.textContent,/全部所选表在同一事务中追加/);
+ assert.doesNotMatch(dialog.textContent,/已经提交的数据保留/);
+ assert.equal(ui.requests.some(request=>request.url==='/api/workbench/runs'),false);
+});
