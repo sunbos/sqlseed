@@ -25,8 +25,8 @@ def _document(names: list[str], count: int = 3) -> dict:
     }
 
 
-@pytest.fixture
-def all_table_configuration(tmp_path: Path) -> Iterator[tuple[Connection, Path, dict, dict]]:
+@pytest.fixture(name="all_table_configuration")
+def fixture_all_table_configuration(tmp_path: Path) -> Iterator[tuple[Connection, Path, dict, dict]]:
     path = tmp_path / "commerce.db"
     create_database(path)
     registry = UIState()

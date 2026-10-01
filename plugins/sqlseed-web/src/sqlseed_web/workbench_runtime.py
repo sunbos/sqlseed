@@ -9,7 +9,7 @@ import re
 import sqlite3
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
@@ -1172,7 +1172,13 @@ def _execute_atomic_run(
         with adapter.transaction():
             outcome["rolled_back"] = True
             orch._preflight_generation([table.name for table in config.tables])
-            active: Connection = replace(conn, orchestrator=orch)
+            active = Connection(
+                conn_id=conn.conn_id,
+                target=conn.target,
+                provider=conn.provider,
+                locale=conn.locale,
+                orchestrator=orch,
+            )
             if replacing:
                 schema, plan = _replacement_plan(active, config, run)
                 _clear_replacement_tables(adapter, plan, schema, run["execution"]["reset_identity"])
