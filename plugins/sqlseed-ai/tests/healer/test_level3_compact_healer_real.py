@@ -7,6 +7,7 @@ calls per Spec 6.1 (no mocks).
 
 from __future__ import annotations
 
+import pytest
 from sqlseed_ai.healer.level3_compact_healer import Level3CompactHealer
 from sqlseed_ai.healer.models import SubgraphTask
 from sqlseed_ai.validator.models import ConstraintType, ViolationReport
@@ -43,6 +44,7 @@ def _make_config() -> dict:
     }
 
 
+@pytest.mark.integration
 def test_level3_compact_real(llm_client, llm_model):
     """Level3CompactHealer in compact mode returns a structured Level3Result."""
     healer = Level3CompactHealer(client=llm_client, model=llm_model)
@@ -57,6 +59,7 @@ def test_level3_compact_real(llm_client, llm_model):
         assert "tables" in result.config_patch
 
 
+@pytest.mark.integration
 def test_level3_ultra_compact_real(llm_client, llm_model):
     """Level3CompactHealer in ultra_compact mode returns a structured Level3Result."""
     healer = Level3CompactHealer(client=llm_client, model=llm_model)

@@ -5,17 +5,21 @@ from __future__ import annotations
 import subprocess
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 import pytest
+from sqlseed._utils.daemon_task import DaemonTask
 
+from sqlseed_web import plugin_process
 from sqlseed_web.plugin_environment import EnvironmentLock
 from sqlseed_web.plugin_process import run_installer
 
 pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Win32 Job Object process-tree ownership")
 
 
-def _writer_tree(root: Path, *, parent_waits: bool) -> Path:
+def _writer_tree(root: Path, *, parent_waits: bool, handshake: bool = False) -> Path:
+    """Create an isolated installer tree whose grandchild keeps writing and inherits the output pipe."""
     writer = root / "writer.py"
     writer.write_text(
         "import os,sys,time\n"
@@ -40,7 +44,14 @@ def _writer_tree(root: Path, *, parent_waits: bool) -> Path:
         "subprocess.run([sys.executable,'-I',str(root/'intermediate.py'),str(root/'writer.py'),str(root)],check=True)\n"
         "deadline=time.monotonic()+5\n"
         "while not (root/'writes').exists() and time.monotonic()<deadline: time.sleep(.01)\n"
-        + ("time.sleep(15)\n" if parent_waits else ""),
+        + (
+            "deadline=time.monotonic()+20\n"
+            "while not (root/'continue').exists() and time.monotonic()<deadline: time.sleep(.01)\n"
+            "if not (root/'continue').exists(): sys.exit(24)\n"
+            if handshake
+            else ""
+        )
+        + ("(root/'holding').touch(); time.sleep(15)\n" if parent_waits else ""),
         encoding="utf-8",
     )
     return installer
@@ -49,17 +60,22 @@ def _writer_tree(root: Path, *, parent_waits: bool) -> Path:
 def _wait_for_owner_progress(
     path: Path,
     process: subprocess.Popen[bytes],
-    diagnostics: Path,
+    diagnostics: Path | Callable[[], str],
     *,
     timeout: float,
     minimum_size: int,
     phase: str,
 ) -> None:
+    """Bound the startup handshake and diagnose owner exit separately from later process cleanup."""
     deadline = time.monotonic() + timeout
     while True:
         returncode = process.poll()
         if returncode is not None or time.monotonic() >= deadline:
-            output = diagnostics.read_text(encoding="utf-8", errors="replace")
+            output = (
+                diagnostics.read_text(encoding="utf-8", errors="replace")
+                if isinstance(diagnostics, Path)
+                else diagnostics()
+            )
             pytest.fail(f"{phase}; owner exit code: {returncode}\n{output}")
         if path.exists() and path.stat().st_size >= minimum_size:
             return
@@ -86,14 +102,48 @@ def _assert_writer_stopped(path: Path) -> None:
 
 
 @pytest.mark.parametrize("parent_waits", [False, True])
-def test_installer_exit_and_timeout_reap_grandchildren_holding_stdout(tmp_path: Path, parent_waits: bool) -> None:
-    installer = _writer_tree(tmp_path, parent_waits=parent_waits)
+def test_installer_exit_and_timeout_reap_grandchildren_holding_stdout(
+    tmp_path: Path, parent_waits: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify real Job cleanup stops descendants and releases their inherited lock after exit or timeout."""
+    installer = _writer_tree(tmp_path, parent_waits=parent_waits, handshake=True)
     owner = EnvironmentLock(tmp_path, exclusive=True)
     contender = EnvironmentLock(tmp_path, exclusive=True)
     owner.acquire()
     output: list[str] = []
+    phases: dict[str, float] = {}
+    original_wait = plugin_process._wait_installer
+
+    def wait_after_startup(
+        process: subprocess.Popen[bytes],
+        reader: DaemonTask[None],
+        arguments: list[str],
+        emit: Callable[[str], None],
+        timeout: float,
+    ) -> int:
+        # Real guard/child/intermediate cold starts have a separate bounded budget.
+        # Only the wait boundary is staged; production Job ownership and cleanup run unchanged.
+        """Wait for actual descendant writes before starting the unchanged installer execution timeout."""
+        _wait_for_owner_progress(
+            tmp_path / "writes",
+            process,
+            lambda: "\n".join(output),
+            timeout=15,
+            minimum_size=2,
+            phase="The descendant did not start before the execution test",
+        )
+        owner.release()
+        with pytest.raises(RuntimeError):
+            contender.acquire()
+        phases["ready"] = time.monotonic()
+        (tmp_path / "continue").touch()
+        try:
+            return original_wait(process, reader, arguments, emit, timeout)
+        finally:
+            phases["wait_finished"] = time.monotonic()
+
+    monkeypatch.setattr(plugin_process, "_wait_installer", wait_after_startup)
     try:
-        started = time.monotonic()
         result = run_installer(
             [sys.executable, "-I", str(installer), str(tmp_path)],
             output.append,
@@ -101,7 +151,10 @@ def test_installer_exit_and_timeout_reap_grandchildren_holding_stdout(tmp_path: 
             lock_descriptor=owner.fileno(),
         )
         assert result == (-1 if parent_waits else 0), output
-        assert time.monotonic() - started < 10, "Inherited stdout must not hang process cleanup"
+        assert time.monotonic() - phases["ready"] < 10, "Inherited stdout must not hang process cleanup"
+        if parent_waits:
+            assert (tmp_path / "holding").exists(), "Timeout must exercise a running installer parent"
+            assert phases["wait_finished"] - phases["ready"] >= 3
         owner.release()
         _acquire_after_cleanup(contender)
         _assert_writer_stopped(tmp_path / "writes")

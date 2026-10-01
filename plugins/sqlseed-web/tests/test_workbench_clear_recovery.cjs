@@ -184,3 +184,19 @@ test('a failed confirmed scope save preserves the explicit configuration but nev
  assert.deepEqual(ui.requests.slice(before).map(request=>request.url),['/api/workbench/drafts/saved']);
  assert.equal(ui.document.querySelector('.modal'),null);assert.match(ui.root().textContent,/save unavailable/);assert.equal(writes(ui).length,0);
 });
+
+
+test('a cycle that can append existing keys cannot be applied as an expanded clearing scope',async()=>{
+ const ui=await ready(eight),before=plain(ui.modelState().document),currentCheck=ui.modelState().check;
+ const mutationCount=mutations(ui).length;
+ ui.routes.set('/api/workbench/check',()=>({ok:true,issues:[],existing_cycle_sources:[
+  {table:'departments',source_table:'employees'}, {table:'employees',source_table:'departments'}
+ ]}));
+ await review(ui);
+ const dialog=ui.document.querySelector('.modal');
+ assert.match(dialog.textContent,/追加可引用已有父键/);
+ assert.match(dialog.textContent,/不支持从空表重建/);
+ const apply=confirmation(ui);assert.equal(apply.disabled,true);await apply.click();
+ assert.deepEqual(plain(ui.modelState().document),before);assert.equal(ui.modelState().check,currentCheck);
+ assert.equal(mutations(ui).length,mutationCount);assert.equal(writes(ui).length,0);
+});

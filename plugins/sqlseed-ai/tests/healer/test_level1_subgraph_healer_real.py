@@ -6,6 +6,7 @@ No mocks — exercises the real LLM call path per Spec 6.1.
 
 from __future__ import annotations
 
+import pytest
 from sqlseed_ai.healer.level1_subgraph_healer import Level1SubgraphHealer
 from sqlseed_ai.healer.models import SubgraphTask
 
@@ -16,6 +17,7 @@ def _make_task() -> SubgraphTask:
     return SubgraphTask(task_id="t1", tables=["products"], is_scc=False)
 
 
+@pytest.mark.integration
 def test_level1_heal_real(llm_client, llm_model):
     """Level1SubgraphHealer.heal() returns a structured Level1Result.
 

@@ -114,6 +114,9 @@ mcp-server-sqlseed-ai
 后端解析顺序是显式 `SQLSEED_AI_BACKEND`、已知 URL 模式、最后 `openai_compat`。
 这不是逐个探测所有服务的 fallback 链。
 
+AI 请求访问 `localhost` 或回环 IP 地址时直接连接，不经过环境代理；远程服务仍使用
+原有代理配置。HTTPS 证书校验继续遵循 `SSL_CERT_FILE` 和 `SSL_CERT_DIR`。
+
 | 变量 | 用途 |
 | --- | --- |
 | `SQLSEED_AI_BACKEND` | `google_ai_studio`、`lm_studio`、`ollama` 或 `openai_compat` |
@@ -166,8 +169,10 @@ Python 调用可使用 `SchemaAnalyzer.call_llm(..., strict_json=True)` 或
 `JSONResponseError.code` 区分空回答、无效 JSON 和输出长度截断。解析器可补齐末尾缺失的
 `}` / `]`，包括代码围栏内的 JSON，但不会补值或字符串；达到输出长度上限时，即使前缀
 可解析也会拒绝，包括流式独立空终止帧中的长度截断标记。两种 Python 方法默认均为
-`strict_json=False`；此可选模式不增加模型请求。CLI 直接分析与 refiner 的普通、流式路径
-均显式启用，保留各自现有重试预算。严格工具调用还会拒绝数组、标量和 `null` 参数，
+`strict_json=False`。严格本地调用请求 JSON 采样约束：LM Studio 使用 JSON Schema 语法接口，
+Ollama 使用 JSON 对象模式。服务明确拒绝该格式时，只进行一次文本模式兼容请求，仍由同一
+严格解析器拒绝无效或截断输出。CLI 直接分析与 refiner 保留各自现有提示与自纠正重试预算。
+严格工具调用还会拒绝数组、标量和 `null` 参数，
 返回 `invalid_json`；兼容模式仍可回退到响应正文。解析后的建议仍需验证范围和业务规则。
 
 直接 Python 调用可给 `SchemaAnalyzer.call_llm()` 或 `call_llm_streaming()` 传入
@@ -217,7 +222,7 @@ column-mapper 注册 hooks，也不要求 Core 导入 AI 实现。
 - Python `>=3.10`
 - `sqlseed>=0.2.5.dev0,<0.3`
 - `sqlseed-cli>=0.2.4.dev0,<0.3`
-- `openai>=1.0`
+- `openai>=1.55.3`（保留 SDK 传输默认值并兼容 HTTPX 0.28）
 - `httpx>=0.24.0`
 - `networkx>=3.0`
 - 可选 `mcp` extra：`mcp>=1.0,<2`

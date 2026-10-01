@@ -1203,9 +1203,12 @@
     "工作台使用持久化运行记录，尚未支持 snapshot_dir 文件写出；配置会保留在导出中",
     "The workbench uses persistent run records and does not write snapshot_dir files. The configuration is retained in exports."
   ],
+  "backend.workbench_store.atomic_append_must_be_boolean": ["atomic_append 必须是布尔值", "atomic_append must be a boolean"],
+  "backend.workbench_runtime.cycle_source_rules_not_supported": ["循环追加要求取值规则引用实际外键的表与列，并且已有父键可用；当前规则或来源不满足要求，尚未提交数据。", "Cycle append requires rules to reference the actual foreign-key table and column with available existing parent keys. These rules or sources do not qualify; no data has been committed."],
+  "backend.workbench_execution.existing_cycle_cannot_clear": ["{p1} 存在跨表循环。当前追加可引用已有父键，但清空会删除这些来源，工作台不支持从空表重建该循环。请保留现有数据并使用追加；若必须从零重建，需要专用的分阶段生成与回填方案。", "{p1} contains a cross-table cycle. Append can use existing parent keys, but clearing removes those sources. Rebuilding this cycle from empty tables is not supported. Keep existing records and append, or use a dedicated phased generation and backfill process to rebuild."],
   "backend.workbench_runtime.cross_table_cycles_require_general_backfill_the": [
-    "这些表相互引用，无法排出先后生成顺序。当前工作台不支持同时生成这组循环表，调整行数或重试不能解除此限制。",
-    "These tables reference one another, so no generation order is available. The workbench cannot generate this cycle together; changing row counts or retrying does not resolve this limitation."
+    "这些表相互引用，当前无法安全排出生成顺序。SQLite 仅支持循环内每条单列外键已有可用父键时追加；缺少来源、组合或重叠外键、配置关联或其他数据库的循环尚不支持。调整行数或原样重试不能解除此限制。",
+    "These tables reference one another and no safe generation order is available. SQLite append requires existing parent keys on every single-column foreign key within the cycle. Missing sources, composite or overlapping foreign keys, configured associations and other databases are not supported for cycles. Changing row counts or retrying unchanged cannot remove this limitation."
   ],
   "backend.workbench_runtime.select_at_least_one_table_to_generate": [
     "请至少选择一张需要生成的表",

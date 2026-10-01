@@ -25,11 +25,10 @@ def fixture_llm_available(llm_model: str) -> bool:
         return False
 
     try:
-        resp = httpx.get("http://localhost:1234/v1/models", timeout=2)
+        resp = httpx.get("http://localhost:1234/v1/models", timeout=2, trust_env=False)
     except httpx.RequestError:
         return False
-    if resp.status_code != 200:
-        return False
+    resp.raise_for_status()
     payload = resp.json()
     if not isinstance(payload, dict) or not isinstance(payload.get("data"), list):
         raise ValueError("LM Studio model list must contain a data array")
@@ -46,7 +45,7 @@ def fixture_llm_model() -> str:
 
 
 @pytest.fixture(scope="session")
-def llm_client(llm_available: bool, llm_model: str):
+def llm_client(llm_available: bool, llm_model: str, request: pytest.FixtureRequest):
     """Build a real LLM client for LM Studio.
 
     Skips if the service or requested model is unavailable (Spec 6.1 +
@@ -54,13 +53,14 @@ def llm_client(llm_available: bool, llm_model: str):
     completion errors still fail the real tests.
     """
     if not llm_available:
-        pytest.skip(f"LM Studio unavailable or model {llm_model!r} not listed at http://localhost:1234/v1/models")
-    from openai import OpenAI
+        reason = f"LM Studio unavailable or model {llm_model!r} not listed at http://localhost:1234/v1/models"
+        (pytest.fail if request.config.getoption("--require-llm") else pytest.skip)(reason)
+    from sqlseed_ai._client import build_openai_client
     from sqlseed_ai.healer._client import OpenAICompatAdapter
 
-    raw = OpenAI(
+    with build_openai_client(
         api_key="lm-studio",
         base_url="http://localhost:1234/v1",
         timeout=60,
-    )
-    return OpenAICompatAdapter(raw)
+    ) as raw:
+        yield OpenAICompatAdapter(raw)

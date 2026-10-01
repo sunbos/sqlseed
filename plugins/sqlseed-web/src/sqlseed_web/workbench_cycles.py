@@ -1,0 +1,222 @@
+"""Bounded cycle support using existing keys, without backfill or rule changes."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from sqlseed._utils.sql_safe import quote_identifier
+from sqlseed.config.models import GeneratorConfig
+from sqlseed.core.mapper import GeneratorSpec
+from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.core.relation import RelationResolver
+from typing_extensions import Self
+
+from sqlseed_web.messages import message as tr
+
+
+def dependency_layers(dependencies: dict[str, set[str]]) -> tuple[list[str], list[list[str]]]:
+    """Order dependency-free layers without changing the input or emitting blocked tables."""
+    pending = {name: set(parents) for name, parents in dependencies.items()}
+    layers: list[list[str]] = []
+    while pending:
+        if not (layer := [name for name, parents in pending.items() if not parents]):
+            break
+        layers.append(layer)
+        for name in layer:
+            del pending[name]
+        for parents in pending.values():
+            parents.difference_update(layer)
+    return [name for layer in layers for name in layer], layers
+
+
+def _finish_order(dependencies: dict[str, set[str]]) -> list[str]:
+    """Compute graph postorder iteratively so deep dependency chains do not exhaust the stack."""
+    visited: set[str] = set()
+    finished: list[str] = []
+    for start in dependencies:
+        stack = [(start, False)]
+        while stack:
+            name, done = stack.pop()
+            if done:
+                finished.append(name)
+            elif name not in visited:
+                visited.add(name)
+                stack.append((name, True))
+                stack.extend((parent, False) for parent in sorted(dependencies[name], reverse=True))
+    return finished
+
+
+def cyclic_components(dependencies: dict[str, set[str]]) -> list[set[str]]:
+    """Find SCCs iteratively, without marking blocked descendants as cycles."""
+    children: dict[str, list[str]] = {name: [] for name in dependencies}
+    for name, parents in dependencies.items():
+        for parent in parents:
+            children[parent].append(name)
+    visited: set[str] = set()
+    components: list[set[str]] = []
+    for start in reversed(_finish_order(dependencies)):
+        pending = [start]
+        component: set[str] = set()
+        while pending:
+            if (name := pending.pop()) not in visited:
+                visited.add(name)
+                component.add(name)
+                pending.extend(children[name])
+        if len(component) > 1:
+            components.append(component)
+    return components
+
+
+def schema_dependencies(config: GeneratorConfig, schema: dict[str, Any]) -> dict[str, set[str]]:
+    """Collect physical and configured cross-table dependencies inside the selected scope."""
+    selected = {table.name for table in config.tables}
+    dependencies = {table.name: set[str]() for table in config.tables}
+    for table in schema["tables"]:
+        if table["name"] in selected:
+            dependencies[table["name"]].update(
+                fk["ref_table"]
+                for fk in table["foreign_keys"]
+                if fk["ref_table"] in selected and fk["ref_table"] != table["name"]
+            )
+    for association in config.associations:
+        if association.source_table in selected:
+            for name in association.target_tables:
+                if name in selected and name != association.source_table:
+                    dependencies[name].add(association.source_table)
+    return dependencies
+
+
+def _single_existing_source(source: dict[str, Any], tables: dict[str, Any]) -> bool:
+    """Accept populated single-column sources only when exactly one physical FK matches."""
+    if not source["has_values"] or len(source["source_columns"]) != 1:
+        return False
+    foreign_keys = [fk for fk in tables[source["table"]]["foreign_keys"] if source["column"] in fk["columns"]]
+    if len(foreign_keys) != 1:
+        return False
+    fk = foreign_keys[0]
+    return bool(
+        fk["ref_table"] == source["source_table"]
+        and fk["columns"] == [source["column"]]
+        and fk["ref_columns"] == source["source_columns"]
+    )
+
+
+def existing_cycle_sources(
+    config: GeneratorConfig, schema: dict[str, Any], sources: list[dict[str, Any]], groups: list[set[str]]
+) -> list[dict[str, Any]]:
+    """Accept only SQLite cycles with existing single-column FK sources on every edge.
+
+    Composite keys and configured associations retain the unsupported boundary.
+    Presence of keys is not proof of UNIQUE/CHECK validity; normal sample checks
+    and the atomic write transaction remain mandatory.
+    """
+    if schema["dialect"] != "sqlite":
+        return []
+    tables = {table["name"]: table for table in schema["tables"]}
+    accepted: list[dict[str, Any]] = []
+    for group in groups:
+        internal = [
+            source
+            for source in sources
+            if source["table"] != source["source_table"]
+            and source["table"] in group
+            and source["source_table"] in group
+        ]
+        if any(
+            association.source_table in group and group.intersection(association.target_tables)
+            for association in config.associations
+        ):
+            continue
+        if internal and all(_single_existing_source(source, tables) for source in internal):
+            accepted.extend(internal)
+    return accepted
+
+
+def read_source_values(
+    orch: DataOrchestrator, table: str, columns: list[str], *, limit: int = 10000
+) -> list[dict[str, Any]]:
+    """Read a bounded, ordered set of distinct non-NULL source tuples without writing.
+
+    Ordinary source checks retain their 10,000-row budget; cycle freezing can
+    request the larger Core FK budget without expanding every metadata check.
+    """
+    if isinstance(limit, bool) or not isinstance(limit, int) or limit < 1:
+        raise ValueError("Source query limit must be a positive integer")
+    quoted = [quote_identifier(column) for column in columns]
+    return orch.query(
+        f"SELECT DISTINCT {', '.join(quoted)} FROM {quote_identifier(table)} "
+        f"WHERE {' AND '.join(f'{column} IS NOT NULL' for column in quoted)} "
+        f"ORDER BY {', '.join(quoted)} LIMIT {limit}"
+    )
+
+
+@dataclass(frozen=True)
+class _CyclePool:
+    """Bind a captured parent-key sample to its exact referenced table and column."""
+
+    table: str
+    column: str
+    values: list[Any]
+
+
+class _ExistingSourceRelationResolver(RelationResolver):
+    """Keep accepted single-column cycle edges on their pre-insert parent pool."""
+
+    cycle_pools: dict[tuple[str, str], _CyclePool] | None = None
+
+    def resolve_foreign_keys(
+        self, table_name: str, specs: dict[str, GeneratorSpec], unique_columns: set[str] | None = None
+    ) -> dict[str, GeneratorSpec]:
+        """Apply Core rules, then pin accepted cycle sources without replacing an explicit rule target."""
+        resolved = super().resolve_foreign_keys(table_name, specs, unique_columns=unique_columns)
+        # Accepted columns belong to exactly one single-column FK, so subsequent
+        # composite-FK resolution cannot replace these validated sources.
+        for (table, column), pool in (self.cycle_pools or {}).items():
+            if table != table_name:
+                continue
+            spec = resolved[column]
+            if (
+                not pool.values
+                or spec.generator_name != "foreign_key"
+                or spec.params.get("ref_table") != pool.table
+                or spec.params.get("ref_column") != pool.column
+            ):
+                raise ValueError(tr("backend.workbench_runtime.cycle_source_rules_not_supported"))
+            spec.params["_ref_values"] = list(pool.values)
+        return resolved
+
+
+class ExistingSourceOrchestrator(DataOrchestrator):
+    """Internal Web session; use ``for_config`` to install its FK source policy."""
+
+    @classmethod
+    def for_config(cls, config: GeneratorConfig) -> ExistingSourceOrchestrator:
+        """Install the cycle policy before connection setup while preserving Core associations and caches."""
+        orchestrator = cls.from_config(config)
+        if not isinstance(orchestrator, cls):
+            raise TypeError("Configured orchestrator type was not preserved")
+        # Compose before connecting or warming metadata caches. Keep the adapter,
+        # shared pool and configured associations used by all other Core paths.
+        relation = _ExistingSourceRelationResolver(orchestrator.database_adapter, orchestrator._shared_pool)
+        relation.set_associations(config.associations)
+        orchestrator._core.relation = relation
+        return orchestrator
+
+    def __enter__(self) -> Self:
+        """Open Core resources and preserve the configured session type for the context body."""
+        super().__enter__()
+        return self
+
+    def pin_cycle_sources(self, sources: list[dict[str, Any]]) -> None:
+        """Freeze accepted FK pools before inserts, using Core's 100,000-parent-key sampling budget."""
+        relation = self._relation
+        if not isinstance(relation, _ExistingSourceRelationResolver):
+            raise TypeError("Existing-source sessions require for_config")
+        relation.cycle_pools = {}
+        for source in sources:
+            column = source["source_columns"][0]
+            rows = read_source_values(self, source["source_table"], [column], limit=100000)
+            relation.cycle_pools[(source["table"], source["column"])] = _CyclePool(
+                source["source_table"], column, [row[column] for row in rows]
+            )

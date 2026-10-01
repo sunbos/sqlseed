@@ -128,7 +128,7 @@ INSERT INTO stock_movements VALUES (1, 1, 1, NULL, -2), (2, 1, NULL, 1, 1);
 SUGGESTED_TABLES = ["sales_orders", "order_items", "payments", "shipments", "shipment_items"]
 
 
-def create_database(path: Path) -> None:
+def create_database(path: Path, *, seed_cycles: bool = True) -> None:
     """Create only a new fixture file; never overwrite an existing database."""
     if path.exists():
         raise FileExistsError(path)
@@ -136,6 +136,19 @@ def create_database(path: Path) -> None:
         connection = cleanup.enter_context(closing(sqlite3.connect(path)))
         cleanup.enter_context(connection)
         connection.executescript(DDL)
+        if not seed_cycles:
+            # Keep a genuine missing-source cycle for blocked-scope UI regression.
+            connection.executescript("""
+                UPDATE suppliers SET contact_id=NULL;
+                UPDATE warehouses SET manager_id=NULL;
+                UPDATE purchase_orders SET requested_by=NULL, approved_by=NULL;
+                UPDATE receipts SET received_by=NULL;
+                UPDATE sales_orders SET owner_id=NULL;
+                UPDATE departments SET manager_id=NULL, parent_id=NULL;
+                UPDATE employees SET department_id=NULL, manager_id=NULL;
+                DELETE FROM employees;
+                DELETE FROM departments;
+            """)
         if violations := connection.execute("PRAGMA foreign_key_check").fetchall():
             raise RuntimeError(f"Fixture has invalid foreign keys: {violations}")
 
@@ -184,6 +197,7 @@ def export_checks(path: Path, schema: dict[str, Any], cases: dict[str, list[str]
                 )
                 response.raise_for_status()
                 result = response.json()
+                result["issues"].sort(key=lambda issue: issue["severity"] != "error")
                 results[name] = {
                     "selected": selected,
                     **{key: result[key] for key in ("ok", "issues", "order", "sources")},

@@ -131,7 +131,8 @@ for(const legacy of [false,true])for(const dialect of ['sqlite','postgresql'])te
   assert.match(card.textContent,/departments\.manager_id 引用 employees\.id/);
   assert.match(card.textContent,/employees\.department_id 引用 departments\.id/);
   assert.match(card.textContent,/取消勾选：departments、employees、tenants/);
-  assert.match(card.textContent,/当前工作台无法完成这个目标/);
+  assert.match(card.textContent,/当前工作台无法从空表重建这个循环/);
+  assert.match(card.textContent,/SQLite 已有父键满足检查时可保留记录并追加/);
   assert.match(card.textContent,dialect==='sqlite' ? /核对其余表的清空计划.*新的规则与清空检查结果为准/ : /PostgreSQL.*仅支持追加.*清空重建需要数据库工具/);
   assert.doesNotMatch(card.textContent,/其余表仍可选择清空后生成/);
   assert.notEqual(panel.querySelector('.inspector-actions').getAttribute('hidden'),null);
@@ -140,6 +141,8 @@ for(const legacy of [false,true])for(const dialect of ['sqlite','postgresql'])te
   ui.context.setLanguage('en');
   assert.match(card.textContent,/departments\.manager_id references employees\.id/);
   assert.match(card.textContent,/does not change the scope/);
+  assert.match(card.textContent,/cannot rebuild this cycle from empty tables/);
+  assert.match(card.textContent,/SQLite append can retain existing records when parent-key checks pass/);
   assert.match(card.textContent,dialect==='sqlite' ? /Execution still requires.*checks to pass/ : /append only for PostgreSQL.*will not be switched automatically/);
   ui.context.setLanguage('zh-CN');
   await ui.button('查看 departments.manager_id 字段信息',card).click();

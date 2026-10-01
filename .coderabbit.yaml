@@ -1,0 +1,45 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: zh-CN
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary_in_walkthrough: true
+  in_progress_fortune: false
+  poem: false
+  auto_review:
+    enabled: true
+    auto_incremental_review: true
+    drafts: false
+  path_instructions:
+    - path: "**/*"
+      instructions: >-
+        Read the root and applicable directory AGENTS.md before reviewing.
+        Prioritize reproducible correctness, data integrity, security, resource
+        lifecycle, and missing behavioral coverage. Explain the trigger and
+        consequence of each finding. Verify historical limitations against the
+        current implementation; distinguish unsupported capabilities and
+        unexecuted external-service tests from confirmed defects.
+    - path: "src/sqlseed/**"
+      instructions: >-
+        Keep core offline and independent of plugins. Preserve streaming, quoted
+        SQL identifiers, transaction safety, foreign-key integrity, and explicit
+        resource cleanup. Check ARCHITECTURE.md and CLAUDE.md for boundaries.
+    - path: "plugins/sqlseed-web/**"
+      instructions: >-
+        Check preview and write-plan consistency, stale connection/configuration
+        handling, append versus clear semantics, and failure atomicity. Ensure
+        unsupported database plans explain the reason in both UI languages.
+    - path: "**/test_*.py"
+      instructions: >-
+        Require assertions on observable behavior using isolated real databases.
+        Service absence may skip a test, but execution failures after a service
+        was selected must fail. Do not replace real-service acceptance with mocks.
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - "**/AGENTS.md"
+      - "CLAUDE.md"
+      - "ARCHITECTURE.md"
+chat:
+  auto_reply: false

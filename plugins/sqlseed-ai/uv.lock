@@ -1673,7 +1673,7 @@ requires-dist = [
     { name = "hypothesis", marker = "extra == 'dev'", specifier = ">=6.100" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0,<2" },
     { name = "networkx", specifier = ">=3.0" },
-    { name = "openai", specifier = ">=1.0" },
+    { name = "openai", specifier = ">=1.55.3" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0" },
