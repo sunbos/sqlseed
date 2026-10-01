@@ -36,7 +36,7 @@ runs:
         # The fingerprint is published in Codecov's CLI integrity-checking guide.
         # The URL matches the pinned codecov-action v7 verification source.
         expected=27034E7FDB850E0BBC2C62FF806BB28AED779869
-        curl --fail --silent --show-error --location --retry 3 \
+        curl --proto '=https' --proto-redir '=https' --fail --silent --show-error --location --retry 3 \
           https://keybase.io/codecovsecops/pgp_keys.asc -o "$key_home/codecov.asc"
         fingerprints="$(gpg --homedir "$key_home" --batch --with-colons \
           --import-options show-only --import "$key_home/codecov.asc" \

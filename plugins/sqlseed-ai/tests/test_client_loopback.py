@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from .http_helpers import quiet_http_log, send_json_response
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
     from pathlib import Path
@@ -29,6 +31,8 @@ def fixture_completion_server() -> Iterator[tuple[int, list[str]]]:
     requests: list[str] = []
 
     class Handler(BaseHTTPRequestHandler):
+        log_message = quiet_http_log
+
         def do_POST(self) -> None:
             requests.append(self.path)
             payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -44,15 +48,7 @@ def fixture_completion_server() -> Iterator[tuple[int, list[str]]]:
                 "model": payload["model"],
                 "choices": [{"index": 0, "message": {"role": "assistant", "content": "local reply"}}],
             }
-            body = json.dumps(result).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def log_message(self, *args: object) -> None:
-            pass
+            send_json_response(self, result)
 
     with ThreadingHTTPServer(("127.0.0.1", 0), Handler) as server:
         worker = Thread(target=server.serve_forever, daemon=True)

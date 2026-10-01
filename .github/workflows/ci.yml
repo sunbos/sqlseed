@@ -22,7 +22,7 @@ env:
 jobs:
   # ── Fast gate: lint + type check + layer contracts (~45s) ────
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -54,7 +54,7 @@ jobs:
   # Exercise the distributions users install, including sdist-to-wheel builds.
   packages:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -97,7 +97,7 @@ jobs:
   # ── Core tests: Linux × {3.10, 3.12, 3.13} ─────────────────
   test:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       id-token: write
@@ -175,7 +175,7 @@ jobs:
   # ── Integration tests: PostgreSQL 16 (real DB) ──────────────
   integration:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
 
     services:
@@ -214,7 +214,7 @@ jobs:
   # gaps in the contract matrix before they hit production (Section 12).
   property-tests:
     needs: lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
 
     steps:

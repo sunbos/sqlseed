@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlseed._utils.sql_safe import quote_identifier
-from sqlseed.config.models import GeneratorConfig
+from sqlseed.config.models import ColumnConfig, GeneratorConfig
 from sqlseed.core.orchestrator import DataOrchestrator
 from typing_extensions import Self
 
 from sqlseed_web.messages import message as tr
+
+if TYPE_CHECKING:
+    from sqlseed.core.orchestrator._specs import ResolvedSpecs
 
 
 def dependency_layers(dependencies: dict[str, set[str]]) -> tuple[list[str], list[list[str]]]:
@@ -170,11 +173,11 @@ class ExistingSourceOrchestrator(DataOrchestrator):
         table_name: str,
         count: int,
         columns: dict[str, Any] | None,
-        column_configs: list[Any] | None,
+        column_configs: list[ColumnConfig] | None,
         enrich: bool,
         *,
         clear_before: bool = False,
-    ) -> tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]:
+    ) -> ResolvedSpecs:
         resolved = super()._resolve_specs(table_name, count, columns, column_configs, enrich, clear_before=clear_before)
         for (table, column), pool in (self.cycle_pools or {}).items():
             if table != table_name:
