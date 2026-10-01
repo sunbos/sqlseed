@@ -11,7 +11,7 @@
 | 依赖锁更新方法及平台限制 | [DEPENDENCIES.md](DEPENDENCIES.md) |
 | 源码事实同步 | [doc-sync.yml](workflows/doc-sync.yml) |
 | PyPI 构建、上传、正式发行验收 | [publish.yml](workflows/publish.yml)、[发布指南](../docs/releasing.md) |
-| GitHub Pages | [mkdocs-deploy.yml](workflows/mkdocs-deploy.yml) |
+| GitHub Pages | [mkdocs-deploy.yml](workflows/mkdocs-deploy.yml)、[部署维护说明](PAGES.md) |
 
 ## 依赖与测试
 
@@ -31,6 +31,7 @@
 
 - `codex/` 分支 push 不在当前 CI push filters 中，向 main 的 PR 会触发 CI。PR 上 `docs` 部署被跳过是预期行为，strict MkDocs 构建仍由 lint job 执行。
 - main 的 Pages 部署依赖 lint、测试矩阵、兼容性、集成、property-tests 和 packages 全部成功；保持 reusable workflow 与 `github-pages` environment。
+- Pages 使用固定正式版本的 `actions/github-script` 调用官方 REST API，校验上传制品属于当前仓库、运行与提交，保留 OIDC。部署逻辑修改需运行 `node --test tests/test_deploy_pages.cjs`；CI 在部署所用的官方 Node 24 runtime 中执行同一组测试。不要打印可能含 OIDC 请求体的 SDK 异常。
 - PyPI 使用同一 `pypi` environment 发布五个 distribution；不要为了包名不同重新拆出 environment。Trusted Publisher 的 owner/repository/workflow/environment 必须与实际发布身份一致。
 - 发布只使用已解析 tag 对应的确定 commit；构建、测试与上传不得混用移动的 main。保持固定 action SHA、最小权限和现有 attestation 检查。
 - 五包上传后必须检查 `verify-public` 及其 `public-pypi-acceptance` artifact；手动重验已有版本使用 workflow 的验证选项，不改写 tag 或尝试覆盖 PyPI 已有文件。

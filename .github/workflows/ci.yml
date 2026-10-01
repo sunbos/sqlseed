@@ -48,6 +48,17 @@ jobs:
       - name: Web frontend regressions (Node built-in test runner)
         run: node --test plugins/sqlseed-web/tests/test_*.cjs
 
+      - name: Pages deployment regressions (official Node 24 runtime)
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0
+        with:
+          retries: 0
+          debug: false
+          script: |
+            const {execFileSync} = require('node:child_process');
+            execFileSync(process.execPath, ['--test', 'tests/test_deploy_pages.cjs'], {
+              stdio: 'inherit'
+            });
+
       - name: Build maintained documentation
         run: mkdocs build --strict
 
@@ -236,6 +247,7 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [lint, test, test-compat, integration, property-tests, packages]
     permissions:
+      actions: read
       contents: read
       pages: write
       id-token: write
