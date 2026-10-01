@@ -1,5 +1,7 @@
 # 2026 年 10 月 1 日质量核验
 
+后续扫描核验更新至 2026 年 10 月 2 日。
+
 本记录核验 [PR #26](https://github.com/sunbos/sqlseed/pull/26) 的生成行为和质量检查。该 PR 尚未合并；完整收口仍需最新提交的远端扫描和外部服务配置。本文保留具体提交与实测边界，不能由通过的门禁推定所有工具均为零警告。
 
 ## 数据库生成范围
@@ -50,11 +52,11 @@ CodeRabbit 指出的覆盖率上传签名者问题已复现：旧隔离 keyring 
 
 ## 外部扫描与待完成事项
 
-- [提交 `f071b5a` 的 CodeFlow 扫描](https://app.getcodeflow.com/github/sunbos/sqlseed/commits/f071b5a468314d3034631ce7f14fea46dcf1109f) 状态为 “Good job! No issues.”，结果页面没有问题条目。已删除 Web 的整段规格解析覆写，并共享测试中的 HTTP 格式拒绝处理，保留全部参数化范围与断言；协议回归 82 项全部通过、零 warnings。此结论仅对应明确提交，后续提交仍须重新核验。
-- 提交 `f071b5a` 的 Sonar quality gate 全部 5 项条件通过，bugs、vulnerabilities、security hotspots、accepted、false positive 均为零，未忽略门禁条件。新增一个 `python:S5778` code smell：异常测试同时构造参数并调用目标方法。参数构造已移到异常断言外，存储模块 34 项回归通过、零 warnings，需新扫描确认问题关闭。对应旧 CE task 为 `AaD3sutPSyzukx0Kc785`，analysis 为 `8b133499-3a51-4f81-a779-1ddea378ba16`。
+- [提交 `f071b5a` 的 CodeFlow 扫描](https://app.getcodeflow.com/github/sunbos/sqlseed/commits/f071b5a468314d3034631ce7f14fea46dcf1109f) 没有问题。后续 `0a2c7fb` 报告 4 条测试代码 warning：重复的循环来源定义两处、docstring 后多余的 `pass`、空列表比较。已共享来源定义并整理两处写法，保留全部输入、事务与真实结果断言；相关两文件 41 项回归通过、零 warnings，独立评审确认无行为改变。这些修正需下一提交的扫描验证，不能用旧扫描代替。
+- 提交 `0a2c7fbaba71f4cb36d470fe6038dd2dc6c8638a` 的 Sonar quality gate 全部 5 项条件通过，unresolved、bugs、vulnerabilities、code smells、security hotspots、accepted、false positive 均为零，未忽略门禁条件。上次 `python:S5778` 问题已由新分析自动关闭为 FIXED；参数构造移到异常断言外后，存储模块 34 项回归通过、零 warnings。对应 CE task 为 `AaD4PN7NkzE-XXy71v0c`，analysis 为 `00710b03-ea0f-476a-9462-765bd87d07e0`。
 - 该 Sonar 分析的 scanner `warningCount` 仍为 1：泛指源文件编码问题。先前 884 个已跟踪文本文件严格 UTF-8 解码通过，19 个二进制文件均验证为正常资产。10 张历史截图实际为 JPEG/JFIF，已将后缀从 `.png` 改为 `.jpg`，逐张哈希不变且没有旧路径引用；修正后的扫描仍然报警，因此不能归因于这些图片，也没有转码或排除正常资产。
 - [Sonar 自动分析](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis) 不提供详细扫描日志且不能与 CI 分析同时启用。CI 迁移草案已准备：固定官方扫描工具、保持扫描范围、复用真实覆盖率并保存任务与门禁证据。启用仍需仓库 `SONAR_TOKEN` 和关闭 Automatic Analysis；本机登录凭据不自动转交 GitHub。迁移不保证编码提醒自动消失。
-- CodeRabbit 已对 `f071b5a` 完成 GitHub 审查，提出上传签名者限制、冻结池上限两项建议，以及函数说明覆盖率 warning。建议按实际代码核验后修正，不能由审查状态 success 推断无问题；新提交还需复查。已为本 PR 涉及的 Python 函数补充职责与不变量说明，纯说明文件通过剥离 docstring 后的 AST 对比确认无行为改变。
+- CodeRabbit 对 `0a2c7fb` 的实际复查没有产生可操作问题，5 项 pre-merge checks 通过，函数说明覆盖率为 86.55%，超过原有 80% 门槛。上轮签名者问题已自动关闭；新报告确认冻结池使用 100,000 上限，旧讨论仍标记为 outdated、尚未自动关闭。已为本 PR 涉及的 Python 函数补充职责与不变量说明，纯说明文件通过剥离 docstring 后的 AST 对比确认无行为改变。后续提交仍须另行复查。
 - 本机另已安装官方 CodeRabbit Windows CLI 0.8.2，两份可执行文件签名及安装自检通过，但 CLI 仍为 signed out，未运行本机审查或购买订阅。GitHub 报告注明本轮使用 Advanced 套餐内额度；未登录账单页面，不能推定是试用还是付费。[官方套餐说明](https://docs.coderabbit.ai/management/plans)提供长期 Free/OSS 接入，CLI 每人每小时 3 次，超限扩展另行收费。维护者只考虑免费接入，需本人登录并确认套餐及按量计费为 Off，超限时等待额度恢复；GitHub App 与 CLI 是独立接入。
 - 已归档 mutation worktree，已跟踪文件中没有测试数据库、日志或缓存。部分缓存及测试临时目录清理被自动审批以“策略阻止”拒绝，相关文件保留；不能宣称所有临时文件均已清理。
 

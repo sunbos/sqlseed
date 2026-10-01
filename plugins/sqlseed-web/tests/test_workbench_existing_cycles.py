@@ -29,6 +29,16 @@ def _document(names: list[str], count: int = 3) -> dict:
     }
 
 
+def _pin_pair_cycle_sources(orch: ExistingSourceOrchestrator) -> None:
+    """Freeze reciprocal a/b foreign keys using the session's existing parent values."""
+    orch.pin_cycle_sources(
+        [
+            {"table": "a", "column": "b_id", "source_table": "b", "source_columns": ["id"]},
+            {"table": "b", "column": "a_id", "source_table": "a", "source_columns": ["id"]},
+        ]
+    )
+
+
 @pytest.fixture(name="all_table_configuration")
 def fixture_all_table_configuration(tmp_path: Path) -> Iterator[tuple[Connection, Path, dict, dict]]:
     """Own a seeded commerce database and close its registered connection after each acceptance test."""
@@ -319,12 +329,7 @@ def test_cycle_policy_preserves_keyword_specs_fresh_foreign_keys_and_association
         }
     )
     with ExistingSourceOrchestrator.for_config(config) as orch, orch.database_adapter.transaction():
-        orch.pin_cycle_sources(
-            [
-                {"table": "a", "column": "b_id", "source_table": "b", "source_columns": ["id"]},
-                {"table": "b", "column": "a_id", "source_table": "a", "source_columns": ["id"]},
-            ]
-        )
+        _pin_pair_cycle_sources(orch)
         specs, _, _, _ = orch._resolve_specs(
             table_name="a", count=3, columns=None, column_configs=None, enrich=False, clear_before=False
         )
@@ -393,12 +398,7 @@ def test_frozen_cycle_pool_includes_parent_keys_beyond_the_metadata_check_limit(
         assert len(checked) == 10000
         assert checked[-1] == {"id": 10000}
         assert read_source_values(orch, "b", ["id"], limit=2) == [{"id": 1}, {"id": 2}]
-        orch.pin_cycle_sources(
-            [
-                {"table": "a", "column": "b_id", "source_table": "b", "source_columns": ["id"]},
-                {"table": "b", "column": "a_id", "source_table": "a", "source_columns": ["id"]},
-            ]
-        )
+        _pin_pair_cycle_sources(orch)
         specs, _, _, _ = orch._resolve_specs("a", parent_count, None, None, False)
         assert specs["b_id"].params["_ref_values"] == list(range(1, parent_count + 1))
         result = orch.fill_table(
@@ -415,7 +415,7 @@ def test_frozen_cycle_pool_includes_parent_keys_beyond_the_metadata_check_limit(
             skip_ai=True,
         )
         assert result.count == parent_count
-        assert result.errors == []
+        assert not result.errors
     with sqlite_connection(path) as db:
         assert db.execute("SELECT DISTINCT b_id FROM a WHERE b_id>10000 ORDER BY b_id").fetchall() == [
             (10001,),

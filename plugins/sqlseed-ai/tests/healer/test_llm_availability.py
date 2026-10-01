@@ -94,7 +94,6 @@ def test_local_probe_bypasses_environment_proxy(monkeypatch: pytest.MonkeyPatch)
 
         def log_message(self, *args: object) -> None:
             """Keep the local protocol fixture silent without filtering application diagnostics."""
-            pass
 
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         monkeypatch.setenv(name, "http://127.0.0.1:1")
