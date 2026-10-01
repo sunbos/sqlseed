@@ -1,6 +1,7 @@
 // Deploy only the artifact produced by this workflow, using the public Pages API.
 // Authentication and HTTP transport are supplied by the pinned official github-script action.
 const {setTimeout: sleep} = require('node:timers/promises');
+const {randomInt} = require('node:crypto');
 
 const MAX_TIMEOUT_MS = 600_000;
 const FINAL_FAILURES = new Set([
@@ -87,7 +88,9 @@ async function pagesToken(core, signal) {
 function requirePagesUrl(value) {
   try {
     const url = new URL(value);
-    if (url.protocol !== 'https:' || url.username || url.password) throw new Error();
+    if (url.protocol !== 'https:' || url.username || url.password) {
+      throw new Error('Pages URLs require HTTPS and cannot contain credentials.');
+    }
     return url.href;
   } catch {
     throw new DeploymentError('GitHub returned an invalid Pages URL.');
@@ -117,7 +120,9 @@ async function pollDeployment(request, core, state, signal, pollIntervalMs) {
   let interval = pollIntervalMs;
   let errorCount = 0;
   while (true) {
-    await sleep(Math.round(interval * (0.8 + Math.random() * 0.4)), undefined, {signal});
+    const minDelay = Math.ceil(interval * 0.8);
+    const maxDelay = Math.min(30_000, Math.floor(interval * 1.2));
+    await sleep(randomInt(minDelay, maxDelay + 1), undefined, {signal});
     interval = Math.min(30_000, Math.round(interval * 1.5));
     let status;
     try {
