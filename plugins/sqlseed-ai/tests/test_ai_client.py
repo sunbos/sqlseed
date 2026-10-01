@@ -39,7 +39,7 @@ class TestGetOpenaiClient:
     def test_get_openai_client_creates_client(self) -> None:
         """Verify get_openai_client(config) creates and returns an OpenAI client."""
         config = AIConfig(api_key="sk-test", model="test-model", base_url="https://api.test.com/v1")
-        with patch("sqlseed_ai._client.OpenAI") as mock_openai_cls:
+        with patch("openai.OpenAI") as mock_openai_cls:
             mock_client = MagicMock()
             mock_openai_cls.return_value = mock_client
             client = get_openai_client(config)
@@ -49,9 +49,9 @@ class TestGetOpenaiClient:
     def test_get_openai_client_passes_correct_kwargs(self) -> None:
         """Verify the OpenAI client receives api_key, base_url, and timeout kwargs."""
         config = AIConfig(api_key="sk-test", model="test-model", base_url="https://api.test.com/v1")
-        with patch("sqlseed_ai._client.OpenAI") as mock_openai_cls:
+        with patch("openai.OpenAI") as mock_openai_cls:
             get_openai_client(config)
         call_kwargs: dict[str, Any] = mock_openai_cls.call_args.kwargs
         assert call_kwargs["api_key"] == "sk-test"
         assert call_kwargs["base_url"] == "https://api.test.com/v1"
-        assert isinstance(call_kwargs["timeout"], httpx.Timeout)
+        assert call_kwargs["timeout"].as_dict() == httpx_timeout(config.resolve_timeout()).as_dict()

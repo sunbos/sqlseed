@@ -46,6 +46,7 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - `SchemaAnalyzer` 是 mixin 组合的 package：`_caller.py` 管请求与模型 fallback，`_streaming.py` 管流式分派，`_tool_calling.py` 管协议，`_context.py` 管上下文，`_json_parser.py` 管解析和分析入口。修改放入对应职责文件。
 - 单表上下文明确要求一个 JSON 对象且只配置请求表，保留标识符原文；数据库中的其他表名仅作参考，不扩张输出范围。该提示不能替代响应与缓存的目标身份校验。
 - OpenAI client 与异常类型统一通过 [_client.py](_client.py)；不要在 `analyzer/` 直接导入 `openai` 或重复构造 timeout。环境默认配置走 `AIConfig.from_env()`。
+- `_client.build_openai_client()` 由 analyzer 与 runtime 工厂共用；仅对明确的 loopback host（`localhost`、回环 IPv4/IPv6 地址）挂载直连路由。保留环境 TLS CA、远程代理和 SDK 默认连接池/重定向设置，不通过全局 `NO_PROXY` 或 `trust_env=False` 改变其它服务。
 - `AIConfig.resolve_*()` 返回解析值，不能改写公开配置字段；调用方必须使用返回值。`timeout=0` 和 `max_tokens=0` 表示自动解析，不能作为真实请求的零预算。
 - `gemma4` 协议仅 Google AI Studio 支持；`openai` 支持 Google AI Studio / OpenAI-compatible；LM Studio / Ollama 或不支持的请求协议回退 `none`。两个工具协议共用 [_tools.py](_tools.py) 的 `GEMMA_TOOLS`。
 - 工具调用失败回退 JSON / text；非结构化 LLM 文本交给 [_json_utils.py](_json_utils.py) 的 `parse_json_response()`，保留 channel / fence / raw-decode 兼容处理。

@@ -19,7 +19,7 @@ from .complex_graph_fixture import create_database, export_checks, export_schema
 
 def test_business_graph_snapshot_matches_the_real_http_schema_and_checks(tmp_path: Path) -> None:
     path = tmp_path / "business.sqlite3"
-    create_database(path)
+    create_database(path, seed_cycles=False)
     schema = export_schema(path)
     checks = export_checks(path, schema)
     expected = json.loads(Path(__file__).with_name("complex_business_graph.json").read_text(encoding="utf-8"))
@@ -28,7 +28,7 @@ def test_business_graph_snapshot_matches_the_real_http_schema_and_checks(tmp_pat
     assert len(schema["edges"]) == 55
     assert checks["fulfillment"]["ok"]
     assert checks["composite"]["ok"]
-    issue = checks["cycles"]["issues"][0]
+    issue = next(issue for issue in checks["cycles"]["issues"] if issue["code"] == "cross_table_cycle")
     assert issue["code"] == "cross_table_cycle"
     assert issue["tables"] == ["departments", "employees"]
     assert len(issue["edge_ids"]) == 2
@@ -42,12 +42,12 @@ def test_business_graph_snapshot_matches_the_real_http_schema_and_checks(tmp_pat
         assert connection.execute("SELECT count(*) FROM sales_orders").fetchone() == (1,)
         assert connection.execute("SELECT count(*) FROM stock_movements").fetchone() == (2,)
     with pytest.raises(FileExistsError):
-        create_database(path)
+        create_database(path, seed_cycles=False)
 
 
 def test_missing_composite_source_identifies_the_exact_target_column_group(tmp_path: Path) -> None:
     path = tmp_path / "empty-bins.sqlite3"
-    create_database(path)
+    create_database(path, seed_cycles=False)
     with sqlite_connection(path) as connection:
         connection.execute("PRAGMA foreign_keys=ON")
         connection.executescript("""
@@ -73,7 +73,7 @@ def test_selecting_all_tables_retains_the_exact_cycle_without_writing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endpoint: str
 ) -> None:
     path = tmp_path / "all-selected.sqlite3"
-    create_database(path)
+    create_database(path, seed_cycles=False)
     schema = export_schema(path)
     selected = [table["name"] for table in schema["tables"]]
     assert len(selected) == 26
@@ -100,8 +100,9 @@ def test_selecting_all_tables_retains_the_exact_cycle_without_writing(
             response.raise_for_status()
             result = response.json()
         assert result["ok"] is False
-        assert len(result["issues"]) == 1
-        issue = result["issues"][0]
+        errors = [issue for issue in result["issues"] if issue["severity"] == "error"]
+        assert len(errors) == 1
+        issue = errors[0]
         assert issue["severity"] == "error"
         assert issue["code"] == "cross_table_cycle"
         assert issue["tables"] == ["departments", "employees"]
@@ -129,10 +130,11 @@ def test_selecting_all_tables_retains_the_exact_cycle_without_writing(
 
 def test_multiple_cycles_report_only_internal_edges_not_bridges_or_descendants(tmp_path: Path) -> None:
     path = tmp_path / "two-cycles.sqlite3"
-    create_database(path)
+    create_database(path, seed_cycles=False)
     with sqlite_connection(path) as connection:
         connection.execute("ALTER TABLE returns ADD COLUMN refund_id INTEGER REFERENCES refunds(id)")
         connection.execute("ALTER TABLE returns ADD COLUMN approved_by INTEGER REFERENCES employees(id)")
+        connection.execute("DELETE FROM refunds")
     schema = export_schema(path)
     selected = ["departments", "employees", "suppliers", "returns", "refunds", "return_items"]
     result = export_checks(path, schema, {"two": selected})["two"]
@@ -153,7 +155,7 @@ def test_retaining_cycle_and_upstream_removes_only_the_cycle_not_remaining_clear
     from sqlseed_web.workbench_runtime import bind_document, check_document
 
     path = tmp_path / "cycle-recovery.sqlite3"
-    create_database(path)
+    create_database(path, seed_cycles=False)
     schema = export_schema(path)
     selected = ["addresses", "departments", "employees", "tenants"]
     checks = export_checks(path, schema, {"original": selected, "retained": ["addresses"]})
@@ -183,7 +185,7 @@ def test_retaining_cycle_and_upstream_removes_only_the_cycle_not_remaining_clear
     finally:
         registry.close_connection(connection.conn_id)
     with sqlite_connection(path) as db:
-        assert db.execute("SELECT manager_id FROM departments").fetchall() == [(1,)]
-        assert db.execute("SELECT department_id FROM employees").fetchall() == [(1,)]
+        assert db.execute("SELECT manager_id FROM departments").fetchall() == []
+        assert db.execute("SELECT department_id FROM employees").fetchall() == []
         assert db.execute("SELECT count(*) FROM addresses").fetchone() == (1,)
         assert db.execute("PRAGMA foreign_key_check").fetchall() == []

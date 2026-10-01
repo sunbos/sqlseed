@@ -15,24 +15,20 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import pytest
+import yaml
 
-# Optional sqlseed-ai[mcp] / openai / mcp SDK imports. The try/except block
-# is the standard pytest pattern for optional test deps — pylint exempts
-# imports inside try/except from wrong-import-position/wrong-import-order.
-# ``sqlseed_ai.mcp`` itself imports the optional ``mcp`` SDK, so a single
-# try/except covers both ``sqlseed_ai`` and ``mcp`` availability.
+# Only absent optional top-level packages may skip collection. A missing
+# internal module or required SDK means the installed environment is broken.
 try:
-    from sqlseed_ai.config import AIConfig
     from sqlseed_ai.mcp import (
         sqlseed_ai_generate_yaml,
         sqlseed_gemma4_agent_fill,
         sqlseed_gemma4_analyze,
         sqlseed_list_gemma_models,
     )
-except ImportError:
-    # pytest.skip with allow_module_level=True raises NoReturn — mypy
-    # understands the except branch does not fall through. No
-    # importorskip + wrong-import-position disable needed.
+except ModuleNotFoundError as exc:
+    if exc.name not in {"sqlseed_ai", "mcp"}:
+        raise
     pytest.skip("sqlseed-ai[mcp] not installed", allow_module_level=True)
 
 import httpx
@@ -43,13 +39,6 @@ from tests.sqlite_helpers import sqlite_connection
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
-
-
-def _ai_available() -> bool:
-    try:
-        return AIConfig.from_env().has_real_api_key
-    except ImportError:
-        return False
 
 
 @pytest.fixture(name="no_ai_requests")
@@ -149,16 +138,22 @@ class TestAiMcpTools:
         assert "error" in result
         assert "Invalid database target" in result["error"]
 
-    @pytest.mark.skipif(not _ai_available(), reason="sqlseed-ai API key not configured")
-    def test_sqlseed_ai_generate_yaml_real_llm(self, test_db: str, available_llm_backend: dict[str, str]) -> None:
+    @pytest.mark.integration
+    def test_sqlseed_ai_generate_yaml_real_llm(
+        self, test_db: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """generate_yaml with a real LLM call returns valid YAML."""
         backend = available_llm_backend["backend"]
         model = available_llm_backend["model"]
+        configure_llm_backend_env(monkeypatch, backend, model)
         result = sqlseed_ai_generate_yaml(test_db, "users", max_retries=1, model=model, backend=backend)
         assert isinstance(result, str)
         assert not result.startswith("#"), f"generate_yaml failed: {result[:200]}"
+        config = yaml.safe_load(result)
+        assert isinstance(config, dict)
+        assert [table["name"] for table in config["tables"]] == ["users"]
 
-    @pytest.mark.skipif(not _ai_available(), reason="sqlseed-ai API key not configured")
+    @pytest.mark.integration
     def test_sqlseed_gemma4_analyze_real_llm(
         self, test_db: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -170,10 +165,10 @@ class TestAiMcpTools:
 
         result = sqlseed_gemma4_analyze(test_db, "users", model=model, backend=backend)
         assert "error" not in result, f"gemma4_analyze returned an error: {result.get('error', '')}"
-        if "config" in result:
-            assert result["config"] is not None
+        assert result["table_name"] == "users"
+        assert isinstance(result["config"], dict) and result["config"]
 
-    @pytest.mark.skipif(not _ai_available(), reason="sqlseed-ai API key not configured")
+    @pytest.mark.integration
     def test_sqlseed_gemma4_agent_fill_real_llm(
         self, test_db: str, available_llm_backend: dict[str, str], monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -187,3 +182,7 @@ class TestAiMcpTools:
         assert "table_name" in result, f"gemma4_agent_fill missing table_name: {result}"
         assert "error" not in result, f"gemma4_agent_fill returned an error: {result.get('error', '')}"
         assert result["table_name"] == "users"
+        assert result["count"] == 10
+        assert not result["errors"]
+        with sqlite_connection(test_db) as connection:
+            assert connection.execute("SELECT COUNT(*) FROM users").fetchone() == (10,)

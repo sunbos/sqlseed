@@ -135,6 +135,10 @@ explicit backend, then known URL patterns, then OpenAI-compatible behavior. It d
 not probe every service as a fallback chain. The `tool_calling_protocol` setting and
 its resolver choose the response protocol; a model name alone is insufficient.
 
+AI requests to `localhost` and loopback IP addresses connect directly even when
+an HTTP proxy is configured. Remote services keep the environment proxy settings;
+`SSL_CERT_FILE` and `SSL_CERT_DIR` remain effective for HTTPS certificate validation.
+
 For Python callers, `SchemaAnalyzer.call_llm(..., strict_json=True)` and
 `call_llm_streaming(..., strict_json=True)` distinguish empty replies, invalid JSON,
 and output-limit truncation using content-free `JSONResponseError.code` values.
@@ -161,7 +165,7 @@ when developing from source.
 - Python `>=3.10`
 - `sqlseed>=0.2.5.dev0,<0.3`
 - `sqlseed-cli>=0.2.4.dev0,<0.3`
-- `openai>=1.0`
+- `openai>=1.55.3` (SDK transport defaults with HTTPX 0.28 compatibility)
 - `httpx>=0.24.0`
 - `networkx>=3.0`
 - Optional `mcp` extra: `mcp>=1.0,<2`

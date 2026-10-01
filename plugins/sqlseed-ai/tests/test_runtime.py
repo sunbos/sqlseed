@@ -82,7 +82,7 @@ def test_runtime_client_uses_selected_backend_and_parses_completion(
         body = json.loads(request.content)
         assert body["model"] == "requested-model"
         assert body["max_tokens"] == 17
-        assert request.extensions["timeout"]["read"] == 75
+        assert request.extensions["timeout"] == {"connect": 75, "read": 75, "write": 75, "pool": 75}
         return httpx.Response(
             200,
             json={
@@ -94,14 +94,14 @@ def test_runtime_client_uses_selected_backend_and_parses_completion(
             },
         )
 
-    monkeypatch.setattr(
-        openai,
-        "OpenAI",
-        lambda **kwargs: sdk_client(
-            **kwargs,
-            http_client=httpx.Client(transport=httpx.MockTransport(completion), trust_env=False),
-        ),
-    )
+    def fixed_completion_client(**kwargs):
+        if owned_client := kwargs.pop("http_client", None):
+            owned_client.close()
+        return sdk_client(
+            **kwargs, http_client=httpx.Client(transport=httpx.MockTransport(completion), trust_env=False)
+        )
+
+    monkeypatch.setattr(openai, "OpenAI", fixed_completion_client)
     client = runtime.build_llm_client(config)
     try:
         result = client.chat_completions_create(

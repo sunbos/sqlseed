@@ -1,0 +1,219 @@
+"""Existing-key cycles append atomically without inventing or backfilling keys."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from tests.sqlite_helpers import sqlite_connection
+
+from sqlseed_web.state import UIState
+from sqlseed_web.workbench_execution import build_execution_plan
+from sqlseed_web.workbench_runtime import bind_document, check_document
+from sqlseed_web.workbench_schema import inspect_connection
+
+from .complex_graph_fixture import create_database
+from .test_workbench_execution import prepared
+from .test_workbench_runtime import run_plan
+
+
+def _document(names: list[str], count: int = 3) -> dict:
+    return {
+        "provider": "base",
+        "tables": [{"name": name, "count": count, "seed": 31, "batch_size": 2} for name in names],
+    }
+
+
+def test_all_26_tables_append_with_existing_cycle_keys_and_valid_foreign_keys(tmp_path: Path) -> None:
+    path = tmp_path / "commerce.db"
+    create_database(path)
+    registry = UIState()
+    conn = registry.add_connection(str(path), provider="base")
+    try:
+        schema = inspect_connection(conn)
+        document = _document([table["name"] for table in schema["tables"]])
+        checked = check_document(conn, document, schema["schema_hash"], preview=True)
+        assert checked["ok"], checked["issues"]
+        assert len(checked["order"]) == 26
+        assert len(checked["samples"]) == 26
+        assert {row["manager_id"] for row in checked["samples"]["departments"]} <= {None, 1}
+        assert {row["department_id"] for row in checked["samples"]["employees"]} <= {None, 1}
+        assert conn.orchestrator.get_row_count("departments") == 1
+        plan = build_execution_plan(
+            conn,
+            bind_document(conn, document),
+            schema,
+            checked["order"],
+            {"mode": "append", "reset_identity": False},
+            checked["config_hash"],
+            atomic_append=bool(checked["existing_cycle_sources"]),
+        )
+        assert plan["ok"] and plan["atomic"]
+        run = run_plan(conn, document, tmp_path, timeout=60)
+        assert run["status"] == "done", run
+        assert run["rows_inserted"] == 78
+        assert run["result"] == {"atomic": True, "committed": True, "rolled_back": False}
+        with sqlite_connection(path) as db:
+            assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+            assert db.execute("SELECT count(*) FROM departments").fetchone() == (4,)
+            assert db.execute("SELECT DISTINCT manager_id FROM departments WHERE id>1").fetchall() == [(1,)]
+            assert db.execute("SELECT DISTINCT department_id FROM employees WHERE id>1").fetchall() == [(1,)]
+            assert db.execute("SELECT count(*) FROM stock_movements").fetchone() == (5,)
+    finally:
+        registry.close_connection(conn.conn_id)
+
+
+def test_seeded_cycle_append_does_not_authorize_clearing_or_identity_reset(tmp_path: Path) -> None:
+    path = tmp_path / "clear.db"
+    create_database(path)
+    registry = UIState()
+    conn = registry.add_connection(str(path), provider="base")
+    try:
+        schema = inspect_connection(conn)
+        document = _document([table["name"] for table in schema["tables"]])
+        checked = check_document(conn, document, schema["schema_hash"])
+        assert checked["ok"], checked["issues"]
+        for reset in (False, True):
+            plan = build_execution_plan(
+                conn,
+                bind_document(conn, document),
+                schema,
+                checked["order"],
+                {"mode": "replace_selected", "reset_identity": reset},
+                checked["config_hash"],
+            )
+            assert not plan["ok"]
+            assert any(issue["code"] == "replacement_cycle_not_supported" for issue in plan["issues"])
+        assert conn.orchestrator.get_row_count("departments") == 1
+    finally:
+        registry.close_connection(conn.conn_id)
+
+
+def test_cycle_append_rolls_back_every_batch_and_retains_original_records(tmp_path: Path) -> None:
+    path = tmp_path / "rollback.db"
+    create_database(path)
+    with sqlite_connection(path) as db:
+        db.execute("CREATE TRIGGER reject_employee BEFORE INSERT ON employees BEGIN SELECT RAISE(ABORT, 'reject'); END")
+        before = list(db.iterdump())
+    registry = UIState()
+    conn = registry.add_connection(str(path), provider="base")
+    try:
+        run = run_plan(conn, _document(["departments", "employees"]), tmp_path)
+        assert run["status"] == "error"
+        assert run["rows_inserted"] == 0
+        assert run["row_counts_exact"] is True
+        assert run["result"] == {"atomic": True, "committed": False, "rolled_back": True}
+        assert all(table["rows_inserted"] == 0 for table in run["tables"])
+    finally:
+        registry.close_connection(conn.conn_id)
+    with sqlite_connection(path) as db:
+        assert list(db.iterdump()) == before
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+@pytest.mark.parametrize("required", [False, True])
+def test_empty_cycles_stay_unsupported_without_null_rule_changes(tmp_path: Path, required: bool) -> None:
+    path = tmp_path / "empty.db"
+    constraint = "NOT NULL" if required else ""
+    with sqlite_connection(path) as db:
+        db.executescript(
+            f"CREATE TABLE a (id INTEGER PRIMARY KEY, b_id INTEGER {constraint} REFERENCES b(id));"
+            f"CREATE TABLE b (id INTEGER PRIMARY KEY, a_id INTEGER {constraint} REFERENCES a(id));"
+        )
+    registry = UIState()
+    conn = registry.add_connection(str(path), provider="base")
+    try:
+        schema = inspect_connection(conn)
+        checked = check_document(conn, _document(["a", "b"]), schema["schema_hash"], preview=True)
+        assert not checked["ok"]
+        assert any(issue["code"] == "cross_table_cycle" for issue in checked["issues"])
+        assert conn.orchestrator.get_row_count("a") == 0
+        assert conn.orchestrator.get_row_count("b") == 0
+    finally:
+        registry.close_connection(conn.conn_id)
+
+
+def test_existing_keys_do_not_bypass_unique_foreign_key_capacity(tmp_path: Path) -> None:
+    path = tmp_path / "unique.db"
+    with sqlite_connection(path) as db:
+        db.executescript(
+            "CREATE TABLE a (id INTEGER PRIMARY KEY, b_id INTEGER UNIQUE REFERENCES b(id));"
+            "CREATE TABLE b (id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES a(id));"
+            "INSERT INTO a VALUES(1, NULL); INSERT INTO b VALUES(1, 1); UPDATE a SET b_id=1;"
+        )
+    registry = UIState()
+    conn = registry.add_connection(str(path), provider="base")
+    try:
+        schema = inspect_connection(conn)
+        checked = check_document(conn, _document(["a", "b"]), schema["schema_hash"], sample_max_attempts=50)
+        assert not checked["ok"]
+        assert any(issue["severity"] == "error" for issue in checked["issues"])
+        assert conn.orchestrator.get_row_count("a") == 1
+    finally:
+        registry.close_connection(conn.conn_id)
+
+
+def test_source_changes_after_queuing_reject_before_any_generation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlseed_web import workbench_runtime
+    from sqlseed_web.workbench_store import WorkspaceStore
+
+    path = tmp_path / "changed-source.db"
+    create_database(path)
+    registry = UIState()
+    conn = registry.add_connection(str(path), provider="base")
+    store = WorkspaceStore(tmp_path / "history.db")
+    scheduled: list[dict] = []
+    monkeypatch.setattr(workbench_runtime, "start_background", lambda **kwargs: scheduled.append(kwargs))
+    try:
+        args, _ = prepared(conn, store, _document(["departments", "employees"])["tables"])
+        plan = workbench_runtime.plan_execution(**args, registry=registry, store=store)
+        assert plan["ok"] and plan["atomic"]
+        run = workbench_runtime.start_run(**args, registry=registry, store=store)
+        assert run["atomic_append"] is True
+        with sqlite_connection(path) as db:
+            db.execute("INSERT INTO employees VALUES(2, 1, 1, NULL, 'external insertion')")
+        task = scheduled[0]
+        task["target"](*task["args"], **task["kwargs"])
+        result = store.get_run(run["id"])
+        assert result["status"] == "error"
+        assert result["rows_inserted"] == 0
+        assert all(table["status"] == "not_run" for table in result["tables"])
+        assert conn.orchestrator.get_row_count("departments") == 1
+        assert conn.orchestrator.get_row_count("employees") == 2
+        assert all(job.status != "running" for job in registry.recent_jobs())
+    finally:
+        registry.close_connection(conn.conn_id)
+
+
+@pytest.mark.parametrize("overlapping", [False, True])
+def test_cycle_pinning_never_overrides_a_different_configured_or_physical_source(
+    tmp_path: Path, overlapping: bool
+) -> None:
+    path = tmp_path / "conflicting-source.db"
+    extra = ", FOREIGN KEY(b_id) REFERENCES c(id)" if overlapping else ""
+    with sqlite_connection(path) as db:
+        db.executescript(
+            f"CREATE TABLE a(id INTEGER PRIMARY KEY, b_id INTEGER REFERENCES b(id){extra});"
+            "CREATE TABLE b(id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES a(id));"
+            "CREATE TABLE c(id INTEGER PRIMARY KEY); INSERT INTO c VALUES(1),(999);"
+            "INSERT INTO a VALUES(1,NULL); INSERT INTO b VALUES(1,1); UPDATE a SET b_id=1;"
+        )
+    registry = UIState()
+    conn = registry.add_connection(str(path), provider="base")
+    try:
+        schema = inspect_connection(conn)
+        document = _document(["a", "b"])
+        if not overlapping:
+            document["tables"][0]["columns"] = [
+                {"name": "b_id", "generator": "foreign_key", "params": {"ref_table": "c", "ref_column": "id"}}
+            ]
+        checked = check_document(conn, document, schema["schema_hash"], preview=True)
+        assert not checked["ok"]
+        expected = "cross_table_cycle" if overlapping else "generation_invalid"
+        assert any(issue["code"] == expected for issue in checked["issues"])
+        assert conn.orchestrator.get_row_count("a") == 1
+        assert conn.orchestrator.get_row_count("b") == 1
+    finally:
+        registry.close_connection(conn.conn_id)

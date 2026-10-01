@@ -3382,6 +3382,11 @@ async function reviewClearScope() {
     const result = await send('/api/workbench/check', {conn_id:owner.connId, document:candidate.document, schema_hash:m.schema.schema_hash, count:3});
     if (!valid()) return;
     const errors = (result.issues || []).filter(issue=>issue.severity==='error');
+    if (result.existing_cycle_sources?.length) {
+      const tables = [...new Set(result.existing_cycle_sources.flatMap(source=>[source.table, source.source_table]))];
+      errors.push({severity:'error', code:'replacement_cycle_not_supported', tables,
+        message_key:'backend.workbench_execution.existing_cycle_cannot_clear', message_params:{p1:tables.join(', ')}});
+    }
     const passed = result.ok && !errors.length;
     const issueDetails = errors.map(issue => {
       let prefix = '';
@@ -3586,7 +3591,7 @@ async function summary() {
     updateStatus();
     replaceContent(planInfo, h('p', {
       class: 'wb-muted'
-    }, tr("workbench.execution.appendPlanHelp")));
+    }, result.existing_cycle_sources?.length ? tr('workbench.execution.existingCycle') : tr('workbench.execution.appendPlanHelp')));
   }
   function setStrategyBusy(value) {
     append.disabled = busy || unsupported;

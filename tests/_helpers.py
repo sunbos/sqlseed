@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -53,6 +54,7 @@ _LLM_ENV_VARS: tuple[str, ...] = (
     "SQLSEED_AI_MODEL",
     "SQLSEED_AI_BACKEND",
     "SQLSEED_AI_TIMEOUT",
+    "SQLSEED_AI_TOOL_CALLING_PROTOCOL",
 )
 
 
@@ -82,18 +84,23 @@ def configure_llm_backend_env(
         backend: One of ``"ollama"``, ``"lm_studio"``, ``"google_ai_studio"``.
         model: The model id to set as ``SQLSEED_AI_MODEL``.
     """
+    if backend not in {"ollama", "lm_studio", "google_ai_studio"}:
+        raise ValueError(f"Unsupported backend for configure_llm_backend_env: {backend!r}")
+    google_key = os.environ.get("GOOGLE_API_KEY")
+    clear_llm_env(monkeypatch)
     if backend == "ollama":
         monkeypatch.setenv("SQLSEED_AI_BACKEND", "ollama")
         monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:11434/v1")
+        monkeypatch.setenv("SQLSEED_AI_API_KEY", "ollama")
     elif backend == "lm_studio":
         monkeypatch.setenv("SQLSEED_AI_BACKEND", "lm_studio")
-        monkeypatch.setenv("OPENAI_BASE_URL", "http://localhost:1234/v1")
-        monkeypatch.setenv("OPENAI_API_KEY", "lm-studio")
+        monkeypatch.setenv("SQLSEED_AI_BASE_URL", "http://localhost:1234/v1")
+        monkeypatch.setenv("SQLSEED_AI_API_KEY", "lm-studio")
     elif backend == "google_ai_studio":
         # GOOGLE_API_KEY is provided by the available_llm_backend session fixture.
         monkeypatch.setenv("SQLSEED_AI_BACKEND", "google_ai_studio")
-    else:
-        raise ValueError(f"Unsupported backend for configure_llm_backend_env: {backend!r}")
+        if google_key:
+            monkeypatch.setenv("GOOGLE_API_KEY", google_key)
 
     monkeypatch.setenv("SQLSEED_AI_MODEL", model)
 

@@ -95,7 +95,7 @@ def test_not_null_empty_parent_outside_plan_blocks(connection: Connection) -> No
     assert any(issue["code"] == "missing_parent_source" for issue in result["issues"])
 
 
-def run_plan(conn: Connection, config: dict[str, Any], tmp_path: Path) -> dict[str, Any]:
+def run_plan(conn: Connection, config: dict[str, Any], tmp_path: Path, *, timeout: float = 10) -> dict[str, Any]:
     from sqlseed_web.workbench_runtime import check_document, normalize_document, start_run
     from sqlseed_web.workbench_schema import inspect_connection
     from sqlseed_web.workbench_store import WorkspaceStore
@@ -126,7 +126,7 @@ def run_plan(conn: Connection, config: dict[str, Any], tmp_path: Path) -> dict[s
         registry=registry,
         store=store,
     )
-    deadline = time.monotonic() + 10
+    deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         saved = store.get_run(run["id"])
         if saved["status"] in {"done", "error"} and all(job.status != "running" for job in registry.recent_jobs()):

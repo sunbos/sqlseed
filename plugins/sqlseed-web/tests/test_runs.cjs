@@ -495,3 +495,15 @@ test('run labels and structured diagnostics translate without replacing snapshot
   assert.match(ui.root().querySelector('tbody').textContent, /表 用户表 缺少来源/);
   ui.leave();
 });
+
+
+test('atomic cycle append reports its transaction and rollback without claiming any clearing',async()=>{
+ const run=record('cycle','running',{atomic_append:true,execution:{mode:'append'},rows_inserted:0});
+ const ui=harness({hash:'#/runs?id=cycle',runs:[run]});await ui.mount();
+ assert.match(ui.root().textContent,/正在同一事务中追加/);
+ assert.doesNotMatch(ui.root().textContent,/正在同一事务中清空/);
+ ui.routes.set('/api/workbench/runs/cycle',()=>({...run,status:'error',result:{atomic:true,rolled_back:true,committed:false}}));
+ await ui.fire();
+ assert.match(ui.root().textContent,/本次追加已全部回滚/);
+ assert.doesNotMatch(ui.root().textContent,/本次清空和生成已回滚/);
+});
