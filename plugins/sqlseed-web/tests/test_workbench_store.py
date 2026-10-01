@@ -164,7 +164,9 @@ def test_run_snapshots_are_fixed_while_status_and_progress_change(tmp_path: Path
         store.create_run(duplicate)
 
 
-@pytest.mark.parametrize("field", ["document", "schema_hash", "draft_id", "revision", "target_key", "id", "created_at"])
+@pytest.mark.parametrize(
+    "field", ["document", "schema_hash", "draft_id", "revision", "target_key", "id", "created_at", "atomic_append"]
+)
 def test_run_snapshot_fields_cannot_be_replaced(tmp_path: Path, field: str) -> None:
     from sqlseed_web.workbench_store import WorkspaceStore
 
@@ -173,6 +175,31 @@ def test_run_snapshot_fields_cannot_be_replaced(tmp_path: Path, field: str) -> N
     with pytest.raises(ValueError, match=r"immutable|update|change"):
         store.update_run(created["id"], {field: "tampered"})
     assert store.get_run(created["id"]) == created
+
+
+@pytest.mark.parametrize("atomic_append", [None, 0, 1, "false", "true"])
+def test_invalid_atomic_append_is_rejected_without_persisting_a_run(tmp_path: Path, atomic_append: Any) -> None:
+    from sqlseed_web.workbench_store import WorkspaceStore
+
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    preserved = store.create_run(run_payload(status="done"))
+    with pytest.raises(ValueError, match="atomic_append must be a boolean"):
+        store.create_run(run_payload(atomic_append=atomic_append))
+    assert store.list_runs() == [preserved]
+    assert WorkspaceStore(store.path).list_runs() == [preserved]
+
+
+@pytest.mark.parametrize("atomic_append", [False, True])
+def test_atomic_append_snapshot_survives_restart_and_cannot_change(tmp_path: Path, atomic_append: bool) -> None:
+    from sqlseed_web.workbench_store import WorkspaceStore
+
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    created = store.create_run(run_payload(atomic_append=atomic_append, status="done"))
+    restored = WorkspaceStore(store.path)
+    assert restored.get_run(created["id"])["atomic_append"] is atomic_append
+    with pytest.raises(ValueError, match=r"immutable|update|change"):
+        restored.update_run(created["id"], {"atomic_append": not atomic_append})
+    assert restored.get_run(created["id"]) == created
 
 
 def test_recovery_marks_unfinished_runs_without_guessing_insert_counts(tmp_path: Path) -> None:

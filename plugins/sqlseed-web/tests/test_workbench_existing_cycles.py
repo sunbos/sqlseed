@@ -95,6 +95,60 @@ def test_seeded_cycle_append_does_not_authorize_clearing_or_identity_reset(
     assert conn.orchestrator.get_row_count("departments") == 1
 
 
+@pytest.mark.parametrize(
+    "links,issue_code",
+    [
+        ([("catalog", "orders")], None),
+        ([("catalog", "orders"), ("orders", "catalog")], "replacement_cycle_not_supported"),
+        ([("outside", "catalog"), ("catalog", "orders")], None),
+        ([("catalog", "orders"), ("catalog", "outside")], "external_incoming_association"),
+        ([("catalog", "catalog"), ("catalog", "orders")], None),
+    ],
+    ids=["acyclic", "cycle", "external-source", "external-target", "self-source"],
+)
+def test_replacement_plan_checks_configured_associations_within_the_selected_scope(
+    tmp_path: Path, links: list[tuple[str, str]], issue_code: str | None
+) -> None:
+    path = tmp_path / "associations.db"
+    with sqlite_connection(path) as db:
+        db.executescript(
+            "CREATE TABLE catalog(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL);"
+            "CREATE TABLE orders(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL);"
+            "CREATE TABLE outside(id INTEGER PRIMARY KEY AUTOINCREMENT, code TEXT NOT NULL);"
+            "INSERT INTO catalog VALUES(10,'catalog-original');"
+            "INSERT INTO orders VALUES(20,'orders-original');"
+            "INSERT INTO outside VALUES(30,'outside-original');"
+        )
+        before = list(db.iterdump())
+    registry = UIState()
+    conn = registry.add_connection(str(path), provider="base")
+    try:
+        schema = inspect_connection(conn)
+        document = _document(["catalog", "orders"])
+        document["associations"] = [
+            {"column_name": "code", "source_table": source, "target_tables": [target]} for source, target in links
+        ]
+        checked = check_document(conn, document, schema["schema_hash"], preview=True)
+        if issue_code == "replacement_cycle_not_supported":
+            assert not checked["ok"]
+            assert any(issue["code"] == "cross_table_cycle" for issue in checked["issues"])
+            assert checked["existing_cycle_sources"] == []
+        plan = build_execution_plan(
+            conn,
+            bind_document(conn, document),
+            schema,
+            ["catalog", "orders"],
+            {"mode": "replace_selected", "reset_identity": True},
+            checked["config_hash"],
+        )
+        assert plan["ok"] is (issue_code is None)
+        assert [issue["code"] for issue in plan["issues"]] == ([issue_code] if issue_code else [])
+    finally:
+        registry.close_connection(conn.conn_id)
+    with sqlite_connection(path) as db:
+        assert list(db.iterdump()) == before
+
+
 def test_cycle_append_rolls_back_every_batch_and_retains_original_records(tmp_path: Path) -> None:
     path = tmp_path / "rollback.db"
     create_database(path)

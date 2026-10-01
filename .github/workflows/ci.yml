@@ -185,6 +185,7 @@ jobs:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: testdb
+          POSTGRES_INITDB_ARGS: "--auth-local=scram-sha-256 --auth-host=scram-sha-256"
         ports:
           - 5432:5432
         options: >-
@@ -206,7 +207,9 @@ jobs:
           python-version: "3.12"
 
       - name: Run PostgreSQL integration tests
-        run: pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py -v --tb=short
+        run: >-
+          pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py
+          plugins/sqlseed-web/tests/test_workbench_postgresql_cycles.py -v --tb=short
 
   # ── Property-based tests: contract matrix completeness ──────
   # Runs Hypothesis-based property tests separately because they are
