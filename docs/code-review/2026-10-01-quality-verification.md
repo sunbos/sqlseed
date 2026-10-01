@@ -2,7 +2,7 @@
 
 后续扫描核验更新至 2026 年 10 月 2 日。
 
-本记录核验 [PR #26](https://github.com/sunbos/sqlseed/pull/26) 的生成行为和质量检查。该 PR 尚未合并；Sonar 仍有一条编码扫描告警需要定位。本文保留具体提交与实测边界，不能由通过的门禁推定所有工具均为零警告。继续使用现有自动分析；迁移 CI 或接入 CodeRabbit CLI 均不作为本轮的必经步骤。
+本记录核验 [PR #26](https://github.com/sunbos/sqlseed/pull/26) 的生成行为和质量检查：`c06bca75` 的完整 CI 通过，后续 `bc60d21e` 的 Sonar 扫描确认最后一条编码告警消除，原有受检代码文件全部保留。记录时 PR 尚未合并；检查证据分别对应下文明确列出的提交，后续提交及合并结果以 PR 和对应工作流为准。继续使用现有自动分析；迁移 CI 或接入 CodeRabbit CLI 均不作为本轮的必经步骤。
 
 ## 数据库生成范围
 
@@ -50,13 +50,14 @@ CodeRabbit 指出的覆盖率上传签名者问题已复现：旧隔离 keyring 
 
 本地 mutation gate 的 246 个 mutant 全部被杀死，survived、suspicious、timeout、skipped、untested 均为零；目标源码与两份测试哈希与本轮工作树一致。该定向门禁不能代替完整产品测试。
 
-## 外部扫描与待完成事项
+## 外部扫描与验收边界
 
 - [提交 `c06bca75e50b13b6e57aeff9edac82f4a3477b9e` 的 CodeFlow 扫描](https://app.getcodeflow.com/github/sunbos/sqlseed/commits/c06bca75e50b13b6e57aeff9edac82f4a3477b9e) 返回 “Good job! No issues.”，0 errors、0 warnings。上一提交的 4 条测试代码 warning 已消除：共享重复的循环来源定义，删除 docstring 后多余的 `pass`，整理空列表比较。全部输入、事务与真实结果断言保留；相关两文件 41 项回归通过、零 warnings，独立评审确认无行为改变。
 - 提交 `c06bca75` 的 Sonar quality gate 全部 5 项条件通过，unresolved、bugs、vulnerabilities、code smells、security hotspots、accepted、false positive 均为零，未忽略门禁条件。上次 `python:S5778` 问题已由分析自动关闭为 FIXED；参数构造移到异常断言外后，存储模块 34 项回归通过、零 warnings。对应 CE task 为 `AaD4UDf6ehJTyeFf0bEg`，analysis 为 `dc3d5b85-f5cd-428c-9c92-816dabd21500`。
-- 该 Sonar 分析的 scanner `warningCount` 仍为 1：泛指源文件编码问题。对同一 `c06bca75` 的 904 个 Git blob 重新核验，885 个文本文件严格 UTF-8 解码通过，且无 NUL 或替换字符；其余 19 个文件由实际文件头识别为 PNG、JPEG 或 WOFF2。10 张历史截图的 `.png` 后缀此前已按实际 JPEG/JFIF 格式修正为 `.jpg`，哈希不变；修正后的扫描仍然报警，不能归因于这些图片。该次扫描运行配置本身已明确使用 UTF-8，重复声明相同编码没有修复依据。
-- 后续独立核查了 Sonar 发布的全部文件组件：该 PR 的 19 个和 main 的 324 个组件均不包含上述 19 个二进制资产。依据下述官方已知问题，准备以精确路径将这些图片与字体排除出文本代码扫描；没有排除任何源码、测试、脚本、CI 文件或整个目录。根自动分析配置与项目服务设置保持同一份路径清单，旧项目设置为 UNSET 且已留存回退证据。此范围修正仍需下一次实际自动扫描及代码分析范围对比确认；若告警未消失，恢复原设置而不扩大排除范围。
-- [Sonar 自动分析](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis) 不提供详细扫描日志，不能导入覆盖率，也不能与 CI 分析同时启用。项目已有 Actions 测试和 Codecov，保留这套组合仍可满足当前日常开发检查。CI 迁移草案作为可选诊断方案保留，尚未应用；不要求为了本轮收尾新增 token 或关闭 Automatic Analysis。[官方支持说明](https://community.sonarsource.com/t/where-can-i-find-the-scanner-logs-in-the-sonarqube-cloud-ui/184606/7)也提供另一条路径：凭上述后台任务 ID 查询自动分析日志，确认触发告警的文件。官方记录过 PR 扫描计算变更信息时对二进制识别字符集产生告警的[类似情况](https://community.sonarsource.com/t/suspicious-multiple-warnings-about-encoding-on-binary-files/153706)，但尚无本项目具体文件证据，不能直接宣称误报已确诊或问题已解决。
+- 修复前 `c06bca75` 的 Sonar scanner `warningCount` 为 1：泛指源文件编码问题。对该提交的 904 个 Git blob 重新核验，885 个文本文件严格 UTF-8 解码通过，且无 NUL 或替换字符；其余 19 个文件由实际文件头识别为 PNG、JPEG 或 WOFF2。10 张历史截图的 `.png` 后缀此前已按实际 JPEG/JFIF 格式修正为 `.jpg`，哈希不变，但仅修正后缀没有消除告警。该次扫描运行配置本身已明确使用 UTF-8，重复声明相同编码没有修复依据。
+- Sonar 官方记录过 PR 扫描计算变更信息时对二进制识别字符集产生告警的[类似情况](https://community.sonarsource.com/t/suspicious-multiple-warnings-about-encoding-on-binary-files/153706)。独立核查确认，已发布的 PR 19 个与 main 324 个文件组件均不包含上述二进制资产。修复以精确路径将这 19 个图片与字体排除出文本代码扫描；没有排除源码、测试、脚本、CI 文件或整个目录。根自动分析配置与项目服务设置使用同一清单，旧项目设置为 UNSET 且已留存回退证据；资产内容及既有源码、测试范围不变。
+- 提交 `bc60d21ef027e7294eb2a3b737edc703ecb79abc` 的实际自动扫描已验证该修复：CE task `AaD4c-EQGPb4x4omWjeM`、analysis `8aa7dd0f-fd72-45bd-a33a-36548d0d0d45`，状态 SUCCESS，**`warningCount=0`、`warnings=[]`**；quality gate 五项条件全部通过、无忽略条件，未解决问题、热点、accepted 和 false positive 均为零。PR 原 19 个代码文件的路径与语言集合完全相同，无增删；有效代码行数仍为 10,992。项目设置完整读取结果恰好为这 19 个二进制路径；运行配置接口将长值截断为 1,000 字符，可见前缀与完整设置一致，不能据此单独声称已读取运行值尾部。此受控修正确实消除了告警，但没有取得原告警逐文件日志，不将某一张图片认定为唯一原因。原 main 324 个文件组件仅作修复前基准，合并后仍须核验新 main 扫描。
+- [Sonar 自动分析](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis) 不提供详细扫描日志，不能导入覆盖率，也不能与 CI 分析同时启用。项目已有 Actions 测试和 Codecov，保留这套组合满足当前日常开发检查。本次修复后 Automatic Analysis 仍为开启；没有新增 token 或启用 CI 扫描器。迁移草案仅作为可选诊断方案保留，尚未应用，不作为本轮收尾要求。
 - CodeRabbit 对 `c06bca75` 的实际复查没有产生可操作问题，5 项 pre-merge checks 通过，函数说明覆盖率为 86.63%，超过原有 80% 门槛。签名者和冻结池两项旧讨论均已解决，其中冻结池讨论由维护侧在源码、真实回归与新报告确认后关闭。已为本 PR 涉及的 Python 函数补充职责与不变量说明，纯说明文件通过剥离 docstring 后的 AST 对比确认无行为改变。后续提交仍须另行复查。
 - 本机另已安装官方 CodeRabbit Windows CLI 0.8.2，两份可执行文件签名及安装自检通过，但 CLI 仍为 signed out，未运行本机审查或购买订阅。GitHub 报告注明本轮使用 Advanced 套餐内额度；未登录账单页面，不能推定是试用还是付费。[官方套餐说明](https://docs.coderabbit.ai/management/plans)提供长期 Free/OSS 接入，CLI 每人每小时 3 次，超限扩展另行收费。维护者只考虑免费接入，需本人登录并确认套餐及按量计费为 Off，超限时等待额度恢复；GitHub App 与 CLI 是独立接入。
 - 已归档 mutation worktree，已跟踪文件中没有测试数据库、日志或缓存。部分缓存及测试临时目录清理被自动审批以“策略阻止”拒绝，相关文件保留；不能宣称所有临时文件均已清理。
