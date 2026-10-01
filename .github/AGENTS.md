@@ -20,6 +20,8 @@
 - 保留 `--require-hashes` 与 binary policy；`glob2`、`mutmut` 的源码包例外有明确哈希和 bootstrap 前提，不扩大为任意源码构建。
 - Linux 覆盖 Python 3.10/3.12/3.13，macOS/Windows 兼容性任务使用 Python 3.12 并将资源泄漏 warning 视为错误。不要通过删除平台或全局过滤 warning 使 CI 变绿。
 - Codecov 上传 pytest 已生成的 XML：保留明确的文件名、`disable_search: true`、`plugins: noop`、OIDC 和上传失败门禁，避免重复生成报告或启动无关语言工具；文件路径修复仍由上传器执行。
+- 上传统一使用 `actions/upload-coverage`：仅在临时 keyring 内核验 Codecov 官方固定指纹并建立 direct/full 信任，保留上游 GPG 与 SHA256 校验；keyring 只对上传步骤生效，完成或失败均清理。密钥轮换时先核对官方[完整性校验说明](https://docs.codecov.com/docs/codecov-uploader#integrity-checking-the-codecov-cli)和 action 的密钥来源，不能改为 ultimate/always 信任或跳过验证。
+- 根 `codecov.yml` 等待 Linux/Windows 两份报告，并将覆盖率下降容差设为 0、缺报告视为失败；保留组织级覆盖率目标，不通过降低目标、排除源码或 informational 状态使检查通过。修改后用 Codecov `/validate` API 验证配置。
 - PostgreSQL job 使用专用 service 数据库，运行全部 `test_pg_*.py` 和 URL e2e；真实 LLM 验收另行记录，不能由离线测试推定。
 - `packages` 验收五包 sdist/wheel、严格 metadata、已安装入口及 Core/Web 最小环境。最小环境不能混入 CLI/AI/MCP/Mimesis 等可选组件，否则无法证明缺组件行为。
 

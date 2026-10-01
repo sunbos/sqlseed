@@ -114,6 +114,9 @@ mcp-server-sqlseed-ai
 后端解析顺序是显式 `SQLSEED_AI_BACKEND`、已知 URL 模式、最后 `openai_compat`。
 这不是逐个探测所有服务的 fallback 链。
 
+AI 请求访问 `localhost` 或回环 IP 地址时直接连接，不经过环境代理；远程服务仍使用
+原有代理配置。HTTPS 证书校验继续遵循 `SSL_CERT_FILE` 和 `SSL_CERT_DIR`。
+
 | 变量 | 用途 |
 | --- | --- |
 | `SQLSEED_AI_BACKEND` | `google_ai_studio`、`lm_studio`、`ollama` 或 `openai_compat` |
@@ -217,7 +220,7 @@ column-mapper 注册 hooks，也不要求 Core 导入 AI 实现。
 - Python `>=3.10`
 - `sqlseed>=0.2.5.dev0,<0.3`
 - `sqlseed-cli>=0.2.4.dev0,<0.3`
-- `openai>=1.0`
+- `openai>=1.55.3`（保留 SDK 传输默认值并兼容 HTTPX 0.28）
 - `httpx>=0.24.0`
 - `networkx>=3.0`
 - 可选 `mcp` extra：`mcp>=1.0,<2`

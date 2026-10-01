@@ -11,6 +11,7 @@
 - `test_ai_real_llm.py` 通过 `available_llm_backend` 探测 Ollama、LM Studio、Google AI Studio，验证 analyzer、refiner、streaming、hook 与 CLI 的真实路径。该 fixture 的探测顺序不代表生产 `AIConfig` 的自动 fallback 策略。
 - 复用 `tests/_helpers.py` 的 `configure_llm_backend_env`，用 monkeypatch 隔离 backend 环境；不把 API key 或实际连接凭据写入仓库。
 - 服务不可用时沿用 fixtures 的 skip/fail 判定；不要把真实服务替换成 mock 后继续把用例称为 integration。
+- 主动验收时加 `--require-llm`，缺少服务或模型必须失败；普通离线测试允许因环境缺失跳过。已连接服务的 HTTP 错误、畸形模型列表、推理失败与 CLI 非零退出始终按失败处理，不以模型延迟或重试耗尽为由跳过。
 
 ## 收集与验证
 
@@ -19,10 +20,11 @@
 ```bash
 pytest tests/integration/test_pg_*.py tests/integration/test_url_e2e.py -v --tb=short
 pytest tests/integration/test_ai_real_llm.py -v
+pytest tests/integration/test_ai_real_llm.py --require-llm -v
 make test-integration
 ```
 
 - 新增测试模块显式声明 `pytestmark = pytest.mark.integration`，不要依赖 `conftest.py` 中的同名变量向子模块传播。
-- 已观察到 `test_ai_real_llm.py` 没有模块级 marker；其 docstring 声称 conftest 自动标记，实际需以 pytest 收集结果为准。要完整运行这里的用例，按目录/文件执行，不仅用 `-m integration`。
+- `test_ai_real_llm.py` 显式声明模块级 integration marker；AI 插件中的真实 MCP、analyzer 与 healer 用例单独标记，不把同文件的离线测试归入真实服务验收。
 - 修改 streaming/refiner 时保留配置状态隔离、normal → compact → ultra-compact 降级与不可重试错误的真实回归。
 - 报告外部服务缺失导致的 skip，与实际执行通过的测试区分开。

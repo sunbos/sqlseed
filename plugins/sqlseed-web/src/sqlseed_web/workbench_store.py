@@ -195,6 +195,10 @@ def _run_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
     if record["execution"]["mode"] == "replace_selected" and not plan_hash:
         raise ValueError(tr_en("backend.workbench_store.replacement_execution_requires_an_immutable_plan_hash"))
     record["plan_hash"] = plan_hash
+    if "atomic_append" in payload:
+        if not isinstance(payload["atomic_append"], bool):
+            raise ValueError(tr_en("backend.workbench_store.atomic_append_must_be_boolean"))
+        record["atomic_append"] = payload["atomic_append"]
     _set_run_identity(record, payload)
     for key in ("name", "config_hash"):
         if key in payload:

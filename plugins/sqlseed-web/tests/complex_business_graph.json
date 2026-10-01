@@ -880,7 +880,7 @@
     },
     {
       "name": "departments",
-      "row_count": 1,
+      "row_count": 0,
       "columns": [
         {
           "name": "id",
@@ -906,7 +906,7 @@
     },
     {
       "name": "employees",
-      "row_count": 1,
+      "row_count": 0,
       "columns": [
         {
           "name": "id",
@@ -1385,7 +1385,21 @@
         "shipment_items"
       ],
       "ok": true,
-      "issues": [],
+      "issues": [
+        {
+          "severity": "warning",
+          "code": "nullable_parent_empty",
+          "message": "父表没有可用值，core 将生成 NULL 外键",
+          "table": "sales_orders",
+          "column": "owner_id",
+          "source_table": "employees",
+          "columns": [
+            "owner_id"
+          ],
+          "message_key": "backend.workbench_runtime.empty_parent_nullable_reference",
+          "message_params": {}
+        }
+      ],
       "order": [
         "sales_orders",
         "order_items",
@@ -1401,8 +1415,8 @@
           "source_columns": [
             "id"
           ],
-          "has_values": true,
-          "row_count": 1,
+          "has_values": false,
+          "row_count": 0,
           "selected": false,
           "nullable": true
         },
@@ -1575,7 +1589,7 @@
         {
           "severity": "error",
           "code": "cross_table_cycle",
-          "message": "这些表相互引用，无法排出先后生成顺序。当前工作台不支持同时生成这组循环表，调整行数或重试不能解除此限制。",
+          "message": "这些表相互引用，当前无法安全排出生成顺序。SQLite 仅支持循环内每条单列外键已有可用父键时追加；缺少来源、组合或重叠外键、配置关联或其他数据库的循环尚不支持。调整行数或原样重试不能解除此限制。",
           "tables": [
             "departments",
             "employees"
@@ -1608,6 +1622,71 @@
           ],
           "message_key": "backend.workbench_runtime.cross_table_cycles_require_general_backfill_the",
           "message_params": {}
+        },
+        {
+          "severity": "warning",
+          "code": "preview_requires_parent",
+          "message": "父表当前没有可用值；执行时先填父表，预览无法提供完整关联样例",
+          "table": "departments",
+          "column": "manager_id",
+          "source_table": "employees",
+          "columns": [
+            "manager_id"
+          ],
+          "message_key": "backend.workbench_runtime.the_parent_table_has_no_available_values",
+          "message_params": {}
+        },
+        {
+          "severity": "warning",
+          "code": "self_reference_backfill",
+          "message": "可空自引用先生成 NULL，再由 core 回填已生成父行",
+          "table": "departments",
+          "column": "parent_id",
+          "source_table": "departments",
+          "columns": [
+            "parent_id"
+          ],
+          "message_key": "backend.workbench_runtime.nullable_self_references_first_generate_null_then",
+          "message_params": {}
+        },
+        {
+          "severity": "warning",
+          "code": "self_reference_backfill",
+          "message": "可空自引用先生成 NULL，再由 core 回填已生成父行",
+          "table": "employees",
+          "column": "manager_id",
+          "source_table": "employees",
+          "columns": [
+            "manager_id"
+          ],
+          "message_key": "backend.workbench_runtime.nullable_self_references_first_generate_null_then",
+          "message_params": {}
+        },
+        {
+          "severity": "warning",
+          "code": "preview_requires_parent",
+          "message": "父表当前没有可用值；执行时先填父表，预览无法提供完整关联样例",
+          "table": "employees",
+          "column": "department_id",
+          "source_table": "departments",
+          "columns": [
+            "department_id"
+          ],
+          "message_key": "backend.workbench_runtime.the_parent_table_has_no_available_values",
+          "message_params": {}
+        },
+        {
+          "severity": "warning",
+          "code": "preview_requires_parent",
+          "message": "父表当前没有可用值；执行时先填父表，预览无法提供完整关联样例",
+          "table": "suppliers",
+          "column": "contact_id",
+          "source_table": "employees",
+          "columns": [
+            "contact_id"
+          ],
+          "message_key": "backend.workbench_runtime.the_parent_table_has_no_available_values",
+          "message_params": {}
         }
       ],
       "order": [],
@@ -1619,8 +1698,8 @@
           "source_columns": [
             "id"
           ],
-          "has_values": true,
-          "row_count": 1,
+          "has_values": false,
+          "row_count": 0,
           "selected": true,
           "nullable": true
         },
@@ -1631,8 +1710,8 @@
           "source_columns": [
             "id"
           ],
-          "has_values": true,
-          "row_count": 1,
+          "has_values": false,
+          "row_count": 0,
           "selected": true,
           "nullable": true
         },
@@ -1655,8 +1734,8 @@
           "source_columns": [
             "id"
           ],
-          "has_values": true,
-          "row_count": 1,
+          "has_values": false,
+          "row_count": 0,
           "selected": true,
           "nullable": true
         },
@@ -1667,8 +1746,8 @@
           "source_columns": [
             "id"
           ],
-          "has_values": true,
-          "row_count": 1,
+          "has_values": false,
+          "row_count": 0,
           "selected": true,
           "nullable": true
         },
@@ -1691,8 +1770,8 @@
           "source_columns": [
             "id"
           ],
-          "has_values": true,
-          "row_count": 1,
+          "has_values": false,
+          "row_count": 0,
           "selected": true,
           "nullable": true
         }

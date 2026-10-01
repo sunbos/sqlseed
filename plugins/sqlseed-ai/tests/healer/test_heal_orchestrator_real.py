@@ -82,6 +82,7 @@ def _build_orchestrator(
     )
 
 
+@pytest.mark.integration
 def test_orchestrator_heal_flow_real(llm_client, llm_model, snapshot_with_products):
     """HealOrchestrator.heal() returns a HealResult with attempt records.
 
@@ -98,6 +99,7 @@ def test_orchestrator_heal_flow_real(llm_client, llm_model, snapshot_with_produc
     assert result.total_elapsed >= 0
 
 
+@pytest.mark.integration
 def test_orchestrator_degrade_on_persistent_violations_real(llm_client, llm_model, snapshot_with_products):
     """HealOrchestrator degrades to Level 4 when violations persist.
 

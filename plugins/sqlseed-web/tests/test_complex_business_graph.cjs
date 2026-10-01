@@ -98,8 +98,8 @@ test('all 55 actual field captions preserve geometry and fit their complete colu
 
 test('real fulfilled plan ends at existing sources and excludes their ancestors and unselected returns',()=>{
   const data=planned(), before=clone(data), plan=selectPlanGraph(data);
-  assert.equal(plan.nodes.length,12);assert.equal(plan.edges.length,14);
-  assert.deepEqual(ids(plan).sort(),['addresses','carriers','customers','employees','inventory','order_items','payments',
+  assert.equal(plan.nodes.length,11);assert.equal(plan.edges.length,13);
+  assert.deepEqual(ids(plan).sort(),['addresses','carriers','customers','inventory','order_items','payments',
     'product_variants','sales_orders','shipment_items','shipments','warehouses'].sort());
   assert.ok(plan.edges.every(edge=>data.checks.fulfillment.selected.includes(edge.target)));
   assertRoutes(layoutGraph(plan.nodes,plan.edges),plan);
@@ -156,7 +156,7 @@ test('composite issue matches its exact group; structured identifiers and legacy
 
 test('unlocated global check errors retain selected context and explicitly request check details',()=>{
   const data=planned(),view=ui({schema:data,focus:'sales_orders',mode:'issues',issues:[{code:'snapshot_not_supported',severity:'error'}]});
-  assert.equal(view.nodes().length,12);assert.ok(view.edges().every(edge=>!edge.classList.contains('problem')));
+  assert.equal(view.nodes().length,11);assert.ok(view.edges().every(edge=>!edge.classList.contains('problem')));
   assert.match(view.graph.toolbar.querySelector('.graph-scope-note').textContent,/整个生成计划.*检查详情/);
   view.graph.destroy();
 });

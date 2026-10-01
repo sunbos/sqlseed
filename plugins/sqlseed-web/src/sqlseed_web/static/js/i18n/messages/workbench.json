@@ -2,8 +2,8 @@
   "workbench": {
     "unsupported.title": ["当前工作台不支持此生成范围", "This generation scope is not supported"],
     "unsupported.body": [
-      "所选范围包含跨表循环：{tables}，当前无法生成。全选只能补齐表，不能消除表之间的循环引用。这不是行数或生成器参数错误，改为追加或原样重试都无法解除限制。",
-      "The selected scope contains a cross-table cycle: {tables}. Generation is unavailable. Selecting all tables includes missing tables but does not remove circular references. This is not a row-count or generator-parameter error; switching to append or retrying unchanged cannot remove the limitation."
+      "所选范围包含当前不支持的跨表循环：{tables}。这不是行数或生成器参数错误。具体原因见下方；SQLite 追加仅在循环内每条单列外键已有可用父键时受支持，缺少来源时全选或原样重试无法解除限制。",
+      "The selected scope contains an unsupported cross-table cycle: {tables}. This is not a row-count or generator-parameter error. View the specific cause. SQLite append requires existing parent keys on every single-column foreign key in the cycle; selecting all tables or retrying unchanged cannot replace missing sources."
     ],
     "unsupported.reason": ["查看无法生成的原因", "View why generation is unavailable"],
     "unsupported.reasonTitle": ["无法生成的原因", "Why generation is unavailable"],
@@ -13,6 +13,7 @@
     "unsupported.cannotGenerate": ["当前范围无法生成", "Generation unavailable for this scope"],
     "unsupported.close": ["返回工作台", "Back to workbench"],
     "unsupported.scope": ["拟生成范围（当前无法执行）", "Proposed generation scope (currently unavailable)"],
+    "execution.existingCycle": ["向现有数据追加，不清空表。本次循环引用使用运行开始前已有的父键；新生成的循环表记录不会互相引用。全部所选表在同一事务中追加，任一写入失败会回滚本次新增记录。", "Append adds data without clearing tables. Cycle references use parent keys that exist before this run; newly generated cycle rows do not reference one another. All selected tables append in one transaction, and any write failure rolls back the new rows."],
     "execution.resetDialect": ["当前工作台不支持 {dialect} 的清空与自增重置；此选项仅适用于 SQLite。", "The workbench does not support clearing or identity reset for {dialect}. This option is available only for SQLite."],
     "execution.resetUnneeded": ["本次没有 AUTOINCREMENT 历史序列需要重置。普通整数主键在成功清空且由数据库自动分配时从 1 开始；自定义主键规则仍按配置取值。", "No AUTOINCREMENT sequence needs resetting in this scope. After successful clearing, ordinary integer primary keys start at 1 when assigned by the database; custom primary-key rules still determine their own values."],
     "execution.resetBlocked": ["生成或清空检查未通过，当前不能清空或写入；重置计数不能解除这些限制。", "Generation or clearing checks have not passed, so clearing and writing are unavailable. Resetting the counter cannot remove those blockers."],
@@ -1087,8 +1088,8 @@
       "Rebuild the cycle tables from scratch too"
     ],
     "cycle.rebuildHelp": [
-      "当前工作台无法完成这个目标。需要支持循环引用的数据库工具或专用脚本，按真实约束分阶段生成并补齐引用。修改生成器、行数或改为追加都不会解除这里的循环限制。",
-      "The workbench cannot complete this goal. Use database tooling or a dedicated script that handles cyclic references and fills them in stages under the real constraints. Changing generators, row counts or switching to append does not remove this cycle limitation."
+      "当前工作台无法从空表重建这个循环。需要支持循环引用的数据库工具或专用脚本，按真实约束分阶段生成并补齐引用。SQLite 已有父键满足检查时可保留记录并追加；调整行数不能代替缺失的来源。",
+      "The workbench cannot rebuild this cycle from empty tables. Use tooling or a dedicated script that generates in phases and backfills references under the real constraints. SQLite append can retain existing records when parent-key checks pass; changing row counts cannot replace missing sources."
     ],
     "dependency.start": [
       "开始检查",

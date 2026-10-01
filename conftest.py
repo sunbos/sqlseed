@@ -23,12 +23,14 @@ from __future__ import annotations
 
 import errno
 import gc
+import importlib.util
 import json
 import os
 import socket
 import sqlite3
 import ssl
 import sys
+import urllib.error
 import urllib.request
 from contextlib import closing, suppress
 from typing import TYPE_CHECKING
@@ -49,6 +51,21 @@ except ImportError:
 if TYPE_CHECKING:
     from collections.abc import Generator
     from pathlib import Path
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Expose explicit real-service acceptance without changing offline defaults."""
+    parser.addoption(
+        "--require-llm",
+        action="store_true",
+        help="Fail selected real-LLM tests when their service or model prerequisite is unavailable.",
+    )
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Reject a strict AI acceptance run before optional-plugin collection skips."""
+    if config.getoption("--require-llm") and importlib.util.find_spec("sqlseed_ai") is None:
+        raise pytest.UsageError("--require-llm requires the sqlseed-ai plugin; install the local development packages")
 
 
 @pytest.fixture
@@ -302,7 +319,7 @@ def pg_url() -> Generator[str, None, None]:
 
 def _preferred_ollama_model(models: set[str]) -> str | None:
     """Choose an exact preferred model or its first complete tag variant."""
-    for preferred in ("gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:12b"):
+    for preferred in ("gemma4:26b", "gemma4:31b", "gemma4:e4b", "gemma4:12b", "gemma4:e2b"):
         if preferred in models:
             return preferred
         if variants := sorted(model for model in models if model.startswith(f"{preferred}-")):
@@ -310,58 +327,72 @@ def _preferred_ollama_model(models: set[str]) -> str | None:
     return None
 
 
+def _llm_model_ids(url: str, collection: str, id_key: str) -> set[str] | None:
+    """Return listed models, skipping only an unreachable optional local service."""
+    try:
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        response = opener.open(url, timeout=2)
+    except urllib.error.HTTPError as exc:
+        # An HTTP response means the service exists. Authentication, server,
+        # and route errors must not be mistaken for a missing backend.
+        exc.close()
+        raise
+    except OSError:
+        return None
+    with response:
+        payload = json.load(response)
+    if not isinstance(payload, dict) or not isinstance(payload.get(collection), list):
+        raise ValueError(f"LLM model list must contain a {collection} array")
+    models = payload[collection]
+    if any(not isinstance(model, dict) or not isinstance(model.get(id_key), str) for model in models):
+        raise ValueError(f"LLM model entries must contain string {id_key} values")
+    return {model[id_key] for model in models}
+
+
 @pytest.fixture(scope="session")
-def available_llm_backend() -> dict[str, str]:
-    """Detect available LLM backend. Fail with a hint if none is available.
+def available_llm_backend(request: pytest.FixtureRequest) -> dict[str, str]:
+    """Resolve a live model using this run's prerequisite policy."""
+    return _detect_llm_backend(require_llm=request.config.getoption("--require-llm"))
+
+
+def _detect_llm_backend(*, require_llm: bool = False) -> dict[str, str]:
+    """Detect an optional live backend; broken responses must fail test setup.
 
     Fallback chain: Ollama -> LM Studio -> Google AI Studio.
     Returns {"backend": ..., "model": ...} where model is the Gemma 4 model ID for that backend.
     """
     # 1. Ollama — check /api/tags and verify that a gemma4 model has been pulled
-    try:
-        with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=2) as resp:
-            tags = json.loads(resp.read())
-            models = {name for m in tags.get("models", []) if isinstance(name := m.get("name"), str)}
-            if (model := _preferred_ollama_model(models)) is not None:
-                return {"backend": "ollama", "model": model}
-            pytest.fail(
-                "Ollama is running but no Gemma 4 model has been pulled. Please run:\n"
-                "  ollama pull gemma4:26b   # recommended (requires 16GB VRAM)\n"
-                "  ollama pull gemma4:e4b   # lightweight alternative (requires 4GB RAM)"
-            )
-    except (OSError, ValueError, KeyError):
-        # Backend not running or unreachable (URLError is OSError subclass,
-        # JSONDecodeError is ValueError subclass). pytest.fail() must NOT be
-        # caught here — it raises Failed(Exception) which propagates correctly.
-        pass
+    if (models := _llm_model_ids("http://localhost:11434/api/tags", "models", "name")) is not None:
+        if (model := _preferred_ollama_model(models)) is not None:
+            return {"backend": "ollama", "model": model}
+        pytest.fail(
+            "Ollama is running but no Gemma 4 model has been pulled. Please run:\n"
+            "  ollama pull gemma4:26b   # recommended (requires 16GB VRAM)\n"
+            "  ollama pull gemma4:e4b   # lightweight alternative (requires 4GB RAM)"
+        )
 
     # 2. LM Studio — check /v1/models and verify that a gemma-4 model has been loaded
-    try:
-        with urllib.request.urlopen("http://localhost:1234/v1/models", timeout=2) as resp:
-            data = json.loads(resp.read())
-            model_ids = {m.get("id", "") for m in data.get("data", [])}
-            for preferred in (
-                "google/gemma-4-26b-a4b",
-                "google/gemma-4-31b",
-                "google/gemma-4-e4b",
-                "google/gemma-4-e2b",  # ultra-light edge model
-            ):
-                if preferred in model_ids:
-                    return {"backend": "lm_studio", "model": preferred}
-            pytest.skip(
-                "LM Studio is running but no Gemma 4 model has been loaded. Please load in LM Studio:\n"
-                "  google/gemma-4-26b-a4b   # recommended\n"
-                "  google/gemma-4-e4b       # lightweight alternative\n"
-                "  google/gemma-4-e2b       # ultra-light edge model"
-            )
-    except (OSError, ValueError, KeyError):
-        pass
+    if (model_ids := _llm_model_ids("http://localhost:1234/v1/models", "data", "id")) is not None:
+        for preferred in (
+            "google/gemma-4-26b-a4b",
+            "google/gemma-4-31b",
+            "google/gemma-4-e4b",
+            "google/gemma-4-e2b",  # ultra-light edge model
+        ):
+            if preferred in model_ids:
+                return {"backend": "lm_studio", "model": preferred}
+        (pytest.fail if require_llm else pytest.skip)(
+            "LM Studio is running but no Gemma 4 model has been loaded. Please load in LM Studio:\n"
+            "  google/gemma-4-26b-a4b   # recommended\n"
+            "  google/gemma-4-e4b       # lightweight alternative\n"
+            "  google/gemma-4-e2b       # ultra-light edge model"
+        )
 
     # 3. Google AI Studio — check environment variable
     if os.environ.get("GOOGLE_API_KEY"):
         return {"backend": "google_ai_studio", "model": "gemma-4-26b-a4b-it"}
 
-    pytest.skip(
+    (pytest.fail if require_llm else pytest.skip)(
         "At least one LLM backend is required to run AI integration tests:\n"
         "  - Ollama: install (https://ollama.ai) and pull a Gemma 4 model:\n"
         "      ollama pull gemma4:26b   # recommended (requires 16GB VRAM)\n"
@@ -370,6 +401,6 @@ def available_llm_backend() -> dict[str, str]:
         "  - Google AI Studio: set the GOOGLE_API_KEY environment variable\n"
         "    (model: gemma-4-26b-a4b-it)"
     )
-    # pytest.skip() raises NoReturn; this raise exists to make pylint's
+    # pytest.skip()/fail() raise NoReturn; this raise exists to make pylint's
     # inconsistent-return-statements check aware that all paths exit.
     raise RuntimeError("unreachable — pytest.skip above raises NoReturn")

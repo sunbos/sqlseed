@@ -293,9 +293,9 @@ function drawRun(run) {
   }, executionDescription()), run.result?.rolled_back ? h('p', {
     class: 'run-rollback',
     role: 'status'
-  }, tr('runs.rolledBack')) : null, replacement && run.status === 'running' ? h('p', {
+  }, tr(replacement ? 'runs.rolledBack' : 'runs.atomicAppendRolledBack')) : null, (replacement || run.atomic_append) && run.status === 'running' ? h('p', {
     class: 'muted'
-  }, tr('runs.atomicInProgress')) : null, h('div', {
+  }, tr(replacement ? 'runs.atomicInProgress' : 'runs.atomicAppendInProgress')) : null, h('div', {
     class: 'run-metrics'
   }, h('div', {
     class: 'run-total run-planned'

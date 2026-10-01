@@ -69,6 +69,25 @@ pytest tests/test_core/             # Core subdirectory tests; excludes root API
 pytest --cov=sqlseed                # Core coverage; CI measures all five packages
 ```
 
+Real AI acceptance requires an installed AI plugin and a running Gemma 4 backend.
+Start Ollama with a pulled model, or LM Studio with a loaded model and its server
+at `http://localhost:1234/v1`; the default healer model is `google/gemma-4-e2b`
+(override with `SQLSEED_TEST_LLM_MODEL`). The shared analyzer/CLI/MCP tests can
+also use Google AI Studio with `GOOGLE_API_KEY`. Keep credentials out of the
+repository and use only temporary test databases.
+
+```bash
+pytest tests/integration/test_ai_real_llm.py --require-llm -v
+pytest plugins/sqlseed-ai/tests/test_mcp.py -m integration --require-llm -v
+pytest plugins/sqlseed-ai/tests/healer/ -m integration --require-llm -v
+```
+
+`--require-llm` makes missing service/model prerequisites fail these selected
+tests, while normal offline runs may skip them. Once a service responds, HTTP or
+model-list errors, failed inference, and nonzero CLI exits always fail; they
+must not be relabeled as skips. A passing protocol test using a fixed local HTTP
+response does not certify real model quality.
+
 ### Code Style
 
 - **Type hints**: Use `from __future__ import annotations` at the top of every file
@@ -135,6 +154,20 @@ feat(database): add PostgreSQL support via SQLAlchemyAdapter
 On pull requests, the `docs` deployment job is intentionally skipped. The `lint`
 job still builds the maintained documentation in strict mode; deployment runs
 after the required checks succeed on `main`.
+
+### Additional PR review
+
+`.coderabbit.yaml` configures CodeRabbit reviews in Simplified Chinese, using
+the repository's architecture and directory instructions. Once the maintainer
+installs the [CodeRabbit GitHub App](https://docs.coderabbit.ai/platforms/github-com)
+for this repository, it reviews non-draft PRs and subsequent pushes automatically.
+The configuration file alone does not install or authorize the App. Limit its
+repository access to `sunbos/sqlseed` when enabling it.
+
+CodeRabbit supplements the existing CI, Sonar, and Codecov checks. Review findings
+against the current diff and verify fixes with behavioral tests; a clean AI review
+does not replace the required checks or real external-service acceptance. It does
+not automatically approve or merge PRs under this configuration.
 
 ## Branch Strategy
 

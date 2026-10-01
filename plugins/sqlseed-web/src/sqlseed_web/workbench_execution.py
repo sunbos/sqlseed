@@ -7,6 +7,7 @@ import json
 from typing import TYPE_CHECKING, Any
 
 from sqlseed_web.messages import message as tr
+from sqlseed_web.workbench_cycles import cyclic_components, schema_dependencies
 
 if TYPE_CHECKING:
     from sqlseed.config.models import GeneratorConfig
@@ -168,6 +169,8 @@ def build_execution_plan(
     order: list[str],
     execution: dict[str, Any],
     config_hash: str,
+    *,
+    atomic_append: bool = False,
 ) -> dict[str, Any]:
     """Describe physical delete scope and gate unverified database behavior."""
     replacing = execution["mode"] == "replace_selected"
@@ -178,6 +181,16 @@ def build_execution_plan(
     issues: list[dict[str, Any]] = []
 
     if replacing:
+        if groups := cyclic_components(schema_dependencies(config, schema)):
+            issues.append(
+                _plan_issue(
+                    "replacement_cycle_not_supported",
+                    tr(
+                        "backend.workbench_execution.existing_cycle_cannot_clear",
+                        p1=", ".join(sorted(set().union(*groups))),
+                    ),
+                )
+            )
         if not sqlite:
             issues.append(
                 _plan_issue(
@@ -207,7 +220,7 @@ def build_execution_plan(
         if replacing
         else [],
         "reset_identity_supported": reset_supported,
-        "atomic": replacing and sqlite,
+        "atomic": sqlite and (replacing or atomic_append),
     }
     binding = {
         "plan": plan,
