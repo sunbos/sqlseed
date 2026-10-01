@@ -193,6 +193,102 @@ def test_json_mode_fallback_keeps_requested_name_policy(monkeypatch: pytest.Monk
     assert "response_format" not in requests[1]
 
 
+@pytest.mark.parametrize("backend", [AIBackend.LM_STUDIO, AIBackend.OLLAMA])
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("strict", [False, True])
+def test_local_json_sampling_preserves_identifiers_and_optional_text_mode(
+    monkeypatch: pytest.MonkeyPatch, backend: AIBackend, streaming: bool, strict: bool
+) -> None:
+    requests = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return _sse(_JSON) if streaming else _completion({"content": _JSON})
+
+    with _analyzer_http(monkeypatch, handle) as analyzer:
+        assert analyzer.config is not None
+        analyzer.config.backend = backend
+        call = analyzer.call_llm_streaming if streaming else analyzer.call_llm
+        result = call(_MESSAGES, strict_json=strict, preserve_names=True)
+
+    assert result == _CONFIG
+    assert len(requests) == 1
+    assert requests[0]["messages"] == _MESSAGES
+    assert bool(requests[0].get("stream")) is streaming
+    if not strict:
+        assert "response_format" not in requests[0]
+    elif backend == AIBackend.LM_STUDIO:
+        assert requests[0]["response_format"] == {
+            "type": "json_schema",
+            "json_schema": {"name": "json_object_response", "strict": True, "schema": {"type": "object"}},
+        }
+    else:
+        assert requests[0]["response_format"] == {"type": "json_object"}
+
+
+@pytest.mark.parametrize("backend", [AIBackend.LM_STUDIO, AIBackend.OLLAMA])
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("content", [_JSON, '{"name":".events","columns":INVALID}'])
+def test_unsupported_local_format_falls_back_once_and_keeps_strict_parsing(
+    monkeypatch: pytest.MonkeyPatch, backend: AIBackend, streaming: bool, content: str
+) -> None:
+    requests = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append(body)
+        if "response_format" in body:
+            return httpx.Response(400, json={"error": {"message": "response_format is not supported"}})
+        return _sse(content) if streaming else _completion({"content": content})
+
+    with _analyzer_http(monkeypatch, handle) as analyzer:
+        assert analyzer.config is not None
+        analyzer.config.backend = backend
+        call = analyzer.call_llm_streaming if streaming else analyzer.call_llm
+        if content == _JSON:
+            assert call(_MESSAGES, strict_json=True, preserve_names=True) == _CONFIG
+        else:
+            with pytest.raises(JSONResponseError) as error:
+                call(_MESSAGES, strict_json=True, preserve_names=True)
+            assert error.value.code == "invalid_json"
+
+    assert len(requests) == 2
+    assert "response_format" in requests[0]
+    assert "response_format" not in requests[1]
+    for key in ("model", "messages", "max_tokens", "temperature", "stream"):
+        assert requests[0].get(key) == requests[1].get(key)
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize(
+    "status,message",
+    [
+        (401, "Authentication required"),
+        (401, "response_format is not supported for this unauthorized request"),
+        (400, "Invalid max_tokens; 400 Bad Request"),
+        (500, "response_format is unsupported due to an internal error"),
+    ],
+)
+def test_local_json_sampling_does_not_retry_unrelated_service_failures(
+    monkeypatch: pytest.MonkeyPatch, streaming: bool, status: int, message: str
+) -> None:
+    requests = []
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        requests.append(json.loads(request.content))
+        return httpx.Response(status, json={"error": {"message": message}})
+
+    with _analyzer_http(monkeypatch, handle) as analyzer:
+        assert analyzer.config is not None
+        analyzer.config.backend = AIBackend.LM_STUDIO
+        call = analyzer.call_llm_streaming if streaming else analyzer.call_llm
+        with pytest.raises(RuntimeError, match=message):
+            call(_MESSAGES, strict_json=True, preserve_names=True)
+
+    assert len(requests) == 1
+    assert requests[0]["response_format"]["type"] == "json_schema"
+
+
 @pytest.mark.parametrize("preserve_names", [False, True])
 def test_strict_completion_rejects_output_limit_even_if_json_is_complete(
     monkeypatch: pytest.MonkeyPatch, preserve_names: bool

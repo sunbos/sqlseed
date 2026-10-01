@@ -3,17 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import Any
 
 from sqlseed._utils.sql_safe import quote_identifier
-from sqlseed.config.models import ColumnConfig, GeneratorConfig
+from sqlseed.config.models import GeneratorConfig
+from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.core.relation import RelationResolver
 from typing_extensions import Self
 
 from sqlseed_web.messages import message as tr
-
-if TYPE_CHECKING:
-    from sqlseed.core.orchestrator._specs import ResolvedSpecs
 
 
 def dependency_layers(dependencies: dict[str, set[str]]) -> tuple[list[str], list[list[str]]]:
@@ -146,43 +145,21 @@ class _CyclePool:
     values: list[Any]
 
 
-class ExistingSourceOrchestrator(DataOrchestrator):
-    """Keep accepted cycle edges on their pre-insert parent pool for this run."""
+class _ExistingSourceRelationResolver(RelationResolver):
+    """Keep accepted single-column cycle edges on their pre-insert parent pool."""
 
     cycle_pools: dict[tuple[str, str], _CyclePool] | None = None
 
-    @classmethod
-    def for_config(cls, config: GeneratorConfig) -> ExistingSourceOrchestrator:
-        return cast("ExistingSourceOrchestrator", cls.from_config(config))
-
-    def __enter__(self) -> Self:
-        super().__enter__()
-        return self
-
-    def pin_cycle_sources(self, sources: list[dict[str, Any]]) -> None:
-        self.cycle_pools = {}
-        for source in sources:
-            column = source["source_columns"][0]
-            rows = read_source_values(self, source["source_table"], [column])
-            self.cycle_pools[(source["table"], source["column"])] = _CyclePool(
-                source["source_table"], column, [row[column] for row in rows]
-            )
-
-    def _resolve_specs(
-        self,
-        table_name: str,
-        count: int,
-        columns: dict[str, Any] | None,
-        column_configs: list[ColumnConfig] | None,
-        enrich: bool,
-        *,
-        clear_before: bool = False,
-    ) -> ResolvedSpecs:
-        resolved = super()._resolve_specs(table_name, count, columns, column_configs, enrich, clear_before=clear_before)
+    def resolve_foreign_keys(
+        self, table_name: str, specs: dict[str, GeneratorSpec], unique_columns: set[str] | None = None
+    ) -> dict[str, GeneratorSpec]:
+        resolved = super().resolve_foreign_keys(table_name, specs, unique_columns=unique_columns)
+        # Accepted columns belong to exactly one single-column FK, so subsequent
+        # composite-FK resolution cannot replace these validated sources.
         for (table, column), pool in (self.cycle_pools or {}).items():
             if table != table_name:
                 continue
-            spec = resolved[0][column]
+            spec = resolved[column]
             if (
                 not pool.values
                 or spec.generator_name != "foreign_key"
@@ -192,3 +169,35 @@ class ExistingSourceOrchestrator(DataOrchestrator):
                 raise ValueError(tr("backend.workbench_runtime.cycle_source_rules_not_supported"))
             spec.params["_ref_values"] = list(pool.values)
         return resolved
+
+
+class ExistingSourceOrchestrator(DataOrchestrator):
+    """Internal Web session; use ``for_config`` to install its FK source policy."""
+
+    @classmethod
+    def for_config(cls, config: GeneratorConfig) -> ExistingSourceOrchestrator:
+        orchestrator = cls.from_config(config)
+        if not isinstance(orchestrator, cls):
+            raise TypeError("Configured orchestrator type was not preserved")
+        # Compose before connecting or warming metadata caches. Keep the adapter,
+        # shared pool and configured associations used by all other Core paths.
+        relation = _ExistingSourceRelationResolver(orchestrator.database_adapter, orchestrator._shared_pool)
+        relation.set_associations(config.associations)
+        orchestrator._core.relation = relation
+        return orchestrator
+
+    def __enter__(self) -> Self:
+        super().__enter__()
+        return self
+
+    def pin_cycle_sources(self, sources: list[dict[str, Any]]) -> None:
+        relation = self._relation
+        if not isinstance(relation, _ExistingSourceRelationResolver):
+            raise TypeError("Existing-source sessions require for_config")
+        relation.cycle_pools = {}
+        for source in sources:
+            column = source["source_columns"][0]
+            rows = read_source_values(self, source["source_table"], [column])
+            relation.cycle_pools[(source["table"], source["column"])] = _CyclePool(
+                source["source_table"], column, [row[column] for row in rows]
+            )

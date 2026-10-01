@@ -28,6 +28,16 @@ logger = get_logger(__name__)
 _CALLER_MIXIN_REQUIRED = "provided by LLMCallerMixin"
 
 
+def _unsupported_local_json_format(error: BaseException) -> bool:
+    """Limit local capability fallback to an explicitly rejected JSON format."""
+    if getattr(error, "status_code", None) not in (None, 400, 422):
+        return False
+    diagnostic = str(error).lower()
+    return any(field in diagnostic for field in ("response_format", "json_schema", "json mode")) and any(
+        reason in diagnostic for reason in ("not supported", "unsupported", "unknown", "unrecognized", "unexpected")
+    )
+
+
 def _report_stream_progress(
     on_progress: ProgressCallback | None, token: str, count: int, *, reasoning: bool = False
 ) -> None:
@@ -215,7 +225,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             kwargs = self._build_llm_kwargs(stream=True, model=model)
             kwargs["messages"] = messages
 
-            stream = self._create_with_reasoning_fallback(client, kwargs)
+            stream = self._create_streaming_response(client, kwargs, strict_json=strict_json)
 
             content, token_count = self._collect_stream_chunks(stream, on_progress, strict_json=strict_json)
 
@@ -276,6 +286,12 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             )
             self._handle_llm_api_exception(e, model, streaming=True)
 
+    def _create_streaming_response(self, client: Any, kwargs: dict[str, Any], *, strict_json: bool) -> Any:
+        """Apply local JSON sampling without changing cloud streaming dispatch."""
+        if strict_json and self._config and self._config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA):
+            return self._send_with_json_mode(client, kwargs)
+        return self._create_with_reasoning_fallback(client, kwargs)
+
     def _send_llm_request(
         self,
         client: Any,
@@ -312,11 +328,12 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         ):
             return result
 
-        # Try JSON mode for cloud backends; skip for local backends
-        if self._config.backend in (AIBackend.GOOGLE_AI_STUDIO, AIBackend.OPENAI_COMPAT):
+        # Strict local calls also need sampling constraints, rather than only a
+        # prompt requesting JSON. Keep optional direct Python calls unchanged.
+        if self._config.backend in (AIBackend.GOOGLE_AI_STUDIO, AIBackend.OPENAI_COMPAT) or strict_json:
             return self._send_with_json_mode(client, kwargs)
 
-        # Local backends (LM Studio, Ollama): use text mode directly
+        # Non-strict local calls retain their existing text-mode behavior.
         return self._create_with_reasoning_fallback(client, kwargs)
 
     def _send_with_json_mode(
@@ -324,14 +341,26 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
         client: Any,
         kwargs: dict[str, Any],
     ) -> Any:
-        """Send LLM request with JSON mode, falling back to text mode on error."""
-        kwargs["response_format"] = {"type": "json_object"}
+        """Request JSON sampling, with one fallback for an unsupported format.
+
+        LM Studio's documented grammar interface uses JSON Schema. Constrain
+        only the object envelope: identifiers, generator parameters and business
+        rules still require the caller's existing validation.
+        """
+        if self._config and self._config.backend == AIBackend.LM_STUDIO:
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {"name": "json_object_response", "strict": True, "schema": {"type": "object"}},
+            }
+        else:
+            kwargs["response_format"] = {"type": "json_object"}
         try:
             return client.chat.completions.create(**kwargs)
         except (APIError, ValueError, RuntimeError) as fmt_err:
             # Detect unsupported JSON mode / response_format via structured classification
             classified = classify_api_error(fmt_err)
-            if isinstance(classified, ModelFallbackError):
+            local = self._config and self._config.backend in (AIBackend.LM_STUDIO, AIBackend.OLLAMA)
+            if isinstance(classified, ModelFallbackError) and (not local or _unsupported_local_json_format(fmt_err)):
                 logger.debug(
                     "JSON mode not supported, falling back to text mode",
                     model=kwargs.get("model", self._config.model if self._config else "unknown"),
