@@ -41,8 +41,8 @@ SQLite 追加模式支持已有有效父键的单列物理外键循环。检查�
 
 ## 外部扫描与待完成事项
 
-- 提交 `59d7ff0` 的 CodeFlow 原始结果为 0 errors、2 warnings，指向 Core 与 Web 的方法参数声明重复。外键解析策略重构已删除 Web 的整段规格解析覆写；仍须核对新提交的实际扫描结果，不能提前宣布零 warnings。
-- 同一提交的 Sonar quality gate 通过，open 或 confirmed issues、bugs、vulnerabilities、code smells、security hotspots 均为零，accepted 或 ignored 为零。但 scanner `warningCount` 为 1：泛指源文件编码问题。883 个已跟踪文本文件严格 UTF-8 解码通过，没有定位到问题文件；不能凭推断转码或排除正常资产。
+- 提交 `59d7ff0` 的 CodeFlow 原始结果为 0 errors、2 warnings，指向 Core 与 Web 的方法参数声明重复。外键解析策略重构已删除 Web 的整段规格解析覆写；[提交 `860176b` 的扫描](https://app.getcodeflow.com/github/sunbos/sqlseed/commits/860176b3b9a2085dac44712a9a3efc9eb8b70560) 确认这两条生产代码提醒消失，但新增测试与既有测试的 HTTP 格式拒绝处理重复，又产生 2 条 warnings。测试已共享格式拒绝辅助逻辑，保留全部参数化范围与断言；该文件 82 项回归全部通过、零 warnings。仍须核对后续提交的实际扫描结果，不能提前宣布零 warnings。
+- 提交 `860176b` 的 Sonar quality gate 通过，全部 5 项条件通过，open 或 confirmed issues、bugs、vulnerabilities、code smells、security hotspots 均为零，accepted 或 false positive 为零，未忽略门禁条件。对应 CE task 为 `AaD3N55YM05yGU2TbRj_`，analysis 为 `835e146e-b0d3-4729-a114-06b5ff10a4d7`。scanner `warningCount` 仍为 1：泛指源文件编码问题。883 个已跟踪文本文件严格 UTF-8 解码通过，没有定位到问题文件；不能凭推断转码或排除正常资产。
 - [Sonar 自动分析](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis) 不提供详细扫描日志且不能与 CI 分析同时启用。CI 迁移草案已准备：固定官方扫描工具、保持扫描范围、复用真实覆盖率并保存任务与门禁证据。启用仍需仓库 `SONAR_TOKEN` 和关闭 Automatic Analysis；本机登录凭据不自动转交 GitHub。迁移不保证编码提醒自动消失。
 - CodeRabbit 仓库配置已准备，尚未验证 GitHub App 对本仓库的授权与实际审查；配置文件本身不代表服务已经生效。
 - 已归档 mutation worktree，已跟踪文件中没有测试数据库、日志或缓存。部分缓存及测试临时目录清理被自动审批以“策略阻止”拒绝，相关文件保留；不能宣称所有临时文件均已清理。
