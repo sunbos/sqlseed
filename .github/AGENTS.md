@@ -23,6 +23,7 @@
 - Codecov 上传 pytest 已生成的 XML：保留明确的文件名、`disable_search: true`、`plugins: noop`、OIDC 和上传失败门禁，避免重复生成报告或启动无关语言工具；文件路径修复仍由上传器执行。
 - 上传统一使用 `actions/upload-coverage`：仅在临时 keyring 内核验 Codecov 官方固定指纹并建立 direct/full 信任；导入官方唯一主键后开启 `import-options merge-only` 并关闭自动导入/获取，后续上游再次下载只能更新既有主键，不能添加其他签名者。保留上游 GPG 与 SHA256 校验；keyring 只对上传步骤生效，完成或失败均清理。密钥轮换时先核对官方[完整性校验说明](https://docs.codecov.com/docs/codecov-uploader#integrity-checking-the-codecov-cli)和 action 的密钥来源，不能改为 ultimate/always 信任或跳过验证。
 - 根 `codecov.yml` 等待 Linux/Windows 两份报告，并将覆盖率下降容差设为 0、缺报告视为失败；保留组织级覆盖率目标，不通过降低目标、排除源码或 informational 状态使检查通过。修改后用 Codecov `/validate` API 验证配置。
+- Sonar 保留 Automatic Analysis，与既有 Actions 测试和 Codecov 配合；根 `.sonarcloud.properties` 由默认分支读取。`sonar.exclusions` 仅精确列出已核验文件头的图片/字体二进制资产，避免 PR 变更元数据识别字符集时误将其当作文本；所有源码、测试、脚本和 CI 配置仍在原有范围内。调整该列表时核验文件类型与前后代码分析范围，不能加入目录通配符或代码路径来消除告警。CI 扫描迁移是可选方案，不能将新增 token 当作现有自动分析工作的前提。
 - PostgreSQL job 使用专用 service 数据库，运行全部 `test_pg_*.py`、URL e2e 与 Web 的 `test_workbench_postgresql_cycles.py`；初始化显式使用 SCRAM 密码认证。真实 LLM 验收另行记录，不能由离线测试推定。
 - `packages` 验收五包 sdist/wheel、严格 metadata、已安装入口及 Core/Web 最小环境。最小环境不能混入 CLI/AI/MCP/Mimesis 等可选组件，否则无法证明缺组件行为。
 
