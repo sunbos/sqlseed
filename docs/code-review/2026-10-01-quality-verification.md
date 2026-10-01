@@ -24,16 +24,21 @@ SQLite 追加模式支持已有有效父键的单列物理外键循环。检查�
 
 ## 已有远端检查
 
-[CI 36838107405](https://github.com/sunbos/sqlseed/actions/runs/36838107405) 对应提交 `59d7ff02b5dfb11cb615ff11c70d1adb0fa91cdb`，在最终外键解析策略重构与本地 JSON 格式修复之前完成：
+[CI 36856644464](https://github.com/sunbos/sqlseed/actions/runs/36856644464) 对应提交 `8a024830c1926230c7b6c3c4b25a3b396b671d3d`，包含最终外键解析策略重构、本地 JSON 格式修复和测试辅助逻辑去重：
 
 | 环境 | 结果 |
 | --- | --- |
-| Linux Python 3.10、3.12、3.13 | 各 4,266 passed、47 skipped |
-| Windows Python 3.12 | 4,220 passed、93 skipped |
-| macOS Python 3.12 | 4,207 passed、106 skipped |
-| 其他 CI 门禁 | lint、packages、PostgreSQL integration、property tests 全部通过 |
+| Linux Python 3.10、3.12、3.13 | 各 4,292 passed、47 skipped |
+| Windows Python 3.12 | 4,246 passed、93 skipped |
+| macOS Python 3.12 | 4,233 passed、106 skipped |
+| PostgreSQL integration / property tests / doc-sync | 56 / 3 / 18 passed，零 skipped |
+| 其他 CI 门禁 | lint、packages 全部通过；Node 1,022 passed，零 failed |
 
-上述 pytest 日志没有 warnings；两份 Codecov 上传均通过 GPG 与 SHA256 校验、完成上传并清理隔离 keyring，上传 warnings 为零。macOS runner 容量提示是 notice。PR 上跳过文档部署属于既有规则，strict MkDocs 构建仍执行。
+上述 pytest 日志没有 warnings；两份 Codecov 上传均通过 GPG 与 SHA256 校验、上传明确对应此提交并清理隔离 keyring。Codecov patch 门禁通过，覆盖率为 96.24%，目标为 89.16%。project check 没有发布，历史提交也仅发布 patch，不能虚构其成功状态。macOS runner 容量提示是 notice，Actions 没有 warning 或 error annotations。PR 上跳过文档部署属于既有规则，strict MkDocs 构建仍执行。
+
+针对 Codecov 评论列出的 8 行新增未覆盖代码，已补真实 SQLite 回归，验证配置关联成环阻止清空重建、范围内外依赖边界、检查及预览不改变原有记录和自增序列，以及非法事务标记不落盘、运行快照重启后保持且不能篡改。两份完整测试文件共 50 passed、零 warnings，定向覆盖报告确认命中其中 5 行。PostgreSQL 拒绝分支新增真实服务测试并纳入专用 CI job，须等待远端实测；另外两行仅在违反已固定的构造契约时抛出防御异常，不通过破坏契约的 mock 凑覆盖率。
+
+PostgreSQL 容器原始日志另有一条初始化警告：本地连接默认使用 `trust` 认证。测试服务已增加显式 SCRAM 密码认证参数；其容器启动、原有 56 项 PostgreSQL 回归、新增工作台边界测试及警告消失仍需下一提交的 CI 实证。没有过滤日志或降低测试要求。
 
 本轮 `sync_docs.py --check` 与 strict MkDocs 构建通过，没有项目构建 warning。Material 主题仍直接输出一条关于未来 MkDocs 2.0 的[上游迁移提示](https://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/)；它不经过 MkDocs 的警告计数，不能据此宣称原始输出完全没有警告字样。已安装与 CI 的 MkDocs 为 1.6.1，Material 依赖明确要求 `mkdocs<2`。根 `uv.lock` 已将主题对齐已验收的 9.7.7，其他依赖版本不变，三个已有锁文件均校验通过。不为消除该提示屏蔽输出或降低版本。
 
@@ -41,10 +46,10 @@ SQLite 追加模式支持已有有效父键的单列物理外键循环。检查�
 
 ## 外部扫描与待完成事项
 
-- 提交 `59d7ff0` 的 CodeFlow 原始结果为 0 errors、2 warnings，指向 Core 与 Web 的方法参数声明重复。外键解析策略重构已删除 Web 的整段规格解析覆写；[提交 `860176b` 的扫描](https://app.getcodeflow.com/github/sunbos/sqlseed/commits/860176b3b9a2085dac44712a9a3efc9eb8b70560) 确认这两条生产代码提醒消失，但新增测试与既有测试的 HTTP 格式拒绝处理重复，又产生 2 条 warnings。测试已共享格式拒绝辅助逻辑，保留全部参数化范围与断言；该文件 82 项回归全部通过、零 warnings。仍须核对后续提交的实际扫描结果，不能提前宣布零 warnings。
-- 提交 `860176b` 的 Sonar quality gate 通过，全部 5 项条件通过，open 或 confirmed issues、bugs、vulnerabilities、code smells、security hotspots 均为零，accepted 或 false positive 为零，未忽略门禁条件。对应 CE task 为 `AaD3N55YM05yGU2TbRj_`，analysis 为 `835e146e-b0d3-4729-a114-06b5ff10a4d7`。scanner `warningCount` 仍为 1：泛指源文件编码问题。883 个已跟踪文本文件严格 UTF-8 解码通过，没有定位到问题文件；不能凭推断转码或排除正常资产。
+- [提交 `8a024830` 的 CodeFlow 扫描](https://app.getcodeflow.com/github/sunbos/sqlseed/commits/8a024830c1926230c7b6c3c4b25a3b396b671d3d) 状态为 “Good job! No issues.”，结果页面没有问题条目。已删除 Web 的整段规格解析覆写，并共享测试中的 HTTP 格式拒绝处理，保留全部参数化范围与断言；协议回归 82 项全部通过、零 warnings。此结论仅对应明确提交，后续提交仍须重新核验。
+- 提交 `8a024830` 的 Sonar quality gate 通过，全部 5 项条件通过，open 或 confirmed issues、bugs、vulnerabilities、code smells、security hotspots 均为零，accepted 或 false positive 为零，未忽略门禁条件。对应 CE task 为 `AaD3Qx3nCH08y69O06mt`，analysis 为 `51cf2633-8e07-4bd5-b659-66e8f2d49c91`。scanner `warningCount` 仍为 1：泛指源文件编码问题。884 个已跟踪文本文件严格 UTF-8 解码通过，19 个二进制文件均验证为正常资产。发现其中 10 张历史截图实际为 JPEG/JFIF，已将后缀从 `.png` 改为 `.jpg`，逐张哈希不变且没有旧路径引用。没有证据证明这就是 Sonar 警告来源，需后续扫描确认；不凭推断转码或排除正常资产。
 - [Sonar 自动分析](https://docs.sonarsource.com/sonarqube-cloud/analyzing-source-code/automatic-analysis) 不提供详细扫描日志且不能与 CI 分析同时启用。CI 迁移草案已准备：固定官方扫描工具、保持扫描范围、复用真实覆盖率并保存任务与门禁证据。启用仍需仓库 `SONAR_TOKEN` 和关闭 Automatic Analysis；本机登录凭据不自动转交 GitHub。迁移不保证编码提醒自动消失。
-- CodeRabbit 仓库配置已准备，尚未验证 GitHub App 对本仓库的授权与实际审查；配置文件本身不代表服务已经生效。
+- CodeRabbit 仓库配置已准备，尚未验证 GitHub App 对本仓库的授权与实际审查。另已安装官方 Windows CLI 0.8.2，`coderabbit.exe` 与 `cr.exe` 的 Authenticode 签名有效，安装自检通过；账户状态为 signed out，尚未运行审查或购买订阅。[官方套餐说明](https://docs.coderabbit.ai/management/plans)提供长期 Free/OSS 接入，CLI 每人每小时 3 次，超限扩展另行收费。维护者只考虑免费接入；实跑前需本人登录并确认套餐及按量计费为 Off，超限时等待额度恢复。PR App 与 CLI 是独立接入，配置文件或安装成功均不代表审查已经执行，也不作为现有项目门禁通过的依据。
 - 已归档 mutation worktree，已跟踪文件中没有测试数据库、日志或缓存。部分缓存及测试临时目录清理被自动审批以“策略阻止”拒绝，相关文件保留；不能宣称所有临时文件均已清理。
 
 最新代码需通过独立评审、本地针对性验证及其对应提交的远端 CI 后再合并。历史日志与临时探针保留在临时目录或 CI artifact，本记录不提交原始日志、数据库或凭据。
