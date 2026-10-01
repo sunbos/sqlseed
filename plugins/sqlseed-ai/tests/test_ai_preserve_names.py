@@ -151,6 +151,21 @@ def _tool_message() -> dict[str, Any]:
     }
 
 
+def _unsupported_format_handler(
+    requests: list[dict[str, Any]], text_response: httpx.Response
+) -> Callable[[httpx.Request], httpx.Response]:
+    """Record attempts and reject format negotiation before returning the text reply."""
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        requests.append(body)
+        if "response_format" in body:
+            return httpx.Response(400, json={"error": {"message": "response_format is not supported"}})
+        return text_response
+
+    return handle
+
+
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("preserve_names", [False, True])
 def test_analyzer_http_and_sse_paths_preserve_names_only_when_requested(
@@ -176,14 +191,7 @@ def test_analyzer_http_and_sse_paths_preserve_names_only_when_requested(
 @pytest.mark.parametrize("preserve_names", [False, True])
 def test_json_mode_fallback_keeps_requested_name_policy(monkeypatch: pytest.MonkeyPatch, preserve_names: bool) -> None:
     requests = []
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        requests.append(body)
-        if "response_format" in body:
-            return httpx.Response(400, json={"error": {"message": "response_format is not supported"}})
-        return _completion({"content": f"Configuration:\n{_JSON}"})
-
+    handle = _unsupported_format_handler(requests, _completion({"content": f"Configuration:\n{_JSON}"}))
     kwargs = {"preserve_names": True} if preserve_names else {}
     with _analyzer_http(monkeypatch, handle) as analyzer:
         result = analyzer.call_llm(_MESSAGES, strict_json=True, **kwargs)
@@ -233,13 +241,7 @@ def test_unsupported_local_format_falls_back_once_and_keeps_strict_parsing(
     monkeypatch: pytest.MonkeyPatch, backend: AIBackend, streaming: bool, content: str
 ) -> None:
     requests = []
-
-    def handle(request: httpx.Request) -> httpx.Response:
-        body = json.loads(request.content)
-        requests.append(body)
-        if "response_format" in body:
-            return httpx.Response(400, json={"error": {"message": "response_format is not supported"}})
-        return _sse(content) if streaming else _completion({"content": content})
+    handle = _unsupported_format_handler(requests, _sse(content) if streaming else _completion({"content": content}))
 
     with _analyzer_http(monkeypatch, handle) as analyzer:
         assert analyzer.config is not None
