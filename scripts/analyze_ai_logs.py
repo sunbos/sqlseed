@@ -565,13 +565,14 @@ def _render_breakdown_table(title: str, rows: list[dict[str, Any]], name_header:
 
 def _render_token_usage(tw: dict[str, Any]) -> list[str]:
     """Render request/response sizes and their largest prompt examples."""
-    lines: list[str] = []
-    lines.append("5. TOKEN WASTE ANALYSIS")
-    lines.append("-" * 80)
-    lines.append(f"  Total input chars:   {tw['total_input_chars']}")
-    lines.append(f"  Total output chars:  {tw['total_output_chars']}")
-    lines.append(f"  Input/output ratio:  {tw['input_output_ratio']:.2f}")
-    lines.append("")
+    lines: list[str] = [
+        "5. TOKEN WASTE ANALYSIS",
+        "-" * 80,
+        f"  Total input chars:   {tw['total_input_chars']}",
+        f"  Total output chars:  {tw['total_output_chars']}",
+        f"  Input/output ratio:  {tw['input_output_ratio']:.2f}",
+        "",
+    ]
     for label, key in (
         ("largest system prompts", "top_system_prompts"),
         ("largest user prompts", "top_user_prompts"),
@@ -584,9 +585,13 @@ def _render_token_usage(tw: dict[str, Any]) -> list[str]:
         for i, p in enumerate(items, 1):
             table_lbl = p["table"] or "(none)"
             col_lbl = p["column"] or "(none)"
-            lines.append(f"    {i}. [{p['char_count']} chars] table={table_lbl}, column={col_lbl}")
-            lines.append(f"       file: {p['file_name']}")
-            lines.append(f"       preview: {p['preview']!r}")
+            lines.extend(
+                [
+                    f"    {i}. [{p['char_count']} chars] table={table_lbl}, column={col_lbl}",
+                    f"       file: {p['file_name']}",
+                    f"       preview: {p['preview']!r}",
+                ]
+            )
         lines.append("")
 
     return lines
@@ -594,26 +599,26 @@ def _render_token_usage(tw: dict[str, Any]) -> list[str]:
 
 def render_text(report: dict[str, Any]) -> str:
     """Render the report as a human-readable plain-text string."""
-    lines: list[str] = []
     sep = "=" * 80
-    lines.append(sep)
-    lines.append("AI LOGS ANALYSIS REPORT".center(80))
-    lines.append(sep)
-    lines.append("")
+    lines: list[str] = [sep, "AI LOGS ANALYSIS REPORT".center(80), sep, ""]
 
     # 1. Overview
     ov = report["overview"]
-    lines.append("1. OVERVIEW")
-    lines.append("-" * 80)
-    lines.append(f"  Total log files:        {ov['total_files']}")
-    lines.append(f"  Skipped (malformed):    {ov['skipped_files']}")
-    lines.append(f"  Total LLM time:         {_fmt_time(ov['total_llm_time'])}")
-    lines.append(f"  Average per call:       {_fmt_time(ov['avg_elapsed'])}")
-    lines.append(f"  Min elapsed:            {_fmt_time(ov['min_elapsed'])}")
-    lines.append(f"  Max elapsed:            {_fmt_time(ov['max_elapsed'])}")
-    lines.append(f"  P50:                    {_fmt_time(ov['p50_elapsed'])}")
-    lines.append(f"  P95:                    {_fmt_time(ov['p95_elapsed'])}")
-    lines.append(f"  P99:                    {_fmt_time(ov['p99_elapsed'])}")
+    lines.extend(
+        [
+            "1. OVERVIEW",
+            "-" * 80,
+            f"  Total log files:        {ov['total_files']}",
+            f"  Skipped (malformed):    {ov['skipped_files']}",
+            f"  Total LLM time:         {_fmt_time(ov['total_llm_time'])}",
+            f"  Average per call:       {_fmt_time(ov['avg_elapsed'])}",
+            f"  Min elapsed:            {_fmt_time(ov['min_elapsed'])}",
+            f"  Max elapsed:            {_fmt_time(ov['max_elapsed'])}",
+            f"  P50:                    {_fmt_time(ov['p50_elapsed'])}",
+            f"  P95:                    {_fmt_time(ov['p95_elapsed'])}",
+            f"  P99:                    {_fmt_time(ov['p99_elapsed'])}",
+        ]
+    )
     span = ov["time_span"]
     lines.append(f"  Time span (oldest):     {span['oldest']}")
     lines.append(f"  Time span (newest):     {span['newest']}")
@@ -651,13 +656,17 @@ def render_text(report: dict[str, Any]) -> str:
 
     # 6. Failure Patterns
     fp = report["failure_patterns"]
-    lines.append("6. FAILURE PATTERN DETECTION")
-    lines.append("-" * 80)
-    lines.append(f"  Null generator responses:    {fp['null_generator']['count']}")
-    lines.append(f"  Derive_from responses:       {fp['derive_from']['count']}")
-    lines.append(f"  Malformed JSON responses:    {fp['malformed_json']['count']}")
-    lines.append(f"  Column name mismatches:      {fp['column_mismatch']['count']}")
-    lines.append("")
+    lines.extend(
+        [
+            "6. FAILURE PATTERN DETECTION",
+            "-" * 80,
+            f"  Null generator responses:    {fp['null_generator']['count']}",
+            f"  Derive_from responses:       {fp['derive_from']['count']}",
+            f"  Malformed JSON responses:    {fp['malformed_json']['count']}",
+            f"  Column name mismatches:      {fp['column_mismatch']['count']}",
+            "",
+        ]
+    )
     for name, label in (
         ("null_generator", "Null generator"),
         ("derive_from", "Derive_from"),

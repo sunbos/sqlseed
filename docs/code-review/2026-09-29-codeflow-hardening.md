@@ -210,6 +210,16 @@
 
 项目生成缓存及隔离 UI 测试库的清理命令被自动审批以“策略阻止”拒绝，故保留这些未追踪产物；没有改用其他方式绕过拒绝，也没有删除用户数据库或虚拟环境。
 
+### 合并后的全量扫描与最后八项追加规则
+
+用户于 10 月 1 日授权合并，PR #23 已合并为 main 提交 `5d2d558948016e3da5c0e98bde1b90eea9237651`；本地 main 已同步。合并前 `6888d0f` 的所有实际 CI job、文档同步和 Sonar PR 检查通过，认证 PR 问题数为 0；Windows 为 4,167 passed、93 skipped，Linux / Python 3.12 为 4,213 passed、47 skipped，两个 pytest 日志没有 warnings summary。两份覆盖率上传完成后，Codecov 增量覆盖率为 **95.00%**，门槛仍为 **88.21%**。这不代表全项目覆盖率或所有真实外部服务均已验证。
+
+合并后的官方 Sonar analysis revision 与 main SHA 精确一致，原 245 项均已修复；全量 `OPEN,CONFIRMED` 查询仍有 **8 项 `python:S9409`**，BUG、漏洞和 Accepted 均为 0。门禁通过不能代替这八项的清零。旧版 `resolved=false` 查询一度返回 245 条 `CLOSED/FIXED` 历史记录；此次以官方现代 issue status 过滤的实际正文、分页总数和 analysis revision 核验未解决范围，不将历史已关闭记录当成当前问题。
+
+该规则创建于 2026-09-29，要求合并连续的列表追加。AI 表上下文两处、列级修复提示词一处，以及日志报告脚本五处，现在改为列表初始化或单次 `extend()`；全部文本项、顺序、分支和空行保留，没有将一个集合元素误拆成多个项，也没有重写过滤 / 转换循环。日志报告 121 组旧新输入得到 484 次一致结果，涵盖完整文本、JSON、token 部分和输入不变；既有 AI 离线回归 77 项通过，512 组表上下文、10,240 组消息与 2,048 组 Level2 提示词逐 UTF-8 字节一致，token 估算和五种惰性分支也保持。独立审查将这些局部列表操作展开后，三个完整模块的 AST 与旧版完全相同，另八组日志边界的字节 / JSON 结果一致，无 P1 / P2。未请求真实模型；局部 Ruff / format、三个修改源文件的 mypy 与文档同步通过。后续补充提交的 CI、PR 与合并后 main 全量分析仍须按各自精确 SHA 验收。
+
+main `5d2d558` 的 CodeFlow 提交检查返回 `Good job! No issues.`；旧 PR 汇总页仍展示 9 月 29 日标题和 33 条旧源码清单。这 33 项已逐项与后续提交及当前实现核对修复，但该汇总页面尚未显示刷新后的零告警数字，不能把提交级无新增问题解释为该历史视图已更新。
+
 ## 证据归属
 
 原始文件保留于任务系统 TEMP，不作为产品运行依赖：
@@ -236,5 +246,9 @@
 - `sqlseed-sonar-iterator-node-clean.log`、`sqlseed-sonar-iterator-js-rules.json`、`sqlseed-sonar-iterator-promises.json`、`sqlseed-sonar-iterator-await-loops.json`：顺序迭代补充的完整前端与辅助检查。
 - `sqlseed-sonar-resolution-s9382-wizard.json`、`sqlseed-wizard-iterator-differential.json`、`sqlseed-S9382-configs-ledger.json`、`sqlseed-ai-stream-S9382-followup-ledger.json`：顺序、预算、快照、取消、资源与旧新差分依据。
 - `sqlseed-windows-command-startup-ledger.json`：真实终端命令的阶段诊断、完整参数断言和启动预算修正依据；线上失败原因未被冒充为已复现。
+- `sqlseed-pr23-6888d0f-final-receipt.json`、`sqlseed-ci-6888d0f-windows-evidence.json`：合并前精确 head、远端检查、PR 可评审状态和 Windows 最终验收。
+- `sqlseed-sonar-main-5d2d558-summary.json` 及配套 issues / analyses / gate / accepted：合并后全源八项的实际状态、官方 analysis revision 和门禁条件。
+- `sqlseed-s9409-report-differential.json`：追加规则修复后 121 组报告、484 次旧新结果及输入不变对照。
+- `sqlseed-sonar-s9409-ai-resolution.json`、`sqlseed-s9409-ai-diff.json`、`sqlseed-S9409-ai-independent-review.json`、`sqlseed-S9409-scripts-independent-review.json`：提示词字节 / token / 惰性分支、脚本边界及三个模块独立 AST 等价审查。
 
 本轮使用隔离测试数据库、临时缓存与受控协议输入；没有以清理告警为由删除用户数据、停止用户预览服务或安装 / 卸载用户环境组件。真实模型和跨平台验证仅以各自实际运行结果为准。
