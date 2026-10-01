@@ -146,8 +146,11 @@ JSON parsing can complete missing final `}` or `]`
 delimiters, including inside code fences, but never fills missing values or strings.
 An output-limit response is rejected even if its prefix parses, including a streaming
 length marker in a separate empty terminal chunk. Both methods default to
-`strict_json=False`; enabling this optional mode adds no model requests. The CLI's
-direct path and both refiner modes opt in while keeping their existing retry budgets.
+`strict_json=False`. Strict local calls request JSON sampling constraints: LM Studio
+uses its JSON-schema grammar interface, and Ollama uses JSON object mode. A server
+that explicitly rejects the format gets one text-mode compatibility attempt;
+the same strict parser still rejects invalid or truncated output. The CLI's direct
+path and both refiner modes keep their existing prompt/refinement retry budgets.
 Strict tool calling also rejects arrays, scalars and `null` arguments as `invalid_json`;
 compatibility mode may still fall back to response text. Parsed suggestions still
 require scope and rule validation.

@@ -59,6 +59,7 @@
 - Worker 持有连接操作锁并逐表执行，失败后其余表 `not_run`。已提交数量来自 `GenerationResult.count`，不能用总行数差冒充精确值。记录异常文本先脱敏，避免 SQLAlchemy 参数和连接密码落盘。
 - `workbench_execution.py` 负责只读清空规划。POST execution-plan 使用保存的 draft/revision/schema/config 绑定，返回实际表/行数、删除顺序、能力和 plan_hash。POST runs 固定 execution/plan_hash；append 为兼容默认，replace_selected 必须重新验证确认计划。
 - SQLite replace 与已验证的已有来源循环追加使用 SQLAlchemyAdapter.transaction()，父键读取、清空、自引用更新和批次写入共用连接；不关闭 FK、不自动 CASCADE、不在事务提交前报告已提交。失败回滚原行与序列，运行结果明确 rolled_back。PostgreSQL replace、清空跨表循环、范围外引用、清空触发器和未覆盖自引用等通过服务端能力检查阻止。已有来源循环的 atomic_append 为不可变运行快照事实，与执行计划的 atomic 保持一致；普通无环追加仍保留原来的逐批提交语义。
+- `ExistingSourceOrchestrator` 是内部 Web 会话，预览与执行统一通过 `for_config()` 构造；工厂在连接与 metadata 缓存初始化前组合专用 `RelationResolver`，保留同一 adapter、shared pool 与配置关联。冻结池仍在原有检查/写入事务内读取，只替换已接受的单列循环 FK 来源；普通 FK 与关联继续由 Core 解析。不得通过重写整段 `_resolve_specs` 改动规则解析顺序或关键字契约；直接构造后调用 `pin_cycle_sources()` 必须明确报错，不得静默失去冻结策略。
 - AI DEFAULT 保护按当前实际生成模式判断；生成器主动提供值时可优化，真正省略使用 DEFAULT 时保持保护。PK/FK、计算列及已有派生/原生规则继续保护。追加失败只有完整精确计数才能创建剩余配置，扣除已提交行数，保留原快照与已完成表草稿，不自动提交；中断/未知计数/清空模式不能直接推导剩余量。
 
 ## 只读当前数据

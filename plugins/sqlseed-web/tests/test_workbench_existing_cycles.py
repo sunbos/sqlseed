@@ -6,9 +6,11 @@ from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
+from sqlseed.config.models import GeneratorConfig
 from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web.state import Connection, UIState
+from sqlseed_web.workbench_cycles import ExistingSourceOrchestrator
 from sqlseed_web.workbench_execution import build_execution_plan
 from sqlseed_web.workbench_runtime import bind_document, check_document
 from sqlseed_web.workbench_schema import inspect_connection
@@ -222,3 +224,86 @@ def test_cycle_pinning_never_overrides_a_different_configured_or_physical_source
         assert conn.orchestrator.get_row_count("b") == 1
     finally:
         registry.close_connection(conn.conn_id)
+
+
+def test_cycle_policy_preserves_keyword_specs_fresh_foreign_keys_and_associations(tmp_path: Path) -> None:
+    path = tmp_path / "relation-policy.db"
+    with sqlite_connection(path) as db:
+        db.executescript(
+            "CREATE TABLE a(id INTEGER PRIMARY KEY, b_id INTEGER REFERENCES b(id));"
+            "CREATE TABLE b(id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES a(id));"
+            "CREATE TABLE child(id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES a(id));"
+            "CREATE TABLE regions(id INTEGER PRIMARY KEY, code TEXT NOT NULL);"
+            "CREATE TABLE sales(id INTEGER PRIMARY KEY, code_ref TEXT NOT NULL);"
+            "INSERT INTO a VALUES(1,NULL); INSERT INTO b VALUES(1,1); UPDATE a SET b_id=1;"
+            "INSERT INTO regions VALUES(1,'existing');"
+        )
+    config = GeneratorConfig.model_validate(
+        {
+            "db_path": str(path),
+            "provider": "base",
+            "associations": [
+                {
+                    "column_name": "code_ref",
+                    "source_table": "regions",
+                    "source_column": "code",
+                    "target_tables": ["sales"],
+                }
+            ],
+        }
+    )
+    with ExistingSourceOrchestrator.for_config(config) as orch, orch.database_adapter.transaction():
+        orch.pin_cycle_sources(
+            [
+                {"table": "a", "column": "b_id", "source_table": "b", "source_columns": ["id"]},
+                {"table": "b", "column": "a_id", "source_table": "a", "source_columns": ["id"]},
+            ]
+        )
+        specs, _, _, _ = orch._resolve_specs(
+            table_name="a", count=3, columns=None, column_configs=None, enrich=False, clear_before=False
+        )
+        assert specs["b_id"].params["_ref_values"] == [1]
+        orch.fill_table("a", count=3, seed=1, skip_ai=True)
+        orch.fill_table("b", count=3, seed=2, skip_ai=True)
+        child_specs, _, _, _ = orch._resolve_specs(
+            table_name="child", count=4, columns=None, column_configs=None, enrich=False
+        )
+        assert set(child_specs["a_id"].params["_ref_values"]) == {1, 2, 3, 4}
+        orch.fill_table(
+            "child",
+            count=4,
+            columns={
+                "a_id": {
+                    "generator": "foreign_key",
+                    "params": {"ref_table": "a", "ref_column": "id", "strategy": "coverage"},
+                }
+            },
+            seed=3,
+            skip_ai=True,
+        )
+        association_specs, _, _, _ = orch._resolve_specs(
+            table_name="sales", count=3, columns=None, column_configs=None, enrich=False
+        )
+        assert association_specs["code_ref"].params["_ref_values"] == ["existing"]
+        orch.fill_table("sales", count=3, seed=4, skip_ai=True)
+    with sqlite_connection(path) as db:
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert db.execute("SELECT id,b_id FROM a WHERE id=1").fetchall() == [(1, 1)]
+        assert db.execute("SELECT b_id FROM a WHERE id>1").fetchall() == [(1,), (1,), (1,)]
+        assert db.execute("SELECT a_id FROM b WHERE id>1").fetchall() == [(1,), (1,), (1,)]
+        assert db.execute("SELECT DISTINCT a_id FROM child ORDER BY a_id").fetchall() == [(1,), (2,), (3,), (4,)]
+        assert db.execute("SELECT code_ref FROM sales").fetchall() == [("existing",)] * 3
+
+
+def test_direct_internal_session_rejects_pinning_without_the_configured_policy(tmp_path: Path) -> None:
+    path = tmp_path / "unconfigured-policy.db"
+    with sqlite_connection(path) as db:
+        db.execute("CREATE TABLE original(id INTEGER PRIMARY KEY)")
+        db.execute("INSERT INTO original VALUES(1)")
+    with (
+        ExistingSourceOrchestrator(str(path), provider_name="base") as orch,
+        pytest.raises(TypeError, match="require for_config"),
+    ):
+        orch.pin_cycle_sources([])
+    with sqlite_connection(path) as db:
+        assert db.execute("SELECT id FROM original").fetchall() == [(1,)]
