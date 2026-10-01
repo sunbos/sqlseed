@@ -1,6 +1,6 @@
 # 评审记录
 
-- [当前 CodeFlow / Sonar 收口](2026-09-29-codeflow-hardening.md)：PR #23 的逐项整改、10 月 1 日全源审查和本地验证；远端结论须对应最新提交，不以绿色门禁代替零问题。
+- [当前 CodeFlow / Sonar 收口](2026-09-29-codeflow-hardening.md)：PR #23 的逐项整改、合并后的全量扫描与追加规则修复；远端结论须对应最新提交，不以绿色门禁代替零问题。
 - [此前项目收尾](2026-09-29-project-closure.md)：PR #20、#21 合并后的证据、真实模型补充复验、当时的 Sonar 处置及能力边界。
 - [PR #19 历史验收](2026-09-28-project-closure.md)：此前问题、实测范围和当时的交付状态。
 - [9 月 13 日 Sonar 整改与逐项判定](2026-09-13-sonar-remediation/README.md)：保留当时的误报依据及 issue ledger；`sqlseed.fill` 参数数量当时按用户决定暂缓，本轮采用 `FillOptions` 复用设置并保留旧关键字调用，详见当前收口记录和 API 指南。

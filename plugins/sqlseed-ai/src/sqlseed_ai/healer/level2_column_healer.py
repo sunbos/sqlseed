@@ -207,12 +207,13 @@ class Level2ColumnHealer:
         violation: ViolationReport,
     ) -> tuple[str, int]:
         """Build the column-level prompt. Returns (user_prompt, estimated_tokens)."""
-        lines: list[str] = []
-        lines.append(f"Table: {context.table_name}")
-        lines.append(f"Column: {context.column_name}")
-        lines.append(f"Type: {context.column_type}")
-        lines.append(f"Nullable: {context.nullable}")
-        lines.append(f"Unique: {context.is_unique}")
+        lines: list[str] = [
+            f"Table: {context.table_name}",
+            f"Column: {context.column_name}",
+            f"Type: {context.column_type}",
+            f"Nullable: {context.nullable}",
+            f"Unique: {context.is_unique}",
+        ]
         if context.fk_info:
             lines.append(f"FK: references {context.fk_info.ref_table}({context.fk_info.ref_column})")
         if context.check_constraints:
