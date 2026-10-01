@@ -19,6 +19,7 @@ pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="Win32 Job Objec
 
 
 def _writer_tree(root: Path, *, parent_waits: bool, handshake: bool = False) -> Path:
+    """Create an isolated installer tree whose grandchild keeps writing and inherits the output pipe."""
     writer = root / "writer.py"
     writer.write_text(
         "import os,sys,time\n"
@@ -65,6 +66,7 @@ def _wait_for_owner_progress(
     minimum_size: int,
     phase: str,
 ) -> None:
+    """Bound the startup handshake and diagnose owner exit separately from later process cleanup."""
     deadline = time.monotonic() + timeout
     while True:
         returncode = process.poll()
@@ -103,6 +105,7 @@ def _assert_writer_stopped(path: Path) -> None:
 def test_installer_exit_and_timeout_reap_grandchildren_holding_stdout(
     tmp_path: Path, parent_waits: bool, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Verify real Job cleanup stops descendants and releases their inherited lock after exit or timeout."""
     installer = _writer_tree(tmp_path, parent_waits=parent_waits, handshake=True)
     owner = EnvironmentLock(tmp_path, exclusive=True)
     contender = EnvironmentLock(tmp_path, exclusive=True)
@@ -120,6 +123,7 @@ def test_installer_exit_and_timeout_reap_grandchildren_holding_stdout(
     ) -> int:
         # Real guard/child/intermediate cold starts have a separate bounded budget.
         # Only the wait boundary is staged; production Job ownership and cleanup run unchanged.
+        """Wait for actual descendant writes before starting the unchanged installer execution timeout."""
         _wait_for_owner_progress(
             tmp_path / "writes",
             process,

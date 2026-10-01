@@ -66,6 +66,7 @@ def fixture_pg_cycle(pg_url: str) -> Iterator[Engine]:
 
 
 def _cycle_snapshot(engine: Engine) -> dict[str, list[tuple[object, ...]]]:
+    """Read both cyclic tables and sequence state so rejection tests detect any database side effect."""
     queries = {
         "cycle_a": "SELECT id,b_id,note FROM cycle_a ORDER BY id",
         "cycle_b": "SELECT id,a_id,note FROM cycle_b ORDER BY id",
@@ -80,6 +81,7 @@ def _cycle_snapshot(engine: Engine) -> dict[str, list[tuple[object, ...]]]:
 def fixture_pg_workbench(
     pg_cycle: Engine, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> Iterator[tuple[TestClient, UIState, str, dict[str, Any]]]:
+    """Expose a real isolated PostgreSQL cycle through the application with a temporary workspace."""
     assert _cycle_snapshot(pg_cycle) == {
         "cycle_a": [(1, 1, "a-original")],
         "cycle_b": [(1, 1, "b-original")],
@@ -105,6 +107,7 @@ def fixture_pg_workbench(
 
 
 def _cycle_document() -> dict[str, Any]:
+    """Request both cyclic tables with stable generation settings and no hidden rule adjustments."""
     return {
         "provider": "base",
         "tables": [{"name": name, "count": 3, "seed": 31} for name in ("cycle_a", "cycle_b")],
@@ -115,6 +118,7 @@ def _cycle_document() -> dict[str, Any]:
 def test_pg_workbench_rejects_seeded_cycles_without_touching_rows_or_sequences(
     pg_cycle: Engine, pg_workbench: tuple[TestClient, UIState, str, dict[str, Any]], endpoint: str
 ) -> None:
+    """Keep PostgreSQL cycles unsupported even with valid parents and preserve rows, sequences and job state."""
     client, registry, conn_id, schema = pg_workbench
     before = _cycle_snapshot(pg_cycle)
     response = client.post(
@@ -153,6 +157,7 @@ def test_pg_workbench_rejects_seeded_cycles_without_touching_rows_or_sequences(
 def test_pg_run_rechecks_saved_cycle_even_when_client_bypasses_check_and_preview(
     pg_cycle: Engine, pg_workbench: tuple[TestClient, UIState, str, dict[str, Any]]
 ) -> None:
+    """Enforce the cycle boundary on run admission even when a caller bypasses both frontend checks."""
     client, registry, conn_id, schema = pg_workbench
     before = _cycle_snapshot(pg_cycle)
     response = client.post(

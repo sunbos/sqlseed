@@ -157,6 +157,7 @@ def _unsupported_format_handler(
     """Record attempts and reject format negotiation before returning the text reply."""
 
     def handle(request: httpx.Request) -> httpx.Response:
+        """Record both negotiation attempts and reject only requests that specify a response format."""
         body = json.loads(request.content)
         requests.append(body)
         if "response_format" in body:
@@ -190,6 +191,7 @@ def test_analyzer_http_and_sse_paths_preserve_names_only_when_requested(
 
 @pytest.mark.parametrize("preserve_names", [False, True])
 def test_json_mode_fallback_keeps_requested_name_policy(monkeypatch: pytest.MonkeyPatch, preserve_names: bool) -> None:
+    """Preserve the caller's identifier policy when JSON mode falls back to plain text."""
     requests = []
     handle = _unsupported_format_handler(requests, _completion({"content": f"Configuration:\n{_JSON}"}))
     kwargs = {"preserve_names": True} if preserve_names else {}
@@ -207,9 +209,11 @@ def test_json_mode_fallback_keeps_requested_name_policy(monkeypatch: pytest.Monk
 def test_local_json_sampling_preserves_identifiers_and_optional_text_mode(
     monkeypatch: pytest.MonkeyPatch, backend: AIBackend, streaming: bool, strict: bool
 ) -> None:
+    """Check backend-specific strict formats while keeping legacy text mode and names intact."""
     requests = []
 
     def handle(request: httpx.Request) -> httpx.Response:
+        """Capture the wire format and return identical content through JSON or SSE transport."""
         requests.append(json.loads(request.content))
         return _sse(_JSON) if streaming else _completion({"content": _JSON})
 
@@ -240,6 +244,7 @@ def test_local_json_sampling_preserves_identifiers_and_optional_text_mode(
 def test_unsupported_local_format_falls_back_once_and_keeps_strict_parsing(
     monkeypatch: pytest.MonkeyPatch, backend: AIBackend, streaming: bool, content: str
 ) -> None:
+    """Allow one format fallback without changing request budgets or accepting invalid JSON."""
     requests = []
     handle = _unsupported_format_handler(requests, _sse(content) if streaming else _completion({"content": content}))
 
@@ -274,9 +279,11 @@ def test_unsupported_local_format_falls_back_once_and_keeps_strict_parsing(
 def test_local_json_sampling_does_not_retry_unrelated_service_failures(
     monkeypatch: pytest.MonkeyPatch, streaming: bool, status: int, message: str
 ) -> None:
+    """Keep authentication, argument and server errors outside format-compatibility retries."""
     requests = []
 
     def handle(request: httpx.Request) -> httpx.Response:
+        """Return the specified service error while recording whether an extra request occurs."""
         requests.append(json.loads(request.content))
         return httpx.Response(status, json={"error": {"message": message}})
 

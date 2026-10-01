@@ -18,6 +18,7 @@ from .complex_graph_fixture import create_database, export_checks, export_schema
 
 
 def test_business_graph_snapshot_matches_the_real_http_schema_and_checks(tmp_path: Path) -> None:
+    """Keep the frontend fixture faithful to real constraints, exact cycle members and unchanged source rows."""
     path = tmp_path / "business.sqlite3"
     create_database(path, seed_cycles=False)
     schema = export_schema(path)
@@ -46,6 +47,7 @@ def test_business_graph_snapshot_matches_the_real_http_schema_and_checks(tmp_pat
 
 
 def test_missing_composite_source_identifies_the_exact_target_column_group(tmp_path: Path) -> None:
+    """Report the complete composite-key mapping when the actual parent tuple source is empty."""
     path = tmp_path / "empty-bins.sqlite3"
     create_database(path, seed_cycles=False)
     with sqlite_connection(path) as connection:
@@ -72,6 +74,7 @@ def test_missing_composite_source_identifies_the_exact_target_column_group(tmp_p
 def test_selecting_all_tables_retains_the_exact_cycle_without_writing(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, endpoint: str
 ) -> None:
+    """Reject an unseeded cycle through both HTTP entry points without modifying any selected table."""
     path = tmp_path / "all-selected.sqlite3"
     create_database(path, seed_cycles=False)
     schema = export_schema(path)
@@ -129,6 +132,7 @@ def test_selecting_all_tables_retains_the_exact_cycle_without_writing(
 
 
 def test_multiple_cycles_report_only_internal_edges_not_bridges_or_descendants(tmp_path: Path) -> None:
+    """Highlight each true cycle without misclassifying the bridge between cycles or blocked descendants."""
     path = tmp_path / "two-cycles.sqlite3"
     create_database(path, seed_cycles=False)
     with sqlite_connection(path) as connection:
@@ -151,6 +155,7 @@ def test_multiple_cycles_report_only_internal_edges_not_bridges_or_descendants(t
 
 
 def test_retaining_cycle_and_upstream_removes_only_the_cycle_not_remaining_clear_checks(tmp_path: Path) -> None:
+    """Preserving cyclic tables must not authorize clearing parents still referenced outside the new scope."""
     from sqlseed_web.workbench_execution import build_execution_plan
     from sqlseed_web.workbench_runtime import bind_document, check_document
 

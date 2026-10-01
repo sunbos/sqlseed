@@ -25,6 +25,7 @@ except ModuleNotFoundError as exc:
 def test_live_backend_configuration_is_service_scoped(
     monkeypatch: pytest.MonkeyPatch, backend: str, expected_url: str, expected_key: str
 ) -> None:
+    """Isolate selected-service credentials, endpoint and protocol from unrelated environment values."""
     for variable, value in {
         "SQLSEED_AI_API_KEY": "other-service-key",
         "OPENAI_API_KEY": "other-fallback-key",
@@ -47,6 +48,7 @@ def test_live_backend_configuration_is_service_scoped(
 
 
 def test_google_acceptance_does_not_borrow_another_service_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Leave missing Google credentials unset rather than reusing another provider's key."""
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
     monkeypatch.setenv("SQLSEED_AI_API_KEY", "other-service-key")
     monkeypatch.setenv("OPENAI_API_KEY", "other-fallback-key")

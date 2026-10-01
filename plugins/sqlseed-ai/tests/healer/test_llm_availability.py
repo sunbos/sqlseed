@@ -16,11 +16,13 @@ MODEL = "google/gemma-4-e2b"
 
 
 def _response(**kwargs: object) -> httpx.Response:
+    """Build a successful model-list response with request metadata for status validation."""
     return httpx.Response(200, request=httpx.Request("GET", "http://localhost:1234/v1/models"), **kwargs)
 
 
 @pytest.mark.parametrize("status", [401, 403, 404, 500, 503])
 def test_http_failures_do_not_skip_acceptance(monkeypatch: pytest.MonkeyPatch, status: int) -> None:
+    """Treat reachable-service HTTP errors as setup failures, never as missing-service skips."""
     response = httpx.Response(status, request=httpx.Request("GET", "http://localhost:1234/v1/models"))
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: response)
 
@@ -35,6 +37,7 @@ def test_http_failures_do_not_skip_acceptance(monkeypatch: pytest.MonkeyPatch, s
 def test_availability_requires_requested_model(
     monkeypatch: pytest.MonkeyPatch, models: list[dict[str, str]], available: bool
 ) -> None:
+    """Require the configured model ID even when other models are available."""
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _response(json={"data": models}))
 
     assert fixture_llm_available.__wrapped__(MODEL) is available
@@ -42,6 +45,7 @@ def test_availability_requires_requested_model(
 
 @pytest.mark.parametrize("payload", [[], {}, {"data": None}, {"data": [None]}, {"data": [{}]}, {"data": [{"id": 1}]}])
 def test_malformed_model_list_fails_setup(monkeypatch: pytest.MonkeyPatch, payload: object) -> None:
+    """Reject invalid model-list shapes instead of treating them as an empty service."""
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _response(json=payload))
 
     with pytest.raises(ValueError, match="LM Studio model"):
@@ -49,6 +53,7 @@ def test_malformed_model_list_fails_setup(monkeypatch: pytest.MonkeyPatch, paylo
 
 
 def test_invalid_model_list_json_fails_setup(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Surface broken JSON from a reachable service rather than skipping acceptance."""
     monkeypatch.setattr(httpx, "get", lambda *args, **kwargs: _response(content=b"not json"))
 
     with pytest.raises(ValueError):
@@ -81,12 +86,14 @@ def test_local_probe_bypasses_environment_proxy(monkeypatch: pytest.MonkeyPatch)
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            """Serve the requested synthetic model ID through a real loopback HTTP endpoint."""
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
             self.wfile.write(b'{"data": [{"id": "google/gemma-4-e2b"}]}')
 
         def log_message(self, *args: object) -> None:
+            """Keep the local protocol fixture silent without filtering application diagnostics."""
             pass
 
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):

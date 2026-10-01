@@ -96,6 +96,7 @@ def test_not_null_empty_parent_outside_plan_blocks(connection: Connection) -> No
 
 
 def run_plan(conn: Connection, config: dict[str, Any], tmp_path: Path, *, timeout: float = 10) -> dict[str, Any]:
+    """Save, check and execute against a fresh registered connection, with bounded polling and cleanup."""
     from sqlseed_web.workbench_runtime import check_document, normalize_document, start_run
     from sqlseed_web.workbench_schema import inspect_connection
     from sqlseed_web.workbench_store import WorkspaceStore

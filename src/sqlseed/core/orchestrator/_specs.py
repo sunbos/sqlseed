@@ -605,6 +605,7 @@ class SpecResolverMixin:
         columns: dict[str, Any] | None,
         column_configs: list[Any] | None,
     ) -> dict[str, ColumnConfig]:
+        """Normalize column shorthand, which takes precedence over same-name ColumnConfig entries."""
         configs: dict[str, ColumnConfig] = {}
 
         if column_configs:

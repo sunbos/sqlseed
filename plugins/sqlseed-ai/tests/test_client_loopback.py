@@ -28,12 +28,14 @@ except ModuleNotFoundError as exc:
 
 @pytest.fixture(name="completion_server")
 def fixture_completion_server() -> Iterator[tuple[int, list[str]]]:
+    """Own a real HTTP peer for direct, proxied and redirected SDK requests."""
     requests: list[str] = []
 
     class Handler(BaseHTTPRequestHandler):
         log_message = quiet_http_log
 
         def do_POST(self) -> None:
+            """Record routing and return a fixed completion or a remote redirect for the SDK."""
             requests.append(self.path)
             payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
             if self.path.startswith("/redirect/"):
@@ -61,6 +63,7 @@ def fixture_completion_server() -> Iterator[tuple[int, list[str]]]:
 
 
 def _use_proxy(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    """Force proxy routing unless the client explicitly exempts an exact loopback host."""
     for name in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         monkeypatch.setenv(name, url)
     monkeypatch.setenv("NO_PROXY", "")
@@ -72,6 +75,7 @@ def _use_proxy(monkeypatch: pytest.MonkeyPatch, url: str) -> None:
 def test_loopback_completion_bypasses_proxy(
     monkeypatch: pytest.MonkeyPatch, completion_server: tuple[int, list[str]], factory: str, hostname: str
 ) -> None:
+    """Keep local inference reachable through both factories while preserving their timeouts."""
     port, requests = completion_server
     _use_proxy(monkeypatch, "http://127.0.0.1:1")
     config = AIConfig(
@@ -99,6 +103,7 @@ def test_loopback_completion_bypasses_proxy(
 def test_remote_completion_keeps_environment_proxy(
     monkeypatch: pytest.MonkeyPatch, completion_server: tuple[int, list[str]], hostname: str
 ) -> None:
+    """Retain environment proxy routing for remote hosts, including loopback-like names."""
     port, requests = completion_server
     _use_proxy(monkeypatch, f"http://127.0.0.1:{port}")
     with build_openai_client(api_key="proxy-protocol-test", base_url=f"http://{hostname}/v1", timeout=5) as client:
@@ -110,6 +115,7 @@ def test_remote_completion_keeps_environment_proxy(
 def test_loopback_redirect_to_remote_still_uses_proxy(
     monkeypatch: pytest.MonkeyPatch, completion_server: tuple[int, list[str]]
 ) -> None:
+    """Reapply proxy policy when a local endpoint redirects the SDK to a remote host."""
     port, requests = completion_server
     _use_proxy(monkeypatch, f"http://127.0.0.1:{port}")
     with build_openai_client(
@@ -121,17 +127,20 @@ def test_loopback_redirect_to_remote_still_uses_proxy(
 
 
 def test_sdk_construction_failure_closes_owned_transport(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Release the factory-owned HTTP client if SDK construction fails."""
     import openai
 
     actual_transport = openai.DefaultHttpxClient
     created = []
 
     def capture_transport(**kwargs):
+        """Retain the real transport so the test can inspect its closed state."""
         transport = actual_transport(**kwargs)
         created.append(transport)
         return transport
 
     def reject_client(**kwargs):
+        """Fail after transport creation to exercise the factory cleanup path."""
         raise ValueError("invalid SDK construction")
 
     monkeypatch.setattr(openai, "DefaultHttpxClient", capture_transport)
@@ -146,6 +155,7 @@ def test_sdk_construction_failure_closes_owned_transport(monkeypatch: pytest.Mon
 def test_loopback_preserves_environment_ca_configuration(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, hostname: str
 ) -> None:
+    """Honor explicit CA-file configuration even when loopback requests bypass proxies."""
     monkeypatch.setenv("SSL_CERT_FILE", str(tmp_path / "required-ca-not-present.pem"))
     # Ignoring TLS environment settings would construct a client successfully.
     with pytest.raises(FileNotFoundError):
@@ -154,6 +164,7 @@ def test_loopback_preserves_environment_ca_configuration(
 
 @pytest.mark.parametrize("factory", [get_openai_client, build_llm_client])
 def test_missing_openai_compatible_endpoint_is_rejected(factory) -> None:
+    """Reject an unspecified compatible endpoint instead of silently selecting a cloud service."""
     config = AIConfig(backend=AIBackend.OPENAI_COMPAT, api_key="test-key", model="test-model")
     with pytest.raises(ValueError, match="OPENAI_COMPAT backend requires"):
         factory(config)

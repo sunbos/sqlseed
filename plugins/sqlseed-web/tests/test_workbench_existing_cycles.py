@@ -4,13 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from sqlseed.config.models import GeneratorConfig
 from tests.sqlite_helpers import sqlite_connection
 
 from sqlseed_web.state import Connection, UIState
-from sqlseed_web.workbench_cycles import ExistingSourceOrchestrator
+from sqlseed_web.workbench_cycles import ExistingSourceOrchestrator, read_source_values
 from sqlseed_web.workbench_execution import build_execution_plan
 from sqlseed_web.workbench_runtime import bind_document, check_document
 from sqlseed_web.workbench_schema import inspect_connection
@@ -21,6 +22,7 @@ from .test_workbench_runtime import run_plan
 
 
 def _document(names: list[str], count: int = 3) -> dict:
+    """Build deterministic, small-batch configurations so tests exercise more than one insert batch."""
     return {
         "provider": "base",
         "tables": [{"name": name, "count": count, "seed": 31, "batch_size": 2} for name in names],
@@ -29,6 +31,7 @@ def _document(names: list[str], count: int = 3) -> dict:
 
 @pytest.fixture(name="all_table_configuration")
 def fixture_all_table_configuration(tmp_path: Path) -> Iterator[tuple[Connection, Path, dict, dict]]:
+    """Own a seeded commerce database and close its registered connection after each acceptance test."""
     path = tmp_path / "commerce.db"
     create_database(path)
     registry = UIState()
@@ -44,6 +47,7 @@ def fixture_all_table_configuration(tmp_path: Path) -> Iterator[tuple[Connection
 def test_all_26_tables_append_with_existing_cycle_keys_and_valid_foreign_keys(
     all_table_configuration: tuple[Connection, Path, dict, dict], tmp_path: Path
 ) -> None:
+    """Match preview and atomic execution while keeping cyclic references on pre-existing parent keys."""
     conn, path, schema, document = all_table_configuration
     checked = check_document(conn, document, schema["schema_hash"], preview=True)
     assert checked["ok"], checked["issues"]
@@ -78,6 +82,7 @@ def test_all_26_tables_append_with_existing_cycle_keys_and_valid_foreign_keys(
 def test_seeded_cycle_append_does_not_authorize_clearing_or_identity_reset(
     all_table_configuration: tuple[Connection, Path, dict, dict],
 ) -> None:
+    """Existing keys permit appends but cannot authorize deleting the source pool required by a cycle."""
     conn, _path, schema, document = all_table_configuration
     checked = check_document(conn, document, schema["schema_hash"])
     assert checked["ok"], checked["issues"]
@@ -109,6 +114,7 @@ def test_seeded_cycle_append_does_not_authorize_clearing_or_identity_reset(
 def test_replacement_plan_checks_configured_associations_within_the_selected_scope(
     tmp_path: Path, links: list[tuple[str, str]], issue_code: str | None
 ) -> None:
+    """Include declared associations in clear-plan safety checks without changing rows or identity sequences."""
     path = tmp_path / "associations.db"
     with sqlite_connection(path) as db:
         db.executescript(
@@ -150,6 +156,7 @@ def test_replacement_plan_checks_configured_associations_within_the_selected_sco
 
 
 def test_cycle_append_rolls_back_every_batch_and_retains_original_records(tmp_path: Path) -> None:
+    """A real trigger failure must roll back all cycle batches and preserve the original database contents."""
     path = tmp_path / "rollback.db"
     create_database(path)
     with sqlite_connection(path) as db:
@@ -173,6 +180,7 @@ def test_cycle_append_rolls_back_every_batch_and_retains_original_records(tmp_pa
 
 @pytest.mark.parametrize("required", [False, True])
 def test_empty_cycles_stay_unsupported_without_null_rule_changes(tmp_path: Path, required: bool) -> None:
+    """Empty cyclic sources remain blocked regardless of nullability, without rewriting user rules."""
     path = tmp_path / "empty.db"
     constraint = "NOT NULL" if required else ""
     with sqlite_connection(path) as db:
@@ -194,6 +202,7 @@ def test_empty_cycles_stay_unsupported_without_null_rule_changes(tmp_path: Path,
 
 
 def test_existing_keys_do_not_bypass_unique_foreign_key_capacity(tmp_path: Path) -> None:
+    """Parent-key availability does not waive a unique FK requirement that the source pool cannot satisfy."""
     path = tmp_path / "unique.db"
     with sqlite_connection(path) as db:
         db.executescript(
@@ -216,6 +225,7 @@ def test_existing_keys_do_not_bypass_unique_foreign_key_capacity(tmp_path: Path)
 def test_source_changes_after_queuing_reject_before_any_generation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Recheck queued source evidence and reject intervening writes before inserting any generated rows."""
     from sqlseed_web import workbench_runtime
     from sqlseed_web.workbench_store import WorkspaceStore
 
@@ -252,6 +262,7 @@ def test_source_changes_after_queuing_reject_before_any_generation(
 def test_cycle_pinning_never_overrides_a_different_configured_or_physical_source(
     tmp_path: Path, overlapping: bool
 ) -> None:
+    """Reject explicit-target mismatches and overlapping physical FKs without silently changing their rules."""
     path = tmp_path / "conflicting-source.db"
     extra = ", FOREIGN KEY(b_id) REFERENCES c(id)" if overlapping else ""
     with sqlite_connection(path) as db:
@@ -281,6 +292,7 @@ def test_cycle_pinning_never_overrides_a_different_configured_or_physical_source
 
 
 def test_cycle_policy_preserves_keyword_specs_fresh_foreign_keys_and_associations(tmp_path: Path) -> None:
+    """Freeze only cycle edges while ordinary FKs and declared associations retain Core source resolution."""
     path = tmp_path / "relation-policy.db"
     with sqlite_connection(path) as db:
         db.executescript(
@@ -350,6 +362,7 @@ def test_cycle_policy_preserves_keyword_specs_fresh_foreign_keys_and_association
 
 
 def test_direct_internal_session_rejects_pinning_without_the_configured_policy(tmp_path: Path) -> None:
+    """Direct construction must fail explicitly instead of accepting pools that its resolver would ignore."""
     path = tmp_path / "unconfigured-policy.db"
     with sqlite_connection(path) as db:
         db.execute("CREATE TABLE original(id INTEGER PRIMARY KEY)")
@@ -361,3 +374,66 @@ def test_direct_internal_session_rejects_pinning_without_the_configured_policy(t
         orch.pin_cycle_sources([])
     with sqlite_connection(path) as db:
         assert db.execute("SELECT id FROM original").fetchall() == [(1,)]
+
+
+def test_frozen_cycle_pool_includes_parent_keys_beyond_the_metadata_check_limit(tmp_path: Path) -> None:
+    """Keep checks bounded at 10,000 while real cycle inserts can use later existing parent keys."""
+    path = tmp_path / "large-cycle.db"
+    parent_count = 10003
+    with sqlite_connection(path) as db:
+        db.executescript(
+            "CREATE TABLE a(id INTEGER PRIMARY KEY, b_id INTEGER REFERENCES b(id));"
+            "CREATE TABLE b(id INTEGER PRIMARY KEY, a_id INTEGER REFERENCES a(id));"
+            "INSERT INTO a VALUES(1,NULL);"
+        )
+        db.executemany("INSERT INTO b VALUES(?,1)", ((value,) for value in range(1, parent_count + 1)))
+    config = GeneratorConfig(db_path=str(path), provider="base")
+    with ExistingSourceOrchestrator.for_config(config) as orch, orch.database_adapter.transaction():
+        checked = read_source_values(orch, "b", ["id"])
+        assert len(checked) == 10000
+        assert checked[-1] == {"id": 10000}
+        assert read_source_values(orch, "b", ["id"], limit=2) == [{"id": 1}, {"id": 2}]
+        orch.pin_cycle_sources(
+            [
+                {"table": "a", "column": "b_id", "source_table": "b", "source_columns": ["id"]},
+                {"table": "b", "column": "a_id", "source_table": "a", "source_columns": ["id"]},
+            ]
+        )
+        specs, _, _, _ = orch._resolve_specs("a", parent_count, None, None, False)
+        assert specs["b_id"].params["_ref_values"] == list(range(1, parent_count + 1))
+        result = orch.fill_table(
+            "a",
+            count=parent_count,
+            batch_size=1000,
+            columns={
+                "b_id": {
+                    "generator": "foreign_key",
+                    "params": {"ref_table": "b", "ref_column": "id", "strategy": "coverage"},
+                }
+            },
+            seed=31,
+            skip_ai=True,
+        )
+        assert result.count == parent_count
+        assert result.errors == []
+    with sqlite_connection(path) as db:
+        assert db.execute("SELECT DISTINCT b_id FROM a WHERE b_id>10000 ORDER BY b_id").fetchall() == [
+            (10001,),
+            (10002,),
+            (10003,),
+        ]
+        assert db.execute("SELECT count(*) FROM b").fetchone() == (parent_count,)
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, 1.5, "1; DROP TABLE original"])
+def test_source_read_limit_rejects_nonpositive_or_noninteger_values(tmp_path: Path, limit: Any) -> None:
+    """Reject malformed SQL limits before reading sources and preserve the real SQLite table."""
+    path = tmp_path / "invalid-limit.db"
+    with sqlite_connection(path) as db:
+        db.executescript("CREATE TABLE original(id INTEGER PRIMARY KEY); INSERT INTO original VALUES(1);")
+    config = GeneratorConfig(db_path=str(path), provider="base")
+    with ExistingSourceOrchestrator.for_config(config) as orch:
+        with pytest.raises(ValueError, match="limit must be a positive integer"):
+            read_source_values(orch, "original", ["id"], limit=limit)
+        assert orch.get_row_count("original") == 1
