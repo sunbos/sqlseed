@@ -19,6 +19,7 @@
 - 更新 `.in` 后按 `DEPENDENCIES.md` 重新导出对应 `.txt`；已有三个 `uv.lock` 是开发依赖锁，不能替代 CI 的哈希文件。
 - 保留 `--require-hashes` 与 binary policy；`glob2`、`mutmut` 的源码包例外有明确哈希和 bootstrap 前提，不扩大为任意源码构建。
 - Linux 覆盖 Python 3.10/3.12/3.13，macOS/Windows 兼容性任务使用 Python 3.12 并将资源泄漏 warning 视为错误。不要通过删除平台或全局过滤 warning 使 CI 变绿。
+- Codecov 上传 pytest 已生成的 XML：保留明确的文件名、`disable_search: true`、`plugins: noop`、OIDC 和上传失败门禁，避免重复生成报告或启动无关语言工具；文件路径修复仍由上传器执行。
 - PostgreSQL job 使用专用 service 数据库，运行全部 `test_pg_*.py` 和 URL e2e；真实 LLM 验收另行记录，不能由离线测试推定。
 - `packages` 验收五包 sdist/wheel、严格 metadata、已安装入口及 Core/Web 最小环境。最小环境不能混入 CLI/AI/MCP/Mimesis 等可选组件，否则无法证明缺组件行为。
 
