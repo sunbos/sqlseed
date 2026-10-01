@@ -20,7 +20,7 @@ permissions:
 jobs:
   resolve-release:
     name: Resolve the release source
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       commit: ${{ steps.release.outputs.commit }}
       version: ${{ steps.release.outputs.version }}
@@ -45,7 +45,7 @@ jobs:
 
   # ── Pre-publish smoke test ───────────────────────────────────
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [resolve-release]
     strategy:
       matrix:
@@ -66,7 +66,7 @@ jobs:
 
   # ── Build all distributions ──────────────────────────────────
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [resolve-release, test]
     env:
       RELEASE_VERSION: ${{ needs.resolve-release.outputs.version }}
@@ -166,7 +166,7 @@ jobs:
   # ── Publish to PyPI (Trusted Publisher) ──────────────────────
   publish:
     name: Publish ${{ matrix.package }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [resolve-release, build]
     env:
       RELEASE_VERSION: ${{ needs.resolve-release.outputs.version }}
@@ -219,7 +219,7 @@ jobs:
 
   verify-public:
     name: Verify production PyPI installations
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [resolve-release, publish]
     timeout-minutes: 20
     permissions:

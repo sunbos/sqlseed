@@ -14,6 +14,8 @@ import pytest
 
 from tests.sqlite_helpers import sqlite_connection
 
+from .http_helpers import quiet_http_log, send_json_response
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -24,13 +26,16 @@ pytest.importorskip("mcp")
 class _FixedCompletionHandler(BaseHTTPRequestHandler):
     """Serve only a deterministic LLM response; schema and fill remain real."""
 
+    log_message = quiet_http_log
+
     def do_POST(self) -> None:
         self.rfile.read(int(self.headers["Content-Length"]))
         config = {
             "name": "items",
             "columns": [{"name": "value", "generator": "integer", "params": {"min_value": 7, "max_value": 7}}],
         }
-        body = json.dumps(
+        send_json_response(
+            self,
             {
                 "id": "stdio-regression",
                 "object": "chat.completion",
@@ -43,16 +48,8 @@ class _FixedCompletionHandler(BaseHTTPRequestHandler):
                         "finish_reason": "stop",
                     }
                 ],
-            }
-        ).encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-    def log_message(self, *args: object, **kwargs: object) -> None:
-        """Keep the test HTTP server silent."""
+            },
+        )
 
 
 async def _exercise_stdio(db_path: Path, env: dict[str, str]) -> str:

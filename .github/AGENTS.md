@@ -19,6 +19,7 @@
 - 更新 `.in` 后按 `DEPENDENCIES.md` 重新导出对应 `.txt`；已有三个 `uv.lock` 是开发依赖锁，不能替代 CI 的哈希文件。
 - 保留 `--require-hashes` 与 binary policy；`glob2`、`mutmut` 的源码包例外有明确哈希和 bootstrap 前提，不扩大为任意源码构建。
 - Linux 覆盖 Python 3.10/3.12/3.13，macOS/Windows 兼容性任务使用 Python 3.12 并将资源泄漏 warning 视为错误。不要通过删除平台或全局过滤 warning 使 CI 变绿。
+- Linux 工作流固定使用已验收的 `ubuntu-24.04`，避免 `ubuntu-latest` 的镜像迁移自动改变测试或发布环境；升级镜像时单独验证完整矩阵、包安装与覆盖率上传。
 - Codecov 上传 pytest 已生成的 XML：保留明确的文件名、`disable_search: true`、`plugins: noop`、OIDC 和上传失败门禁，避免重复生成报告或启动无关语言工具；文件路径修复仍由上传器执行。
 - 上传统一使用 `actions/upload-coverage`：仅在临时 keyring 内核验 Codecov 官方固定指纹并建立 direct/full 信任，保留上游 GPG 与 SHA256 校验；keyring 只对上传步骤生效，完成或失败均清理。密钥轮换时先核对官方[完整性校验说明](https://docs.codecov.com/docs/codecov-uploader#integrity-checking-the-codecov-cli)和 action 的密钥来源，不能改为 ultimate/always 信任或跳过验证。
 - 根 `codecov.yml` 等待 Linux/Windows 两份报告，并将覆盖率下降容差设为 0、缺报告视为失败；保留组织级覆盖率目标，不通过降低目标、排除源码或 informational 状态使检查通过。修改后用 Codecov `/validate` API 验证配置。

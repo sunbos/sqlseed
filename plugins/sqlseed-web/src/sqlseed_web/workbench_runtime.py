@@ -1172,7 +1172,7 @@ def _execute_atomic_run(
         with adapter.transaction():
             outcome["rolled_back"] = True
             orch._preflight_generation([table.name for table in config.tables])
-            active = replace(conn, orchestrator=orch)
+            active: Connection = replace(conn, orchestrator=orch)
             if replacing:
                 schema, plan = _replacement_plan(active, config, run)
                 _clear_replacement_tables(adapter, plan, schema, run["execution"]["reset_identity"])

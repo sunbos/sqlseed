@@ -261,7 +261,8 @@ class TestAISqlseedPluginHookRealLLM:
 
         # The hook can return None for recoverable runtime failures, but that
         # fallback is not a successful real-backend acceptance result.
-        assert isinstance(result, dict) and result, "Live backend returned no suggestions through the plugin hook"
+        assert isinstance(result, dict), "Live backend returned no suggestions through the plugin hook"
+        assert result, "Live backend returned empty suggestions through the plugin hook"
         assert "tables" in result or "columns" in result, (
             f"hookimpl result missing tables/columns key: {list(result.keys())}"
         )

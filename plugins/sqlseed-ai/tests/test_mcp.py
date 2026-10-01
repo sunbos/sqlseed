@@ -166,7 +166,8 @@ class TestAiMcpTools:
         result = sqlseed_gemma4_analyze(test_db, "users", model=model, backend=backend)
         assert "error" not in result, f"gemma4_analyze returned an error: {result.get('error', '')}"
         assert result["table_name"] == "users"
-        assert isinstance(result["config"], dict) and result["config"]
+        assert isinstance(result["config"], dict)
+        assert result["config"]
 
     @pytest.mark.integration
     def test_sqlseed_gemma4_agent_fill_real_llm(

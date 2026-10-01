@@ -69,8 +69,7 @@ def build_openai_client(*, api_key: str, base_url: str, timeout: float | httpx.T
     from openai import DefaultHttpxClient, OpenAI, Timeout
 
     resolved_timeout = Timeout(**timeout.as_dict()) if isinstance(timeout, httpx.Timeout) else timeout
-    host = httpx.URL(base_url).host
-    if host != "localhost":
+    if (host := httpx.URL(base_url).host) != "localhost":
         try:
             is_loopback = ip_address(host).is_loopback
         except ValueError:

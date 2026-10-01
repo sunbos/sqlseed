@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from tests.sqlite_helpers import sqlite_connection
 
-from sqlseed_web.state import UIState
+from sqlseed_web.state import Connection, UIState
 from sqlseed_web.workbench_execution import build_execution_plan
 from sqlseed_web.workbench_runtime import bind_document, check_document
 from sqlseed_web.workbench_schema import inspect_connection
@@ -24,7 +25,8 @@ def _document(names: list[str], count: int = 3) -> dict:
     }
 
 
-def test_all_26_tables_append_with_existing_cycle_keys_and_valid_foreign_keys(tmp_path: Path) -> None:
+@pytest.fixture
+def all_table_configuration(tmp_path: Path) -> Iterator[tuple[Connection, Path, dict, dict]]:
     path = tmp_path / "commerce.db"
     create_database(path)
     registry = UIState()
@@ -32,61 +34,63 @@ def test_all_26_tables_append_with_existing_cycle_keys_and_valid_foreign_keys(tm
     try:
         schema = inspect_connection(conn)
         document = _document([table["name"] for table in schema["tables"]])
-        checked = check_document(conn, document, schema["schema_hash"], preview=True)
-        assert checked["ok"], checked["issues"]
-        assert len(checked["order"]) == 26
-        assert len(checked["samples"]) == 26
-        assert {row["manager_id"] for row in checked["samples"]["departments"]} <= {None, 1}
-        assert {row["department_id"] for row in checked["samples"]["employees"]} <= {None, 1}
-        assert conn.orchestrator.get_row_count("departments") == 1
+        yield conn, path, schema, document
+    finally:
+        registry.close_connection(conn.conn_id)
+
+
+def test_all_26_tables_append_with_existing_cycle_keys_and_valid_foreign_keys(
+    all_table_configuration: tuple[Connection, Path, dict, dict], tmp_path: Path
+) -> None:
+    conn, path, schema, document = all_table_configuration
+    checked = check_document(conn, document, schema["schema_hash"], preview=True)
+    assert checked["ok"], checked["issues"]
+    assert len(checked["order"]) == 26
+    assert len(checked["samples"]) == 26
+    assert {row["manager_id"] for row in checked["samples"]["departments"]} <= {None, 1}
+    assert {row["department_id"] for row in checked["samples"]["employees"]} <= {None, 1}
+    assert conn.orchestrator.get_row_count("departments") == 1
+    plan = build_execution_plan(
+        conn,
+        bind_document(conn, document),
+        schema,
+        checked["order"],
+        {"mode": "append", "reset_identity": False},
+        checked["config_hash"],
+        atomic_append=bool(checked["existing_cycle_sources"]),
+    )
+    assert plan["ok"]
+    assert plan["atomic"]
+    run = run_plan(conn, document, tmp_path, timeout=60)
+    assert run["status"] == "done", run
+    assert run["rows_inserted"] == 78
+    assert run["result"] == {"atomic": True, "committed": True, "rolled_back": False}
+    with sqlite_connection(path) as db:
+        assert db.execute("PRAGMA foreign_key_check").fetchall() == []
+        assert db.execute("SELECT count(*) FROM departments").fetchone() == (4,)
+        assert db.execute("SELECT DISTINCT manager_id FROM departments WHERE id>1").fetchall() == [(1,)]
+        assert db.execute("SELECT DISTINCT department_id FROM employees WHERE id>1").fetchall() == [(1,)]
+        assert db.execute("SELECT count(*) FROM stock_movements").fetchone() == (5,)
+
+
+def test_seeded_cycle_append_does_not_authorize_clearing_or_identity_reset(
+    all_table_configuration: tuple[Connection, Path, dict, dict],
+) -> None:
+    conn, _path, schema, document = all_table_configuration
+    checked = check_document(conn, document, schema["schema_hash"])
+    assert checked["ok"], checked["issues"]
+    for reset in (False, True):
         plan = build_execution_plan(
             conn,
             bind_document(conn, document),
             schema,
             checked["order"],
-            {"mode": "append", "reset_identity": False},
+            {"mode": "replace_selected", "reset_identity": reset},
             checked["config_hash"],
-            atomic_append=bool(checked["existing_cycle_sources"]),
         )
-        assert plan["ok"] and plan["atomic"]
-        run = run_plan(conn, document, tmp_path, timeout=60)
-        assert run["status"] == "done", run
-        assert run["rows_inserted"] == 78
-        assert run["result"] == {"atomic": True, "committed": True, "rolled_back": False}
-        with sqlite_connection(path) as db:
-            assert db.execute("PRAGMA foreign_key_check").fetchall() == []
-            assert db.execute("SELECT count(*) FROM departments").fetchone() == (4,)
-            assert db.execute("SELECT DISTINCT manager_id FROM departments WHERE id>1").fetchall() == [(1,)]
-            assert db.execute("SELECT DISTINCT department_id FROM employees WHERE id>1").fetchall() == [(1,)]
-            assert db.execute("SELECT count(*) FROM stock_movements").fetchone() == (5,)
-    finally:
-        registry.close_connection(conn.conn_id)
-
-
-def test_seeded_cycle_append_does_not_authorize_clearing_or_identity_reset(tmp_path: Path) -> None:
-    path = tmp_path / "clear.db"
-    create_database(path)
-    registry = UIState()
-    conn = registry.add_connection(str(path), provider="base")
-    try:
-        schema = inspect_connection(conn)
-        document = _document([table["name"] for table in schema["tables"]])
-        checked = check_document(conn, document, schema["schema_hash"])
-        assert checked["ok"], checked["issues"]
-        for reset in (False, True):
-            plan = build_execution_plan(
-                conn,
-                bind_document(conn, document),
-                schema,
-                checked["order"],
-                {"mode": "replace_selected", "reset_identity": reset},
-                checked["config_hash"],
-            )
-            assert not plan["ok"]
-            assert any(issue["code"] == "replacement_cycle_not_supported" for issue in plan["issues"])
-        assert conn.orchestrator.get_row_count("departments") == 1
-    finally:
-        registry.close_connection(conn.conn_id)
+        assert not plan["ok"]
+        assert any(issue["code"] == "replacement_cycle_not_supported" for issue in plan["issues"])
+    assert conn.orchestrator.get_row_count("departments") == 1
 
 
 def test_cycle_append_rolls_back_every_batch_and_retains_original_records(tmp_path: Path) -> None:
@@ -169,7 +173,8 @@ def test_source_changes_after_queuing_reject_before_any_generation(
     try:
         args, _ = prepared(conn, store, _document(["departments", "employees"])["tables"])
         plan = workbench_runtime.plan_execution(**args, registry=registry, store=store)
-        assert plan["ok"] and plan["atomic"]
+        assert plan["ok"]
+        assert plan["atomic"]
         run = workbench_runtime.start_run(**args, registry=registry, store=store)
         assert run["atomic_append"] is True
         with sqlite_connection(path) as db:

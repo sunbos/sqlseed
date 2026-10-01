@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAlias
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import quote_identifier
@@ -40,6 +40,8 @@ if TYPE_CHECKING:
     from sqlseed.plugins.manager import PluginManager
 
 logger = get_logger(__name__)
+
+ResolvedSpecs: TypeAlias = tuple[dict[str, GeneratorSpec], dict[str, ColumnConfig], set[str], list[list[str]]]
 
 
 class SpecResolverMixin:
@@ -109,11 +111,11 @@ class SpecResolverMixin:
         table_name: str,
         count: int,
         columns: dict[str, Any] | None,
-        column_configs: list[Any] | None,
+        column_configs: list[ColumnConfig] | None,
         enrich: bool,
         *,
         clear_before: bool = False,
-    ) -> tuple[dict[str, Any], dict[str, Any], set[str], list[list[str]]]:
+    ) -> ResolvedSpecs:
         """Resolve column generator specs, executing schema inference, column mapping, enrichment,
         uniqueness adjustment, and foreign key resolution in order.
 
@@ -602,8 +604,8 @@ class SpecResolverMixin:
         self,
         columns: dict[str, Any] | None,
         column_configs: list[Any] | None,
-    ) -> dict[str, Any]:
-        configs: dict[str, Any] = {}
+    ) -> dict[str, ColumnConfig]:
+        configs: dict[str, ColumnConfig] = {}
 
         if column_configs:
             for cc in column_configs:
