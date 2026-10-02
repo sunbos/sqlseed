@@ -12,6 +12,7 @@
 | `sqlseed_execute_fill` | `db_path`、`table_name`、`count=1000`、`yaml_config=None`、`enrich=False` | 包含 `table_name`、`count`、`elapsed`、`errors` 的 dict；已捕获错误返回 `{"error": ...}` |
 
 - 两个工具的 `db_path` 参数也接受数据库 URL；不要仅因名称而限制为 SQLite 文件。
+- 两个工具固定使用 Core 必需依赖 Faker 和 `en_US`，与生成模板一致；不依赖可选 Mimesis，也不读取 YAML 顶层 provider/locale 来切换引擎或地区。
 - `_validate_db_target` 从 core `_utils.paths` 导入：含 `://` 的 URL 原样交给 adapter；文件必须存在且扩展名为 `.db`/`.sqlite`/`.sqlite3`，返回解析后的路径。
 - 创建 orchestrator 后，以 `_validate_table_name(table_name, orch.get_table_names())` 验证目标表存在。
 - `@mcp.tool()` 自动从函数签名推导接口；新增/修改参数时同步本包中英文 README 与工具测试，不要把 YAML 工具改成统一 dict 返回值。

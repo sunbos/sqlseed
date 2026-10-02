@@ -48,12 +48,14 @@ python -m pip install -e . -e ./plugins/mcp-server-sqlseed
 
 `db_path` 接受已存在的 SQLite `.db`、`.sqlite`、`.sqlite3` 文件或数据库 URL。
 使用 PostgreSQL 时需在同一环境安装 Core 的 `postgres` extra。目标表必须已存在。
-列映射由 Core 规则确定，两个工具都不会向模型发送请求。
+列映射由 Core 规则确定，两个工具都不会向模型发送请求。两者均使用 Core 必需依赖
+Faker 和 `en_US` locale，与生成的模板一致；无需安装 Mimesis。
 
 提供 `yaml_config` 时，其内容必须为 YAML mapping，并包含所请求的表。
 空文档、未知目标表或不包含目标表的配置会在生成前失败；UTF-8 编码后上限为 256 KiB。
 工具参数决定数据库、表、生成行数和 enrich；YAML 仅提供匹配表的列规则、seed 与
-`clear_before`，不覆盖工具参数指定的范围。
+`clear_before`，不覆盖工具参数指定的范围。YAML 顶层的 `provider` 和 `locale`
+不会改变此服务器使用的引擎或语言地区。
 
 ## 使用示例与失败结果
 

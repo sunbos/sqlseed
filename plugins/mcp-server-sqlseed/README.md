@@ -52,13 +52,15 @@ path. The server runs over stdio. `python -m mcp_server_sqlseed` is also support
 The `db_path` argument accepts an existing SQLite `.db`/`.sqlite`/`.sqlite3` file or a
 database URL. For PostgreSQL, install the Core `postgres` extra. Tables must already
 exist. The schema mapper chooses generators deterministically; no model request is
-made by either tool.
+made by either tool. Both tools use the required Faker provider with the `en_US`
+locale, matching the generated template; Mimesis is not required.
 
 When `yaml_config` is supplied, it must be a YAML mapping containing the requested
 table. Empty documents, unknown tables, and configurations for a different table fail
 before generation. The UTF-8 size limit is 256 KiB. Tool arguments select the database,
 table, row count, and enrichment; YAML contributes only the matching table's column
-rules, seed, and `clear_before` setting.
+rules, seed, and `clear_before` setting. Top-level YAML `provider` and `locale`
+settings do not change this server's engine or locale.
 
 A typical client workflow is:
 

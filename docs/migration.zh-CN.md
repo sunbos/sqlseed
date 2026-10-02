@@ -44,6 +44,11 @@ python -m pip check
 
 AI server 提供 `sqlseed_ai_generate_yaml`、`sqlseed_gemma4_analyze`、`sqlseed_gemma4_agent_fill`、`sqlseed_list_gemma_models`。需要单独配置 backend；MCP server 启动成功不代表真实模型可达，接入自动流程前先验证一个小请求。
 
+0.2.5 的两个 Core MCP 工具显式使用 Faker 和 `en_US`，与生成的模板一致；
+不再沿用 Core 的可选 Mimesis 默认值，也不会因缺少 Mimesis 回退到 Base。
+升级前复核保存的样例预期和引擎专用列规则；YAML 顶层的 provider/locale
+仍不会改变此服务器的引擎或语言地区。
+
 ## 验证旧配置与数据
 
 先用新的测试数据库或可丢弃的副本。除 `GenerationResult.errors` 和 `count` 外，还应检查实际存储值。Core 普通分批模式下，后续失败可能保留先前已提交批次，不能仅凭函数正常返回判断全部成功。详见[支持与维护约定](maintainable-release.md)。

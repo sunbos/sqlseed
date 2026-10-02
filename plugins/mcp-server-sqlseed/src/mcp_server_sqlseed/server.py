@@ -58,7 +58,7 @@ def sqlseed_generate_yaml(db_path: str, table_name: str) -> str:
     """
     try:
         db_path = _validate_db_target(db_path)
-        with DataOrchestrator(db_path) as orch:
+        with DataOrchestrator(db_path, provider_name="faker", locale="en_US") as orch:
             _validate_table_name(table_name, orch.get_table_names())
             specs = orch.get_column_mapping(table_name)
 
@@ -97,7 +97,7 @@ def sqlseed_execute_fill(
         if yaml_config is not None and len(yaml_config.encode("utf-8")) > _MAX_YAML_CONFIG_SIZE:
             raise ValueError(f"yaml_config exceeds maximum allowed size of {_MAX_YAML_CONFIG_SIZE} bytes")
 
-        with DataOrchestrator(db_path) as orch:
+        with DataOrchestrator(db_path, provider_name="faker", locale="en_US") as orch:
             _validate_table_name(table_name, orch.get_table_names())
             column_configs = None
             clear_before = False
