@@ -2,16 +2,16 @@
 
 [中文](migration.zh-CN.md)
 
-The 0.2.4 workbench replaces the older combined Core/CLI/MCP installation with five packages. Use matching versions when upgrading from 0.2.3. The [installation guide](guide.md#installation) covers the 0.2.4 release and source checkouts; a development checkout may contain later changes.
+The five-package layout was introduced in 0.2.4, replacing the older combined Core/CLI/MCP installation. This guide targets 0.2.5; use matching versions when upgrading from 0.2.3 or 0.2.4. The [installation guide](guide.md#installation) covers version 0.2.5 and source checkouts. Check [Releases](https://github.com/sunbos/sqlseed/releases) for publication status; use source installation for an unpublished candidate.
 
 ## Install a compatible set
 
-Create a fresh virtual environment and install the 0.2.4 package set together:
+Create a fresh virtual environment and install the 0.2.5 package set together:
 
 ```bash
 python -m venv .venv
 # Activate the environment using your shell's activation command.
-python -m pip install "sqlseed==0.2.4" "sqlseed-cli==0.2.4" "sqlseed-ai[mcp]==0.2.4" "mcp-server-sqlseed==0.2.4" "sqlseed-web==0.2.4"
+python -m pip install "sqlseed==0.2.5" "sqlseed-cli==0.2.5" "sqlseed-ai[mcp]==0.2.5" "mcp-server-sqlseed==0.2.5" "sqlseed-web==0.2.5"
 python -m pip check
 ```
 
@@ -24,9 +24,9 @@ python -m pip check
 
 The 0.2.4 plugin metadata requires Core `>=0.2.4.dev0,<0.3`; their CLI/AI sibling dependencies use the same release series. Core 0.2.3 does not provide the interfaces required by these plugins. The upper bound prevents an unreviewed future minor version from being selected automatically. It does not promise that arbitrary development snapshots within the range are interchangeable: use a single artifact set.
 
-The current development plugins require Core `>=0.2.5.dev0,<0.3` for shared connection parsing and diagnostic redaction. Do not install a development plugin over Core 0.2.4 with dependency checks disabled. For a checkout, resolve local Core and all required plugins together using the [development setup](https://github.com/sunbos/sqlseed/blob/main/CONTRIBUTING.md#setup); the 0.2.4 commands here remain the published migration baseline.
+Version 0.2.5 plugins and their source candidates require Core `>=0.2.5.dev0,<0.3` for shared connection parsing and diagnostic redaction. Core 0.2.4 lacks these interfaces; do not bypass dependency checks to mix it with a 0.2.5 plugin. The range accepts stable Core 0.2.5 and source candidates, but candidates from different revisions are not guaranteed to work together. Resolve local Core and all required plugins together using the [development setup](https://github.com/sunbos/sqlseed/blob/main/CONTRIBUTING.md#setup).
 
-Retain the Core extras used by your previous environment. The five ordinary wheels do not install the PostgreSQL driver or Mimesis. For source installation, replace `-e .` above with `-e '.[postgres,mimesis]'` when both are needed. For wheels, include the exact Core wheel path with `[postgres,mimesis]` appended in the same install command. A fresh environment without the PostgreSQL driver cannot connect to PostgreSQL. Core retains its existing provider fallback behavior when Mimesis is absent; the development Web workbench instead preserves the selected engine and blocks preview and generation until that component is available. See the [Web component guide](web-workbench.md) before reopening configurations that use Mimesis.
+Retain the Core extras used by your previous environment. The five ordinary wheels do not install the PostgreSQL driver or Mimesis. For source installation, replace `-e .` above with `-e '.[postgres,mimesis]'` when both are needed. For wheels, include the exact Core wheel path with `[postgres,mimesis]` appended in the same install command. A fresh environment without the PostgreSQL driver cannot connect to PostgreSQL. Core retains its existing provider fallback behavior when Mimesis is absent; the 0.2.5 Web workbench instead preserves the selected engine and blocks preview and generation until that component is available. See the [Web component guide](web-workbench.md) before reopening configurations that use Mimesis.
 
 For development artifacts, the CI run's `headSha` identifies the source. A pull request artifact's name can use GitHub's synthetic merge commit instead, so check the run and the artifact together. Keep the previous environment and wheel set until migration is verified.
 
@@ -43,6 +43,12 @@ For development artifacts, the CI run's `headSha` identifies the source. A pull 
 `mcp-server-sqlseed` now exposes `sqlseed_generate_yaml(db_path, table_name)` for offline rule generation and `sqlseed_execute_fill` for execution. The old AI arguments to `sqlseed_generate_yaml`, schema inspection tool and schema resource are removed. Update MCP client tool selections and saved calls accordingly.
 
 The AI server provides `sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, and `sqlseed_list_gemma_models`. Configure its backend separately. Starting an MCP server is not proof that a real model is reachable; validate a small request before using it in an automated workflow.
+
+In 0.2.5, both Core MCP tools explicitly use Faker with `en_US`, matching their
+generated templates. They no longer inherit Core's optional Mimesis default or
+fall back to Base when it is absent. Review stored sample expectations and any
+provider-specific column rules before upgrading; top-level YAML provider/locale
+settings still do not change this server's engine or locale.
 
 ## Verify saved configurations and data
 

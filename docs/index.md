@@ -19,9 +19,10 @@ Interface packages install Core as a dependency.
 | Ask a model to suggest or repair rules | `python -m pip install sqlseed-ai` | [AI setup](guide.md#ai-plugin) |
 | Use rule-driven MCP tools | `python -m pip install mcp-server-sqlseed` | [MCP setup](guide.md#mcp-server) |
 
-These pages describe the five-package layout introduced in 0.2.4. Upgrading an older
-installation? Read the [migration guide](migration.md). For development from source
-or optional dependencies, see [installation](guide.md#installation).
+These pages describe version 0.2.5, using the five-package layout introduced in
+0.2.4. Check [Releases](https://github.com/sunbos/sqlseed/releases) for publication
+status. Upgrading an older installation? Read the [migration guide](migration.md).
+For source candidates or optional dependencies, see [installation](guide.md#installation).
 
 ## Generate your first data
 

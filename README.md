@@ -35,6 +35,10 @@ Requires **Python 3.10+**. Use a virtual environment and install the package for
 interface you want; you do not need to install every row below. Interface packages
 install Core as a dependency.
 
+This README describes version 0.2.5. Check [Releases](https://github.com/sunbos/sqlseed/releases)
+for publication status; the [source installation guide](https://sunbos.github.io/sqlseed/guide/#source-installation)
+covers unpublished candidates.
+
 | I want to… | Install | Start here |
 | --- | --- | --- |
 | Generate data from Python | `python -m pip install sqlseed` | [Quick start](#quick-start) |
@@ -89,10 +93,10 @@ Names and email addresses are inferred from the columns. The database assigns th
 primary keys. Each run appends another 100 rows; it does not clear the table.
 Check both `result.count` and `result.errors` after generation.
 
-In current development source, `sqlseed.FillOptions(provider="faker", seed=42)`
+In version 0.2.5, `sqlseed.FillOptions(provider="faker", seed=42)`
 can share generation settings across `fill(..., options=settings)` calls.
 Existing individual keywords remain supported; see the
-[Python API reference](docs/api.md#filloptions).
+[Python API reference](https://sunbos.github.io/sqlseed/api/#filloptions).
 
 To inspect samples without writing rows:
 
@@ -152,7 +156,7 @@ or source checkout is required.
 
 The workbench includes saved configurations, relationship views, and run history.
 AI is optional, and manual editing, preview, and generation work without it.
-The current development source offers Simplified Chinese and English from the top
+Version 0.2.5 offers Simplified Chinese and English from the top
 bar. Changing the interface language keeps your edits and does not change the
 data language and region used for generation.
 See the [Web guide](https://sunbos.github.io/sqlseed/web-workbench/) for connection

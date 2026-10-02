@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-02
+
 ### Added
 
 - Add reusable `FillOptions` for single-table generation. Existing `fill()` keyword calls and defaults remain supported; explicit keywords override shared settings.
@@ -16,17 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add light, dark and system appearance, browser-local defaults for new configurations, and a shared Web component reference with bundled fonts.
 - Support managed component changes on Windows and reviewed updates of optional components with fixed dependencies, wheel hashes and service recovery.
 - Add editable AI suggestions and contextual preview-rule editing, keeping unapplied changes separate from active generation rules.
+- Support Web preview and atomic append for SQLite cross-table cycles when every internal edge is a single-column foreign key with existing non-NULL parent keys. Freeze the available keys before insertion, recheck sources and rules before writing, and roll back all newly inserted rows in the selected scope if any batch fails.
 
 ### Changed
 
 - Split complex AI parsing and graph layout stages into focused helpers, and merge duplicate CSS declarations while preserving rendering and interaction behavior. `fill()` introspection now shows grouped options and typed compatibility keywords; the complete parameter reference remains in the API guide.
 - Simplify workbench guidance, configuration actions and relationship views; add pointer-centered graph zoom, stable hover geometry and actionable cycle locations.
+- Add editable graph zoom percentages, clearer node and relationship legends, and brief selection feedback for tabs, workflow stages and checkboxes. Respect reduced-motion preferences and keep dependency arrows static rather than implying an active data transfer.
 - Guide SQLite clear-and-regenerate failures through a reviewed downstream-table expansion while preserving the selected write mode and final confirmation.
-- Require Core `>=0.2.5.dev0,<0.3` in development plugins for shared connection parsing and credential redaction. The published 0.2.4 set retains its own dependency metadata.
+- Deliver Core, CLI, AI, Core MCP and Web together at version 0.2.5. Plugins require Core `>=0.2.5.dev0,<0.3` for shared connection parsing and credential redaction; the 0.2.4 release retains its original dependency metadata.
 - Refresh bilingual package and architecture documentation, update the wordmark, and replace obsolete audit logs with concise historical decision records.
 
 ### Fixed
 
+- Make both Core MCP tools explicitly use Faker, matching their generated YAML templates and avoiding a fallback to Base when optional Mimesis is absent. The existing target-table-only YAML execution scope is unchanged.
 - Close tutorial SQLite connections and explicitly clean up temporary Notebook databases and cache settings, with complete offline execution checks for four affected notebooks.
 - Preserve SQLite `mode=memory` connection-pool behavior explicitly across SQLAlchemy 2.0/2.1, avoiding a deprecated implicit default without changing URI parsing or thread policy.
 - Reject non-object AI tool arguments through the normal format-error path, apply strict output-limit checks to streaming refinement, and ignore malformed suggestion cache envelopes.
@@ -37,12 +42,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Preserve quoted colon identifiers in database sampling, column-value and row-count queries without treating them as SQL parameters or changing sampled JSON/date values.
 - Refresh the installer snapshot when reviewing a new component operation plan, so temporary pip/uv detection changes do not permanently block installation; environment and dependency changes are still checked before execution.
 - Preserve SQLite file URL identity across encoded and special-character paths; opening an existing file or restoring a session cannot create a missing replacement database.
+- Restore each database connection's own unsaved workbench state when switching connections. Distinguish a configuration/database mismatch from a connection failure, offer a route back to the current database or to the matching target, and ignore stale responses after switching.
 - Report invalid generator bounds before applying rules; recover empty schemas after a refresh and restore keyboard focus after failed connections or background run polling.
 - Keep database credentials out of connection responses, validation errors, exception messages and diagnostic logs without changing runtime connection targets.
 - Treat invalid date ranges as configuration errors instead of exhausting random-generation retries; clarify the existing date/time contract in AI prompts and validate malformed JSON containers normally.
 - Distinguish malformed AI JSON from empty configurations and feed safe format diagnostics into existing bounded retries; unknown generators follow the existing validation recovery path.
+- Constrain strict local AI responses with LM Studio JSON-schema mode or Ollama JSON-object mode. Allow one text-mode compatibility attempt only when the server explicitly rejects the requested format; preserve strict parsing, output-limit checks, authentication failures and unrelated server errors.
+- Connect local AI services at `localhost` and loopback IP addresses directly when environment proxies are present, without changing remote proxy routing or HTTPS certificate settings.
+- Explain unsupported generation scopes, missing previews and disabled identity-reset controls with their actual cause. Preserve successfully returned samples and keep existing database records separately available for read-only inspection.
+- Preserve frontend error feedback and interaction state after failed asynchronous operations; improve light-theme control contrast, selected checkboxes, inspector spacing and diagnostic/example typography.
 - Update the PyPI uploader for Core Metadata 2.5 and allow the maintained workflow to publish an existing release tag without changing its source commit.
 - Use the shared `pypi` environment for all five existing packages while retaining separate upload jobs and post-publication acceptance; verify publisher permissions using unchanged public release files.
+- Upload only the measured Python coverage report, verify the Codecov signer in an isolated keyring, and deploy documentation through the supported GitHub Pages API with artifact provenance checks, bounded polling and cancellation.
+
+### Compatibility
+
+- SQLite cycle appends reuse existing parent records; newly generated cyclic records do not reference one another. Each source pool contains at most 100,000 distinct non-NULL keys. This does not bypass UNIQUE/CHECK constraints or add cross-table backfill. Empty-source cycles, cycles involving composite/overlapping foreign keys or configured associations, PostgreSQL cycles, and clearing cyclic tables before regeneration remain unsupported in the Web workbench.
+- Selecting every table or resetting IDs cannot remove an unsupported cycle. Ordinary acyclic appends process tables sequentially and commit each batch, so a later failure can leave earlier batches committed. Atomic rollback applies to the supported SQLite cycle-append and clear-and-regenerate paths. See the [Web workbench guide](docs/web-workbench.md) for the full boundaries.
 
 ## [0.2.4] - 2026-09-13
 
