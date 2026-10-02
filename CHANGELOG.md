@@ -57,7 +57,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Compatibility
 
 - SQLite cycle appends reuse existing parent records; newly generated cyclic records do not reference one another. Each source pool contains at most 100,000 distinct non-NULL keys. This does not bypass UNIQUE/CHECK constraints or add cross-table backfill. Empty-source cycles, cycles involving composite/overlapping foreign keys or configured associations, PostgreSQL cycles, and clearing cyclic tables before regeneration remain unsupported in the Web workbench.
-- Selecting every table or resetting IDs cannot remove an unsupported cycle. Ordinary acyclic appends retain their existing per-table commit behavior; atomic rollback applies to the supported SQLite cycle-append and clear-and-regenerate paths. See the [Web workbench guide](docs/web-workbench.md) for the full boundaries.
+- Selecting every table or resetting IDs cannot remove an unsupported cycle. Ordinary acyclic appends process tables sequentially and commit each batch, so a later failure can leave earlier batches committed. Atomic rollback applies to the supported SQLite cycle-append and clear-and-regenerate paths. See the [Web workbench guide](docs/web-workbench.md) for the full boundaries.
 
 ## [0.2.4] - 2026-09-13
 
