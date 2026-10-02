@@ -11,13 +11,13 @@
 
 ## 安装
 
-安装 0.2.4 版本时，使用 Python 3.10+ 虚拟环境：
+本文安装说明对应 0.2.5 版本；发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准。测试尚未发布的候选版本时，使用下方的源码安装方式。请先创建并激活 Python 3.10+ 虚拟环境：
 
 ```bash
-python -m pip install "sqlseed-ai==0.2.4"
+python -m pip install "sqlseed-ai==0.2.5"
 ```
 
-Core 0.2.3 缺少本插件使用的 hooks 与数据库目标校验接口。
+Core 0.2.4 及更早版本缺少本版本使用的共享诊断接口。
 开发源码时，从仓库根一次安装本地 Core、CLI 和 AI：
 
 ```bash
@@ -91,7 +91,7 @@ native/custom 方法、实际生成值及依赖数据库状态的约束需另行
 AI MCP 入口要求本包的 `mcp` extra：
 
 ```bash
-python -m pip install "sqlseed-ai[mcp]==0.2.4"
+python -m pip install "sqlseed-ai[mcp]==0.2.5"
 mcp-server-sqlseed-ai
 ```
 
@@ -215,9 +215,9 @@ AI 配置缓存包含 schema hash，结构变化会使旧建议失效；`--no-ca
 CLI 命令另由 `sqlseed.cli_commands` entry point 注册。本插件不实现 provider 或
 column-mapper 注册 hooks，也不要求 Core 导入 AI 实现。
 
-## 当前开发源码依赖
+## 依赖
 
-以下要求对应当前源码；上方 0.2.4 命令仍是已发布安装基线。源码开发时请在同一次解析中安装本地 Core 和插件。
+以下为 0.2.5 版本及其源码候选的依赖要求。源码开发时请在同一次解析中安装本地 Core 和插件。
 
 - Python `>=3.10`
 - `sqlseed>=0.2.5.dev0,<0.3`

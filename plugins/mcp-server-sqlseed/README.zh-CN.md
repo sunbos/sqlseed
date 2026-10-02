@@ -9,13 +9,13 @@ YAML 配置，再生成测试数据。两个工具均使用离线 Core 规则，
 
 ## 安装
 
-安装 0.2.4 版本时，使用 Python 3.10+ 虚拟环境：
+本文安装说明对应 0.2.5 版本；发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准。测试尚未发布的候选版本时，使用下方的源码安装方式。请先创建并激活 Python 3.10+ 虚拟环境：
 
 ```bash
-python -m pip install "mcp-server-sqlseed==0.2.4"
+python -m pip install "mcp-server-sqlseed==0.2.5"
 ```
 
-Core 0.2.3 缺少当前入口使用的数据库目标校验接口。
+Core 0.2.4 及更早版本缺少本版本使用的共享诊断接口。
 开发源码时，从仓库根一次安装本地 Core 与 MCP：
 
 ```bash
@@ -77,7 +77,7 @@ MCP 传输成功不等于配置或填充成功，需要检查返回内容。
 LLM 分析属于另一个 AI MCP 进程，安装 AI extra 后启动：
 
 ```bash
-python -m pip install "sqlseed-ai[mcp]==0.2.4"
+python -m pip install "sqlseed-ai[mcp]==0.2.5"
 mcp-server-sqlseed-ai
 ```
 
@@ -87,9 +87,9 @@ AI YAML 工具名为 `sqlseed_ai_generate_yaml`，命令入口为 `mcp-server-sq
 需要两组工具时，客户端分别配置两个服务器，并为 AI 进程提供后端设置。
 安装 AI 包不会向规则型服务器注入工具，旧 `mcp-server-sqlseed[ai]` extra 不适用于当前布局。
 
-## 当前开发源码依赖
+## 依赖
 
-以下要求对应当前源码；上方 0.2.4 命令仍是已发布安装基线。源码开发时请在同一次解析中安装本地 Core 和插件。
+以下为 0.2.5 版本及其源码候选的依赖要求。源码开发时请在同一次解析中安装本地 Core 和插件。
 
 - Python `>=3.10`
 - `sqlseed>=0.2.5.dev0,<0.3`

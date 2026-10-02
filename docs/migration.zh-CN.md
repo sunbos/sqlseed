@@ -2,16 +2,16 @@
 
 [English](migration.md)
 
-0.2.4 工作台将原来组合安装的 Core/CLI/MCP 拆分为五个 package。从 0.2.3 升级时应使用匹配的版本集合。[安装指南](guide.md#installation)提供 0.2.4 版本与源码的安装方式；开发中的 checkout 可能包含正式版本之后的变化。
+五包布局始于 0.2.4，将原来组合安装的 Core/CLI/MCP 拆分为独立 package。本文面向 0.2.5；从 0.2.3 或 0.2.4 升级时应使用匹配的版本集合。[安装指南](guide.md#installation)提供 0.2.5 版本与源码的安装方式。发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准；尚未发布的候选版本使用源码安装。
 
 ## 成套安装
 
-新建虚拟环境，将 0.2.4 五包一起安装：
+新建虚拟环境，将 0.2.5 五包一起安装：
 
 ```bash
 python -m venv .venv
 # 使用当前 shell 对应的命令激活虚拟环境。
-python -m pip install "sqlseed==0.2.4" "sqlseed-cli==0.2.4" "sqlseed-ai[mcp]==0.2.4" "mcp-server-sqlseed==0.2.4" "sqlseed-web==0.2.4"
+python -m pip install "sqlseed==0.2.5" "sqlseed-cli==0.2.5" "sqlseed-ai[mcp]==0.2.5" "mcp-server-sqlseed==0.2.5" "sqlseed-web==0.2.5"
 python -m pip check
 ```
 
@@ -24,9 +24,9 @@ python -m pip check
 
 0.2.4 插件的 metadata 要求 Core `>=0.2.4.dev0,<0.3`，CLI/AI 兄弟包依赖也限制在相同版本系列。Core 0.2.3 缺少新插件使用的接口。上界避免自动选择尚未经兼容审查的新 minor 版本，但不保证区间内任意开发快照都能混用；仍应成套安装。
 
-当前开发版插件因共享连接解析和诊断脱敏要求 Core `>=0.2.5.dev0,<0.3`。不要关闭依赖检查，把开发版插件装到 Core 0.2.4 上；源码开发按[开发环境安装说明](https://github.com/sunbos/sqlseed/blob/main/CONTRIBUTING.md#setup)，同次解析本地 Core 与所需插件。本页的 0.2.4 命令仍是已发布迁移基线。
+0.2.5 插件及其源码候选因共享连接解析和诊断脱敏要求 Core `>=0.2.5.dev0,<0.3`。Core 0.2.4 缺少这些接口，不要关闭依赖检查来与 0.2.5 插件混装。该范围接受正式 Core 0.2.5 及源码候选，但不保证不同提交的候选包能混用；源码开发按[开发环境安装说明](https://github.com/sunbos/sqlseed/blob/main/CONTRIBUTING.md#setup)，同次解析本地 Core 与所需插件。
 
-保留旧环境使用的 Core extras。普通五包 wheel 不会自动安装 PostgreSQL 驱动或 Mimesis；从源码安装且两者都需要时，将上面的 `-e .` 改成 `-e '.[postgres,mimesis]'`。安装 wheel 时，在同一次命令中为准确的 Core wheel 路径追加 `[postgres,mimesis]`。新环境缺少 PostgreSQL 驱动时无法连接 PostgreSQL。Core 在缺少 Mimesis 时保留既有 provider 回退行为；开发版 Web 工作台则保留所选引擎，在组件可用前阻止预览与生成。重新打开使用 Mimesis 的配置前，请检查 [Web 组件说明](web-workbench.md)。
+保留旧环境使用的 Core extras。普通五包 wheel 不会自动安装 PostgreSQL 驱动或 Mimesis；从源码安装且两者都需要时，将上面的 `-e .` 改成 `-e '.[postgres,mimesis]'`。安装 wheel 时，在同一次命令中为准确的 Core wheel 路径追加 `[postgres,mimesis]`。新环境缺少 PostgreSQL 驱动时无法连接 PostgreSQL。Core 在缺少 Mimesis 时保留既有 provider 回退行为；0.2.5 Web 工作台则保留所选引擎，在组件可用前阻止预览与生成。重新打开使用 Mimesis 的配置前，请检查 [Web 组件说明](web-workbench.md)。
 
 使用开发构建时，CI run 的 `headSha` 标识其源码。PR artifact 名称可能使用 GitHub 的临时合并提交，因此需要同时核对 run 与 artifact。升级验证完成前保留原环境和原安装包。
 
