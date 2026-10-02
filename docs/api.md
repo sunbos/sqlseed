@@ -1,8 +1,10 @@
 # API Reference
 
-This page documents the Python API on `main`. Install a compatible package set
-using the [installation guide](guide.md#installation); the older 0.2.3 release
-does not include every interface described here. Main entry functions and the
+This page documents the Python API for version 0.2.5 and its source candidates.
+Install a compatible package set using the [installation guide](guide.md#installation);
+0.2.4 and earlier do not include every interface described here, such as
+`FillOptions`. Check [Releases](https://github.com/sunbos/sqlseed/releases) for
+publication status. Main entry functions and the
 most-used models are exported from `sqlseed`; other types use the subpackage
 import paths shown below.
 

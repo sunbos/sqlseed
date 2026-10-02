@@ -33,6 +33,9 @@ sqlseed 向已有数据库表中填充测试数据。它会为姓名、邮箱等
 需要 **Python 3.10+**。建议使用虚拟环境，按自己的使用方式安装对应包，
 无需把下表中的包全部安装。各入口包会自动安装所需的 Core。
 
+本文对应 0.2.5 版本，发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准；
+尚未发布的候选版本按[源码安装指南](https://sunbos.github.io/sqlseed/guide/#source-installation)体验。
+
 | 我想要…… | 安装命令 | 从这里开始 |
 | --- | --- | --- |
 | 在 Python 中生成数据 | `python -m pip install sqlseed` | [快速开始](#快速开始) |
@@ -85,9 +88,9 @@ print(result.count, result.errors)  # 100 []
 姓名和邮箱的生成规则由字段名推断，主键由数据库分配。
 每次运行会继续追加 100 行，不会清空表。生成后应同时检查 `result.count` 和 `result.errors`。
 
-当前开发源码可用 `sqlseed.FillOptions(provider="faker", seed=42)` 复用生成设置，
+0.2.5 版本可用 `sqlseed.FillOptions(provider="faker", seed=42)` 复用生成设置，
 通过 `fill(..., options=settings)` 传入。原有单独关键字仍可使用，详见
-[Python API 参考](docs/api.md#filloptions)。
+[Python API 参考](https://sunbos.github.io/sqlseed/api/#filloptions)。
 
 只想查看样例、不写入数据库时，可以使用：
 
@@ -143,7 +146,7 @@ sqlseed-web
 `sqlseed-web` 命令随安装包提供，不需要自定义启动脚本，也不需要仓库源码。
 
 工作台还提供配置保存、关系图和运行记录。AI 为可选功能，未安装时仍可手动编辑、预览和生成。
-当前开发源码可从顶栏切换简体中文与 English；切换界面语言保留正在编辑的内容，不改变生成配置中的数据语言与地区。
+0.2.5 版本可从顶栏切换简体中文与 English；切换界面语言保留正在编辑的内容，不改变生成配置中的数据语言与地区。
 连接设置、可选组件与部署要求见 [Web 使用指南](https://sunbos.github.io/sqlseed/web-workbench/)。
 
 ## 命令行
