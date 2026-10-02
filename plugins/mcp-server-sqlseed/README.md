@@ -9,13 +9,15 @@ schema, then generate test data. Both tools use offline Core rules and require n
 
 ## Installation
 
-For the 0.2.4 release, use a Python 3.10+ virtual environment:
+These instructions target version 0.2.5. Check [Releases](https://github.com/sunbos/sqlseed/releases)
+for publication status; use the source installation below to test an unpublished candidate.
+Use a Python 3.10+ virtual environment:
 
 ```bash
-python -m pip install "mcp-server-sqlseed==0.2.4"
+python -m pip install "mcp-server-sqlseed==0.2.5"
 ```
 
-Core 0.2.3 lacks the target-validation interfaces used here.
+Core 0.2.4 and older lack the shared diagnostic interfaces required by this version.
 For development, install Core and the required local plugins together from the
 repository root:
 
@@ -50,13 +52,15 @@ path. The server runs over stdio. `python -m mcp_server_sqlseed` is also support
 The `db_path` argument accepts an existing SQLite `.db`/`.sqlite`/`.sqlite3` file or a
 database URL. For PostgreSQL, install the Core `postgres` extra. Tables must already
 exist. The schema mapper chooses generators deterministically; no model request is
-made by either tool.
+made by either tool. Both tools use the required Faker provider with the `en_US`
+locale, matching the generated template; Mimesis is not required.
 
 When `yaml_config` is supplied, it must be a YAML mapping containing the requested
 table. Empty documents, unknown tables, and configurations for a different table fail
 before generation. The UTF-8 size limit is 256 KiB. Tool arguments select the database,
 table, row count, and enrichment; YAML contributes only the matching table's column
-rules, seed, and `clear_before` setting.
+rules, seed, and `clear_before` setting. Top-level YAML `provider` and `locale`
+settings do not change this server's engine or locale.
 
 A typical client workflow is:
 
@@ -75,7 +79,7 @@ schema-inspection tool are not provided. For LLM analysis, install the separate
 AI MCP extra:
 
 ```bash
-python -m pip install "sqlseed-ai[mcp]==0.2.4"
+python -m pip install "sqlseed-ai[mcp]==0.2.5"
 mcp-server-sqlseed-ai
 ```
 
@@ -84,11 +88,10 @@ Its YAML tool is
 `sqlseed_ai_generate_yaml`; its executable is `mcp-server-sqlseed-ai`. The old
 `mcp-server-sqlseed[ai]` installation does not describe the current package layout.
 
-## Current development requirements
+## Requirements
 
-These requirements describe the current source checkout. The 0.2.4 commands above
-remain the published installation baseline; use local Core and plugins together
-when developing from source.
+These metadata requirements apply to version 0.2.5 and its source candidates.
+Use local Core and plugins together when developing from source.
 
 - Python `>=3.10`
 - `sqlseed>=0.2.5.dev0,<0.3`

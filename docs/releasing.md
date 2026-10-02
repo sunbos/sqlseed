@@ -18,7 +18,10 @@ Before publishing:
 
 1. Merge the reviewed changes through all required checks. Follow the root
    [release checklist](https://github.com/sunbos/sqlseed/blob/main/CLAUDE.md#release-checklist),
-   including both changelogs and the local mutation gate.
+   including both changelogs and the local mutation gate. Update current installation
+   examples and capability descriptions in both root READMEs, each package README
+   and the maintained guides; preserve historical release records. Use absolute
+   documentation links in package READMEs so they also work on PyPI.
 2. Build all five wheels and sdists. Run `twine check --strict` on all ten
    artifacts. Check that the package names and versions match, each archive
    includes the AGPL license text, and metadata contains the correct README,
@@ -86,10 +89,10 @@ to enable the independent AI MCP server. From outside the checkout, with
 ```bash
 python -m pip check
 python /path/to/sqlseed/scripts/check_wheel_install.py
-python /path/to/sqlseed/scripts/check_public_entrypoints.py 0.2.4
+python /path/to/sqlseed/scripts/check_public_entrypoints.py 0.2.5
 ```
 
-Replace `0.2.4` with the exact version under test. Repeat in a fresh environment
+Replace `0.2.5` with the exact version under test. Repeat in a fresh environment
 containing only Core and Web, running `check_wheel_install.py
 --without-optional-components`. Also install the five sdists together in a
 third environment and repeat the full checks. Never present a development
@@ -105,7 +108,7 @@ Linux with Python 3.12 and retains the `public-pypi-acceptance` artifact. Use th
 same command below to repeat it locally or on another supported platform.
 
 ```bash
-PYTHON_BIN=python3.12 bash scripts/verify_pypi_release.sh 0.2.4
+PYTHON_BIN=python3.12 bash scripts/verify_pypi_release.sh 0.2.5
 ```
 
 The script uses the production PyPI index, creates disposable environments,
