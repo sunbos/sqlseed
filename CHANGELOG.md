@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Make both Core MCP tools explicitly use Faker, matching their generated YAML templates and avoiding a fallback to Base when optional Mimesis is absent. The existing target-table-only YAML execution scope is unchanged.
 - Close tutorial SQLite connections and explicitly clean up temporary Notebook databases and cache settings, with complete offline execution checks for four affected notebooks.
 - Preserve SQLite `mode=memory` connection-pool behavior explicitly across SQLAlchemy 2.0/2.1, avoiding a deprecated implicit default without changing URI parsing or thread policy.
 - Reject non-object AI tool arguments through the normal format-error path, apply strict output-limit checks to streaming refinement, and ignore malformed suggestion cache envelopes.

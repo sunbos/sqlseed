@@ -922,6 +922,12 @@ The base `mcp-server-sqlseed` package ships two rule-driven tools (no LLM):
 | 🤖 Tool | `sqlseed_generate_yaml` | Rule-driven YAML config generation via `ColumnMapper` (offline, deterministic, no LLM) |
 | ⚡ Tool | `sqlseed_execute_fill` | Execute data generation (supports YAML config string, includes `enrich`) |
 
+Both tools use Faker with `en_US`, matching the generated YAML template. Tool
+arguments select the database, table, row count and enrichment. YAML contributes
+only the requested table's column rules, seed and `clear_before`; top-level
+provider and locale settings do not change the server's engine or locale. See the
+[Core MCP reference](https://github.com/sunbos/sqlseed/blob/main/plugins/mcp-server-sqlseed/README.md#tools).
+
 The separate `mcp-server-sqlseed-ai` process exposes four AI tools:
 
 | Type | Name | Description |

@@ -44,6 +44,12 @@ For development artifacts, the CI run's `headSha` identifies the source. A pull 
 
 The AI server provides `sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, and `sqlseed_list_gemma_models`. Configure its backend separately. Starting an MCP server is not proof that a real model is reachable; validate a small request before using it in an automated workflow.
 
+In 0.2.5, both Core MCP tools explicitly use Faker with `en_US`, matching their
+generated templates. They no longer inherit Core's optional Mimesis default or
+fall back to Base when it is absent. Review stored sample expectations and any
+provider-specific column rules before upgrading; top-level YAML provider/locale
+settings still do not change this server's engine or locale.
+
 ## Verify saved configurations and data
 
 Use a new test database or a disposable copy first. Check actual stored values as well as `GenerationResult.errors` and `count`. In normal Core batch mode, a later failure can leave earlier committed batches in place; a successful function return alone is insufficient. See [support and maintenance](maintainable-release.md).
