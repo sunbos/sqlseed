@@ -1,5 +1,3 @@
-"""MCP's required provider works without the optional Mimesis dependency."""
-
 from __future__ import annotations
 
 import json
