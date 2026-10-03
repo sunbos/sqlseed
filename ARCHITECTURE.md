@@ -33,8 +33,8 @@ The five distributions have separate installation and runtime responsibilities:
 sqlseed-cli ──────────┐
 sqlseed-ai ───────────┤
 mcp-server-sqlseed ───┼──> sqlseed (offline Core)
-sqlseed-web ──────────┘      ├── Python API: fill, connect, preview,
-                            │   fill_from_config, load_config
+sqlseed-web ──────────┘      ├── Python API: fill, FillOptions, connect,
+                            │   preview, fill_from_config, load_config
                             ├── core/       orchestration and relations
                             ├── generators/ providers and dispatch
                             ├── database/   SQLAlchemy adapters
@@ -56,7 +56,7 @@ Arrows mean imports or calls into Core. Optional pluggy hooks do not reverse thi
 
 | Module | Responsibility | Key Classes/Functions |
 |--------|---------------|----------------------|
-| `__init__.py` | Public Python API | `fill`, `connect`, `preview`, `fill_from_config`, `load_config` |
+| `__init__.py` | Public Python API | `fill`, `FillOptions`, `connect`, `preview`, `fill_from_config`, `load_config` |
 | `core/orchestrator/` | Central coordinator (4 mixins + shared data) | `DataOrchestrator` |
 | `core/mapper.py` | 9-level column mapping strategy chain | `ColumnMapper`, `GeneratorSpec` |
 | `core/schema.py` | Schema inference from database | `SchemaInferrer` |
@@ -103,7 +103,7 @@ Arrows mean imports or calls into Core. Optional pluggy hooks do not reverse thi
 | Entry point | `[project.scripts] sqlseed = sqlseed_cli:main` |
 | Dependencies | `sqlseed` (core), `click`, `rich` |
 
-**Install**: `pip install sqlseed-cli` (separate distribution with its own `pyproject.toml`; the 0.2.4 package set uses one Git-derived release version)
+**Install**: `pip install sqlseed-cli` (separate distribution with its own `pyproject.toml`; the five packages share one Git-derived release version)
 
 ### 3.3 Plugin: `sqlseed-ai` (`plugins/sqlseed-ai/`)
 
@@ -120,7 +120,7 @@ Arrows mean imports or calls into Core. Optional pluggy hooks do not reverse thi
 | `config.py` | `AIConfig` model. `backend: AIBackend` enum (values: `google_ai_studio`, `lm_studio`, `ollama`, `openai_compat`; **NO `gemma4` backend**). `tool_calling_protocol: Literal["gemma4", "openai", "none"]` field (Phase E) selects the native function calling protocol; `resolve_tool_calling_protocol()` narrows based on backend support. |
 | `_hardware.py` | Cross-platform RAM/GPU detection + Gemma model hardware requirements |
 | `cli/ai_commands.py` | 3 AI CLI commands (`ai-suggest`, `ai-analyze`, `auto-heal`), injected via `register()` entry point |
-| `mcp.py` (optional) | AI MCP server — 4 tools (`sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`); `python -m pip install "sqlseed-ai[mcp]==0.2.4"` |
+| `mcp.py` (optional) | AI MCP server — 4 tools (`sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`); `python -m pip install "sqlseed-ai[mcp]==0.2.5"` |
 | Entry point | CLI: 3 commands injected into `sqlseed` CLI via entry_points: `ai-suggest` (per-table LLM analysis), `ai-analyze` (default v4 AutoHealOrchestrator path), `auto-heal` (standalone YAML repair) |
 
 **Install**: `pip install sqlseed-ai` (completely independent package)
@@ -193,25 +193,25 @@ sqlseed._utils (no internal deps, used by all)
 | PostgreSQL | ✅ Implemented (extension) | `SQLAlchemyAdapter` + `psycopg` |
 | MySQL | ❌ Removed (deferred until PostgreSQL fully validated) | — |
 
-**Install**: `python -m pip install "sqlseed[postgres]==0.2.4"` for PostgreSQL support.
+**Install**: `python -m pip install "sqlseed[postgres]==0.2.5"` for PostgreSQL support.
 
 ---
 
 ## 6. Installation Matrix
 
-The commands below target the 0.2.4 release in a Python 3.10+ environment. For a
+The commands below target the 0.2.5 release in a Python 3.10+ environment. For a
 source checkout, use the same-resolution local commands in [AGENTS.md](AGENTS.md).
 
 | Use Case | Install Command | What You Get |
 |----------|----------------|--------------|
-| Python API only (offline) | `python -m pip install "sqlseed==0.2.4"` | `from sqlseed import fill` |
-| + CLI | `python -m pip install "sqlseed-cli==0.2.4"` | `sqlseed` command |
-| + AI YAML generation | `python -m pip install "sqlseed-ai==0.2.4"` | `sqlseed ai-suggest` / `ai-analyze` / `auto-heal` |
-| + PostgreSQL | `python -m pip install "sqlseed[postgres]==0.2.4"` | PostgreSQL driver |
-| + Mimesis | `python -m pip install "sqlseed[mimesis]==0.2.4"` | MimesisProvider |
-| + MCP server (core capabilities) | `python -m pip install "mcp-server-sqlseed==0.2.4"` | Rule-driven YAML and fill tools |
-| + AI MCP | `python -m pip install "sqlseed-ai[mcp]==0.2.4"` | Separate AI MCP process |
-| + Web | `python -m pip install "sqlseed-web==0.2.4"` | Local browser workbench |
+| Python API only (offline) | `python -m pip install "sqlseed==0.2.5"` | `from sqlseed import fill` |
+| + CLI | `python -m pip install "sqlseed-cli==0.2.5"` | `sqlseed` command |
+| + AI YAML generation | `python -m pip install "sqlseed-ai==0.2.5"` | `sqlseed ai-suggest` / `ai-analyze` / `auto-heal` |
+| + PostgreSQL | `python -m pip install "sqlseed[postgres]==0.2.5"` | PostgreSQL driver |
+| + Mimesis | `python -m pip install "sqlseed[mimesis]==0.2.5"` | MimesisProvider |
+| + MCP server (core capabilities) | `python -m pip install "mcp-server-sqlseed==0.2.5"` | Rule-driven YAML and fill tools |
+| + AI MCP | `python -m pip install "sqlseed-ai[mcp]==0.2.5"` | Separate AI MCP process |
+| + Web | `python -m pip install "sqlseed-web==0.2.5"` | Local browser workbench |
 | Complete package set | See the [installation guide](docs/guide.md#installation) | Five matching packages and selected extras |
 
 > [!NOTE]
@@ -219,7 +219,7 @@ source checkout, use the same-resolution local commands in [AGENTS.md](AGENTS.md
 
 ### 6.1 Version Compatibility Policy
 
-There are five separate distributions (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `mcp-server-sqlseed`, `sqlseed-web`). Their versions currently come from the same repository tags; publish the 0.2.4 set from one commit and tag. The following policy governs cross-package compatibility:
+There are five separate distributions (`sqlseed`, `sqlseed-cli`, `sqlseed-ai`, `mcp-server-sqlseed`, `sqlseed-web`). Their versions currently come from the same repository tags; publish each five-package release from one commit and tag. The following policy governs cross-package compatibility:
 
 | Change Type | Version Impact | Plugin Action |
 |-------------|----------------|---------------|

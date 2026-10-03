@@ -97,7 +97,9 @@ def sqlseed_ai_generate_yaml(
     semantics. For rule-driven offline generation, use the
     ``sqlseed_generate_yaml`` tool from ``mcp-server-sqlseed`` instead.
 
-    Supported backends: google_ai_studio (default), lm_studio, ollama, openai_compat.
+    Supported backends: google_ai_studio, lm_studio, ollama, openai_compat.
+    Arguments and environment settings select the backend; a recognized base URL
+    can infer it. Otherwise, the backend defaults to openai_compat.
     Returns a YAML string for human review.
     """
     try:
@@ -148,7 +150,9 @@ def sqlseed_gemma4_analyze(
     table structure and recommend data generation configurations. It demonstrates
     Gemma 4's Native Function Calling feature for the AI Agent track.
 
-    Supported backends: google_ai_studio (default), lm_studio, ollama, openai_compat.
+    Supported backends: google_ai_studio, lm_studio, ollama, openai_compat.
+    Arguments and environment settings select the backend; a recognized base URL
+    can infer it. Otherwise, the backend defaults to openai_compat.
     Supported models: gemma-4-26b-a4b-it (default), gemma-4-31b-it, gemma-4-12b-it,
     gemma-4-e4b-it, gemma-4-e2b-it.
     """

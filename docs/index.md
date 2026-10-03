@@ -9,15 +9,19 @@ values and relationships in Python or YAML. Core runs offline; AI is optional.
 ## Choose how to use it
 
 Use a Python 3.10+ virtual environment and install the entry point you need.
-Interface packages install Core as a dependency.
+The four interface packages use the same offline Core and install it as a dependency.
 
-| I want to… | Install | Guide |
-| --- | --- | --- |
-| Generate data from Python | `python -m pip install sqlseed` | [Python API](api.md) |
-| Use a browser | `python -m pip install sqlseed-web` | [Web workbench](web-workbench.md) |
-| Work in a terminal | `python -m pip install sqlseed-cli` | [CLI reference](guide.md#cli-reference) |
-| Ask a model to suggest or repair rules | `python -m pip install sqlseed-ai` | [AI setup](guide.md#ai-plugin) |
-| Use rule-driven MCP tools | `python -m pip install mcp-server-sqlseed` | [MCP setup](guide.md#mcp-server) |
+| Package | Use it for | Install | Guide |
+| --- | --- | --- | --- |
+| `sqlseed` | Generate data from Python or YAML rules | `python -m pip install sqlseed` | [Python API](api.md) |
+| `sqlseed-web` | Edit rules, preview data, and review runs in a browser | `python -m pip install sqlseed-web` | [Web guide (中文)](web-workbench.md) |
+| `sqlseed-cli` | Inspect, preview, fill, create templates, and replay snapshots | `python -m pip install sqlseed-cli` | [CLI reference](guide.md#cli-reference) |
+| `sqlseed-ai` | Ask a model to suggest, analyze, or repair rules | `python -m pip install sqlseed-ai` | [AI setup](guide.md#ai-plugin) |
+| `mcp-server-sqlseed` | Generate rule-driven YAML and execute fills through MCP | `python -m pip install mcp-server-sqlseed` | [MCP setup](guide.md#mcp-server) |
+
+AI installs CLI for its additional commands. Web's ordinary workflow works without
+AI. Model-assisted MCP tools are a separate entry point provided by `sqlseed-ai[mcp]`;
+`mcp-server-sqlseed` does not require a model service.
 
 These pages describe version 0.2.5, using the five-package layout introduced in
 0.2.4. Check [Releases](https://github.com/sunbos/sqlseed/releases) for publication
@@ -71,7 +75,15 @@ sqlseed-web
 
 Open [http://127.0.0.1:8630](http://127.0.0.1:8630), connect to `demo.db`, select tables,
 edit rules, and preview before generating. The command is included with the package;
-no custom launcher is required. Follow the [Web guide](web-workbench.md) for details.
+no custom launcher is required. Save configurations, inspect table relationships,
+and review per-table results in run history. The interface supports English and
+Simplified Chinese, with light and dark appearances.
+
+![sqlseed-web 0.2.5 workbench in English with the light appearance](assets/screenshots/web-workbench-en-light.jpg)
+
+The released 0.2.5 workbench. Follow the [Web guide (中文)](web-workbench.md)
+or the [English Web README](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-web/README.md)
+for setup and workflow details.
 
 With `sqlseed-cli` installed, use the same database:
 

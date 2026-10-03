@@ -194,7 +194,9 @@ Ollama 使用 JSON 对象模式。服务明确拒绝该格式时，只进行一�
 
 ### 文件缓存
 
-AI 配置缓存包含 schema hash，结构变化会使旧建议失效；`--no-cache` 跳过缓存。
+单表建议缓存的 schema hash 只覆盖列名集合。增删或重命名列会改变该值，
+仅修改列类型或约束不会；可用 `--no-cache` 跳过缓存重新分析。
+此处的缓存校验与 AutoHeal 使用的完整 schema 指纹不同。
 缓存元数据或配置容器类型无效时，按缓存未命中重新分析。
 默认路径为 macOS 的 `~/Library/Caches/sqlseed/ai_configs/`、Linux 的
 `$XDG_CACHE_HOME/sqlseed/ai_configs/`（未设置时为 `~/.cache/sqlseed/ai_configs/`），

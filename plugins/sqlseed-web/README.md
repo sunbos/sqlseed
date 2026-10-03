@@ -6,6 +6,26 @@ A local browser workbench for declarative SQLite and PostgreSQL test data genera
 Connect a database, edit field rules, preview samples, inspect dependencies and review
 generation results. The Python core runs offline; AI suggestions are optional.
 
+## A look at the workbench
+
+![sqlseed Web in English: selected tables, generation workflow, and a four-table relationship graph in the light theme](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-en-light.jpg)
+
+The actual 0.2.5 interface with the repository's fictional SQLite order example.
+See also the [read-only sample preview in the dark theme](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-en-dark.jpg).
+
+Connect an existing database, select tables and row counts, review field rules and
+dependencies, preview samples, then confirm the generation plan.
+
+| Page | What you can do |
+| --- | --- |
+| Workbench | Edit rules, inspect the relationship graph, preview samples without writing, and confirm generation. |
+| Configurations | Save reusable rules, import or export YAML, and reopen configurations for the matching database. |
+| Runs | Review per-table outcomes, committed row counts, and the configuration snapshot used for a run. |
+| Settings | Choose generation defaults, light/dark appearance, optional AI settings, and available components. |
+
+The [order workflow example](https://github.com/sunbos/sqlseed/tree/main/examples/order_workflow)
+includes the schema, rules, and instructions for creating your own disposable demo.
+
 ## Installation
 
 These instructions target version 0.2.5. Check [Releases](https://github.com/sunbos/sqlseed/releases)
