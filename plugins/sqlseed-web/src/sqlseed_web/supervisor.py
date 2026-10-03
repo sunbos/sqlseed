@@ -11,13 +11,18 @@ from multiprocessing.context import SpawnProcess
 from typing import Any
 
 from fastapi import HTTPException
+from sqlseed._utils.logger import get_logger
 
-from sqlseed_web.managed_worker import run_worker
+from sqlseed_web.managed_worker import WorkerLifecycleError, run_worker
 from sqlseed_web.messages import message as tr
 from sqlseed_web.plugin_environment import InheritedEnvironmentLock
 from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest
 from sqlseed_web.supervised_plugins import SupervisedPluginManager
 from sqlseed_web.worker_control import ControlChannel, ControlError
+
+logger = get_logger(__name__)
+WORKER_START_TIMEOUT = 20
+WORKER_STOP_TIMEOUT = 20
 
 
 class Supervisor:
@@ -36,6 +41,9 @@ class Supervisor:
         self._lifecycle_lock = threading.RLock()
         self._shutdown_requested = False
         self._session_lost = False
+        self._business_ready = False
+        self._startup_phase = "boot"
+        self._startup_failed = False
 
     def start(self) -> None:
         if self.manager.environment.reason is None:
@@ -66,7 +74,16 @@ class Supervisor:
             raise HTTPException(exc.status_code, detail=exc.detail) from exc
 
     def _handle(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        if method in {"worker_starting", "worker_failed"}:
+            phase = params.get("phase")
+            if params.get("mode") != self.mode or phase not in {"session", "application", "http"}:
+                raise ValueError("invalid worker startup status")
+            self._startup_phase = phase
+            self._startup_failed = method == "worker_failed"
+            return {}
         if method == "worker_ready":
+            if params.get("mode") != self.mode:
+                raise ValueError("unexpected worker readiness")
             self._restoration = dict(params.get("restoration", {}))
             self._ready.set()
             return {}
@@ -85,8 +102,13 @@ class Supervisor:
     def _spawn(self, mode: str) -> dict[str, Any]:
         if self.listener is None:
             raise RuntimeError(tr("backend.supervisor.the_service_listening_port_is_unavailable"))
+        if self.process is not None:
+            raise self._failure("worker_stop_pending", time.monotonic(), phase="shutdown")
         self._ready.clear()
         self._restoration = {}
+        self._business_ready = False
+        self._startup_phase = "boot"
+        self._startup_failed = False
         context = multiprocessing.get_context("spawn")
         parent, child = context.Pipe()
         channel = ControlChannel(parent)
@@ -108,27 +130,66 @@ class Supervisor:
         )
         self.channel, self.process, self.mode = channel, process, mode
         self._shutdown_requested = False
-        process.start()
-        child.close()
+        started = time.monotonic()
+        try:
+            process.start()
+        except (OSError, RuntimeError, ValueError):
+            error = self._failure("worker_startup_failed", started)
+            channel.close()
+            self.channel, self.process, self.mode = None, None, None
+            raise error from None
+        finally:
+            child.close()
         channel.start(self._handle)
-        deadline = time.monotonic() + 20
+        deadline = time.monotonic() + WORKER_START_TIMEOUT
         while not self._ready.wait(0.05):
-            if not process.is_alive() or time.monotonic() >= deadline:
+            if self._startup_failed or not process.is_alive() or time.monotonic() >= deadline:
+                code = (
+                    "worker_startup_failed"
+                    if self._startup_failed
+                    else "worker_startup_timeout"
+                    if process.is_alive()
+                    else "worker_exited_before_ready"
+                )
+                error = self._failure(code, started)
                 # No public API was admitted before readiness. A failed boot
                 # can be stopped without interrupting a generation transaction.
                 if process.is_alive():
                     process.kill()
                 process.join(timeout=3)
                 channel.close()
-                self.channel, self.process, self.mode = None, None, None
-                raise RuntimeError(tr("backend.supervisor.application_startup_did_not_complete_retry_recovery"))
+                if not process.is_alive():
+                    self.channel, self.process, self.mode = None, None, None
+                raise error
         if mode == "business":
-            self._request("resume")
+            self._startup_phase = "resume"
+            try:
+                self._request("resume")
+            except (HTTPException, OSError, RuntimeError, ValueError):
+                # The worker may have resumed before its acknowledgement was
+                # lost. Keep ownership so recovery drains it before replacement.
+                raise self._failure("worker_resume_failed", started) from None
+            self._business_ready = True
         return dict(self._restoration)
+
+    def _failure(self, code: str, started: float, *, phase: str | None = None) -> WorkerLifecycleError:
+        error = WorkerLifecycleError(
+            code,
+            mode=self.mode or "business",
+            phase=phase or self._startup_phase,
+            elapsed_ms=max(0, round((time.monotonic() - started) * 1000)),
+            exit_code=self.process.exitcode if self.process is not None else None,
+        )
+        logger.warning(
+            "worker_lifecycle_failed", **{key: value for key, value in error.detail.items() if key != "message"}
+        )
+        return error
 
     def _stop_worker(self) -> None:
         if (process := self.process) is None:
             return
+        started = time.monotonic()
+        self._business_ready = False
         if process.is_alive():
             if not self._shutdown_requested:
                 try:
@@ -139,9 +200,9 @@ class Supervisor:
                     if self.channel is not None:
                         self.channel.close()
                 self._shutdown_requested = True
-            process.join(timeout=20)
+            process.join(timeout=WORKER_STOP_TIMEOUT)
             if process.is_alive():
-                raise RuntimeError(tr("backend.supervisor.the_application_process_has_not_exited_naturally"))
+                raise self._failure("worker_shutdown_timeout", started, phase="shutdown")
         if self.channel is not None:
             self.channel.close()
         self.channel, self.process, self.mode = None, None, None
@@ -175,6 +236,7 @@ class Supervisor:
                 and self.process is not None
                 and self.process.is_alive()
                 and not self._shutdown_requested
+                and self._business_ready
             ):
                 self.resume()
                 return {"restored_connections": 0, "failed_connections": [], "service_restarted": False}
@@ -182,6 +244,10 @@ class Supervisor:
             try:
                 restored = self._spawn("business")
             except Exception:
+                # A failed resume acknowledgement does not mean the new worker
+                # exited. Never overwrite its process/channel or share its
+                # listener with maintenance until natural shutdown is confirmed.
+                self._stop_worker()
                 self._spawn("maintenance")
                 raise
             self._session = {}
@@ -199,13 +265,22 @@ class Supervisor:
         """Keep a recovery page available after an unexpected worker exit."""
         with self._lifecycle_lock:
             with self.manager._lock:
-                if self.manager.phase != "ready" or self.process is None or self.process.is_alive():
+                if (
+                    self.manager.phase not in {"ready", "recovery_failed"}
+                    or self.process is None
+                    or self.process.is_alive()
+                    or (self.manager._worker is not None and self.manager._worker.is_alive())
+                ):
                     return
-                self.manager.phase = "recovery_failed"
-                self._session_lost = True
-                self._session = {}
-                self.manager.session_restore = self._lost_session_summary()
-                self.manager._task = None
+                if self.manager.phase == "ready":
+                    self.manager.phase = "recovery_failed"
+                    self._session_lost = True
+                    self._session = {}
+                    self.manager.session_restore = self._lost_session_summary()
+                    self.manager._task = None
+                # A retained worker can finish draining after recovery already
+                # reported a timeout. Restore the maintenance listener once it
+                # exits, preserving the saved session and package task for retry.
             self._stop_worker()
             self._spawn("maintenance")
 

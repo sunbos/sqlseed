@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import json
+import sys
+import threading
 import time
+import traceback
 from collections.abc import Iterator
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from tests.sqlite_helpers import sqlite_connection
@@ -13,6 +18,68 @@ from tests.sqlite_helpers import sqlite_connection
 from sqlseed_web.state import Connection, UIState
 
 from .workbench_test_helpers import parent_child_document
+
+if TYPE_CHECKING:
+    from types import TracebackType
+
+    from sqlseed_web.workbench_store import WorkspaceStore
+
+
+class _RunPlanRegistry(UIState):
+    """Own the actual worker and its connection without replacing runtime startup."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.worker_started = threading.Event()
+        self.worker: threading.Thread | None = None
+        self.worker_errors: list[BaseException] = []
+
+    @contextmanager
+    def job_completion(self, job_id: str) -> Iterator[None]:
+        self.worker = threading.current_thread()
+        self.worker_started.set()
+        with ExitStack() as ownership:
+            # Record generation and cleanup failures separately so cleanup
+            # cannot replace the original exception returned to the test.
+            ownership.push(self._record_error)
+            ownership.callback(lambda: self.close_connection(self.job_snapshot(job_id).conn_id))
+            ownership.push(self._record_error)
+            with super().job_completion(job_id):
+                yield
+
+    def _record_error(
+        self, _error_type: type[BaseException] | None, error: BaseException | None, _traceback: TracebackType | None
+    ) -> bool:
+        if error is not None:
+            # Re-raise in the test after worker exit, including control errors.
+            self.worker_errors.append(error)
+        return error is not None
+
+    def wait_for_worker(self, timeout: float) -> bool:
+        deadline = time.monotonic() + timeout
+        if not self.worker_started.wait(timeout):
+            return False
+        worker = self.worker
+        if worker is None:
+            raise RuntimeError("Worker started without publishing its thread")
+        worker.join(max(0.0, deadline - time.monotonic()))
+        return not worker.is_alive()
+
+
+def _run_plan_snapshot(registry: _RunPlanRegistry, store: WorkspaceStore, run_id: str) -> dict[str, Any]:
+    """Report persisted stages and stack names, never frame locals or SQL values."""
+    saved = store.get_run(run_id)
+    worker = registry.worker
+    frame = sys._current_frames().get(worker.ident) if worker is not None else None
+    return {
+        "run_id": run_id,
+        "status": saved["status"],
+        "phase": "validation" if saved["status"] == "queued" else saved["status"],
+        "tables": {table["name"]: table["status"] for table in saved["tables"]},
+        "jobs": {job.job_id: job.status for job in registry.recent_jobs()},
+        "worker_alive": worker is not None and worker.is_alive(),
+        "worker_stack": [entry.name for entry in traceback.extract_stack(frame)] if frame is not None else [],
+    }
 
 
 @pytest.fixture(name="connection")
@@ -95,46 +162,72 @@ def test_not_null_empty_parent_outside_plan_blocks(connection: Connection) -> No
     assert any(issue["code"] == "missing_parent_source" for issue in result["issues"])
 
 
-def run_plan(conn: Connection, config: dict[str, Any], tmp_path: Path, *, timeout: float = 10) -> dict[str, Any]:
-    """Save, check and execute against a fresh registered connection, with bounded polling and cleanup."""
+def run_plan(
+    conn: Connection,
+    config: dict[str, Any],
+    tmp_path: Path,
+    *,
+    timeout: float = 60,
+    cleanup_timeout: float = 30,
+) -> dict[str, Any]:
+    """Wait for actual worker exit and retain a bounded, separately reported cleanup grace."""
     from sqlseed_web.workbench_runtime import check_document, normalize_document, start_run
     from sqlseed_web.workbench_schema import inspect_connection
     from sqlseed_web.workbench_store import WorkspaceStore
 
-    registry = UIState()
+    # Real Windows schema checks alone can take 8-10 seconds and the complete
+    # 26-table worker 11-14 seconds. This is an I/O completion budget, not a
+    # performance gate; explicit short deadlines below still exercise failure.
+    registry = _RunPlanRegistry()
     worker_conn = registry.add_connection(conn.target, provider="base")
-    store = WorkspaceStore(tmp_path / "history.db")
-    schema = inspect_connection(worker_conn)
-    normalized = normalize_document(worker_conn, config)
-    draft = store.save_draft(
-        {
-            "name": "plan",
-            "target_key": schema["target_key"],
-            "target_label": schema["target_label"],
-            "document": normalized,
-            "schema_hash": schema["schema_hash"],
-            "view_state": {},
-        }
-    )
-    check = check_document(worker_conn, normalized, schema["schema_hash"])
-    assert check["ok"], check
-    run = start_run(
-        worker_conn.conn_id,
-        draft["id"],
-        draft["revision"],
-        schema["schema_hash"],
-        check["config_hash"],
-        registry=registry,
-        store=store,
-    )
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    try:
+        store = WorkspaceStore(tmp_path / "history.db")
+        schema = inspect_connection(worker_conn)
+        normalized = normalize_document(worker_conn, config)
+        draft = store.save_draft(
+            {
+                "name": "plan",
+                "target_key": schema["target_key"],
+                "target_label": schema["target_label"],
+                "document": normalized,
+                "schema_hash": schema["schema_hash"],
+                "view_state": {},
+            }
+        )
+        check = check_document(worker_conn, normalized, schema["schema_hash"])
+        assert check["ok"], check
+        run = start_run(
+            worker_conn.conn_id,
+            draft["id"],
+            draft["revision"],
+            schema["schema_hash"],
+            check["config_hash"],
+            registry=registry,
+            store=store,
+        )
+        if not registry.wait_for_worker(timeout):
+            at_deadline = _run_plan_snapshot(registry, store, run["id"])
+            # Timeout remains a test failure even when this grace drains the
+            # worker. A truly stuck daemon retains ownership until it exits;
+            # closing a connection still used by that thread would be unsafe.
+            drained = registry.wait_for_worker(cleanup_timeout)
+            after_cleanup = _run_plan_snapshot(registry, store, run["id"])
+            pytest.fail(
+                f"run exceeded {timeout:g}s; at_deadline={json.dumps(at_deadline)}; "
+                f"cleanup_drained={drained} after {cleanup_timeout:g}s grace; "
+                f"after_cleanup={json.dumps(after_cleanup)}"
+            )
+        if registry.worker_errors:
+            raise registry.worker_errors[0]
         saved = store.get_run(run["id"])
-        if saved["status"] in {"done", "error"} and all(job.status != "running" for job in registry.recent_jobs()):
+        assert saved["status"] in {"done", "error"}, _run_plan_snapshot(registry, store, run["id"])
+        assert all(job.status != "running" for job in registry.recent_jobs())
+        return saved
+    finally:
+        # Preflight/startup failures have no worker to perform cleanup. An
+        # active worker owns its own finally block, including after a timeout.
+        if registry.worker is None and all(job.status != "running" for job in registry.recent_jobs()):
             registry.close_connection(worker_conn.conn_id)
-            return saved
-        time.sleep(0.01)
-    return pytest.fail("run did not terminate")
 
 
 def test_run_executes_saved_parent_first_plan_with_derived_columns(connection: Connection, tmp_path: Path) -> None:

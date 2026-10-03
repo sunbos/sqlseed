@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import io
+import sys
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -300,12 +302,6 @@ class TestCheckTqdm:
 class TestCanRenderUnicode:
     """_can_render_unicode probes whether stdout can encode Rich's Unicode chars."""
 
-    @pytest.fixture(autouse=True)
-    def _reset_unicode_cache(self) -> Generator[None, None, None]:
-        progress_mod._can_render_unicode.cache_clear()
-        yield
-        progress_mod._can_render_unicode.cache_clear()
-
     def test_returns_bool(self) -> None:
         result = _can_render_unicode()
         assert isinstance(result, bool)
@@ -313,43 +309,43 @@ class TestCanRenderUnicode:
     def test_true_with_utf8(self) -> None:
         mock_stdout = type("FakeStdout", (), {"encoding": "utf-8"})()
         with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
-            progress_mod._can_render_unicode.cache_clear()
             assert _can_render_unicode() is True
 
     def test_false_with_gbk(self) -> None:
         mock_stdout = type("FakeStdout", (), {"encoding": "gbk"})()
         with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
-            progress_mod._can_render_unicode.cache_clear()
             assert _can_render_unicode() is False
 
     def test_false_with_big5(self) -> None:
         mock_stdout = type("FakeStdout", (), {"encoding": "big5"})()
         with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
-            progress_mod._can_render_unicode.cache_clear()
             assert _can_render_unicode() is False
 
     def test_false_with_cp936(self) -> None:
         mock_stdout = type("FakeStdout", (), {"encoding": "cp936"})()
         with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
-            progress_mod._can_render_unicode.cache_clear()
             assert _can_render_unicode() is False
 
     def test_true_when_encoding_is_none(self) -> None:
         mock_stdout = type("FakeStdout", (), {"encoding": None})()
         with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
-            progress_mod._can_render_unicode.cache_clear()
             assert _can_render_unicode() is True
 
     def test_false_with_unknown_encoding(self) -> None:
         mock_stdout = type("FakeStdout", (), {"encoding": "nonexistent_codec_xyz"})()
         with patch("sqlseed._utils.progress.sys.stdout", mock_stdout):
-            progress_mod._can_render_unicode.cache_clear()
             assert _can_render_unicode() is False
 
-    def test_caches_result(self) -> None:
-        first = _can_render_unicode()
-        second = _can_render_unicode()
-        assert first == second
+    def test_follows_reconfigured_encoding(self) -> None:
+        with (
+            io.TextIOWrapper(io.BytesIO(), encoding="utf-8") as stdout,
+            patch.object(sys, "stdout", stdout),
+        ):
+            assert _can_render_unicode() is True
+            stdout.reconfigure(encoding="gbk")
+            assert _can_render_unicode() is False
+            stdout.reconfigure(encoding="utf-8")
+            assert _can_render_unicode() is True
 
 
 # ---------------------------------------------------------------------------
@@ -385,3 +381,159 @@ class TestCreateProgressUnicodeFallback:
             create_progress()
             mock_logger.debug.assert_called_once()
             assert "ASCII" in mock_logger.debug.call_args[0][0]
+
+
+class TestRichOutputEncodingChanges:
+    """Exercise actual Rich rendering through strict encoding streams."""
+
+    @pytest.fixture(autouse=True)
+    def _terminal_console(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        rich = pytest.importorskip("rich")
+        console_module = pytest.importorskip("rich.console")
+        monkeypatch.setenv("TERM", "xterm")
+        # Keep Rich's real cached console, whose output follows sys.stdout.
+        monkeypatch.setattr(
+            rich,
+            "_console",
+            console_module.Console(force_terminal=True, color_system=None, legacy_windows=False, width=120),
+        )
+
+    @pytest.mark.parametrize("encoding", ["gbk", "big5", "cp936", "ascii"])
+    def test_new_progress_after_stdout_redirect(self, encoding: str) -> None:
+        with (
+            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as utf8,
+            io.TextIOWrapper(io.BytesIO(), encoding=encoding, write_through=True) as limited,
+            patch.object(sys, "stdout", utf8),
+        ):
+            with create_progress() as backend:
+                backend.add_task("Before redirect", total=2)
+            assert any("\u2800" <= char <= "\u28ff" for char in utf8.buffer.getvalue().decode("utf-8"))
+
+            sys.stdout = limited
+            with create_progress() as backend:
+                task = backend.add_task("After redirect", total=2)
+                backend.update(task, advance=1)
+            output = limited.buffer.getvalue().decode(encoding)
+            assert "After redirect" in output
+            assert "1/2" in output
+            assert output.isascii()
+
+    @pytest.mark.parametrize("encoding", ["gbk", "big5", "ascii"])
+    def test_existing_progress_follows_output_encoding(self, encoding: str) -> None:
+        with (
+            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as utf8,
+            io.TextIOWrapper(io.BytesIO(), encoding=encoding, write_through=True) as limited,
+            patch.object(sys, "stdout", utf8),
+        ):
+            backend = create_progress()
+            assert isinstance(backend, RichProgressBackend)
+            backend._progress.live.auto_refresh = False
+            # The object is created under UTF-8 but entered after redirection.
+            sys.stdout = limited
+            with backend:
+                task = backend.add_task("Changing encoding", total=4)
+                backend.update(task, advance=1)
+                backend._progress.refresh()
+                limited_output = limited.buffer.getvalue().decode(encoding)
+                assert "1/4" in limited_output
+                assert limited_output.isascii()
+
+                sys.stdout = utf8
+                backend.update(task, advance=1)
+                backend._progress.refresh()
+                utf8_output = utf8.buffer.getvalue().decode("utf-8")
+                assert "2/4" in utf8_output
+                assert any("\u2800" <= char <= "\u28ff" for char in utf8_output)
+
+                sys.stdout = limited
+                backend.update(task, advance=1)
+                backend._progress.refresh()
+            assert "3/4" in limited.buffer.getvalue().decode(encoding)
+
+    def test_reconfigured_console_file_uses_actual_encoding(self) -> None:
+        import rich
+
+        with (
+            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as stdout,
+            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as output,
+            patch.object(sys, "stdout", stdout),
+        ):
+            rich.get_console().file = output
+            backend = create_progress()
+            assert isinstance(backend, RichProgressBackend)
+            backend._progress.live.auto_refresh = False
+            with backend:
+                task = backend.add_task("Reconfigured file", total=4)
+                backend.update(task, advance=1)
+                backend._progress.refresh()
+                first_end = len(output.buffer.getvalue())
+                output.reconfigure(encoding="gbk")
+                backend.update(task, advance=1)
+                backend._progress.refresh()
+            gbk_output = output.buffer.getvalue()[first_end:].decode("gbk")
+            assert "2/4" in gbk_output
+            assert gbk_output.isascii()
+
+    @pytest.mark.parametrize("ascii_only", [False, True])
+    @pytest.mark.parametrize(
+        ("encoding", "expected"),
+        [
+            ("ascii", r"\u7528\u6237\U0001f680"),
+            ("gbk", "用户" + r"\U0001f680"),
+            ("big5", "用" + r"\u6237\U0001f680"),
+            ("utf-8", "用户🚀"),
+        ],
+    )
+    def test_description_escapes_only_unencodable_text(self, encoding: str, expected: str, ascii_only: bool) -> None:
+        with (
+            io.TextIOWrapper(io.BytesIO(), encoding=encoding, write_through=True) as output,
+            patch.object(sys, "stdout", output),
+            RichProgressBackend(ascii_only=ascii_only) as backend,
+        ):
+            task = backend.add_task("Generating 用户🚀", total=2)
+            backend.update(task, advance=1)
+            backend._progress.refresh()
+            assert "Generating " + expected in output.buffer.getvalue().decode(encoding)
+            assert backend._progress.tasks[0].description == "Generating 用户🚀"
+
+    @pytest.mark.parametrize("encoding", ["ascii", "gbk", "big5"])
+    def test_unencodable_description_preserves_original_business_exception(self, encoding: str) -> None:
+        import rich
+
+        original = ValueError("generation failed")
+        with (
+            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as utf8,
+            io.TextIOWrapper(io.BytesIO(), encoding=encoding, write_through=True) as limited,
+            patch.object(sys, "stdout", utf8),
+        ):
+            backend = create_progress()
+            assert isinstance(backend, RichProgressBackend)
+            backend._progress.live.auto_refresh = False
+            with pytest.raises(ValueError) as caught, backend:
+                backend.add_task("Generating 用户🚀", total=2)
+                rich.get_console().file = limited
+                raise original
+            assert caught.value is original
+            assert "Generating" in limited.buffer.getvalue().decode(encoding)
+
+    @pytest.mark.parametrize("width", [8, 20])
+    def test_narrow_ascii_console_does_not_add_unicode_ellipsis(self, width: int) -> None:
+        import rich
+
+        rich.get_console().width = width
+        original = ValueError("generation failed")
+        with (
+            io.TextIOWrapper(io.BytesIO(), encoding="ascii", write_through=True) as output,
+            patch.object(sys, "stdout", output),
+        ):
+            backend = create_progress()
+            assert isinstance(backend, RichProgressBackend)
+            backend._progress.live.auto_refresh = False
+            with pytest.raises(ValueError) as caught, backend:
+                task = backend.add_task("initial", total=20)
+                backend.update(task, description="Generating 用户🚀" * 10)
+                raise original
+            assert caught.value is original
+            rendered = output.buffer.getvalue().decode("ascii")
+            assert rendered
+            assert rendered.isascii()

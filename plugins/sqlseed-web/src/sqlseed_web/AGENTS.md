@@ -103,6 +103,7 @@
 ## 可选组件自动管理
 
 - `supervisor.py` 在默认启动时持有监听 socket 与管理状态，`managed_worker.py` 分别启动业务/维护 worker，`worker_control.py` 以有界匿名 IPC 传递控制与临时会话。保留原 NDJSON，不代理 HTTP。旧 `--manage-plugins` 仅兼容入口；普通网页无需命令切换或手动重启。
+- Worker 就绪与恢复准入确认是两个步骤。`resume` 确认丢失时可能已有业务请求，必须保留该进程与控制通道，确认自然排空退出后才启动维护 worker；不得覆盖引用或强杀可能已恢复准入的进程。启动失败保留固定阶段、错误码、耗时与退出码，任务输出和 `recovery_error` 不带原始异常/凭据；`/recover` 仅恢复服务和原会话，不重复安装器。启动期限仍为有界的 20 秒，不用扩大期限代替退出/超时诊断。
 - 维护 worker 业务 `/api/` 一律拒绝，仅保留 health、environment 与 `/api/settings/plugins/*`；HTML 固定标识用于首次导航，API 门禁不能依赖前端，受管维护标识不得永久锁定恢复后的导航。
 - `plugin_environment.py` 只接受当前解释器与可写独立 virtualenv，解析真实 distribution metadata/Requires-Dist；不使用 import 缓存判断新安装状态。系统/只读/共享系统包/环境外 metadata 不可管理，但保留普通 Web。
 - `plugin_management.py` 白名单仅 ai/cli/mcp/mimesis。管理请求检查 loopback client/Host；POST 必须同 Origin 及 token。计划绑定五分钟内 metadata 快照，一次领取。新计划可在同一受锁解释器且权限仍满足时重新绑定合法安装器；计划到执行及更新下载后的环境变化仍须拒绝，不能将短时安装器探测结果固定为进程生命周期身份。Core/Web/Faker/Base 不接受操作，不自动卸载依赖。`supervised_plugins.py` 仅在新业务就绪后发布任务终态，恢复失败保留页面与只恢复服务的重试入口。
