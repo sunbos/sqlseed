@@ -4,6 +4,23 @@
 
 面向 SQLite 与 PostgreSQL 声明式测试数据生成的本机浏览器工作台。连接数据库、编辑字段规则、预览样例、检查依赖并查看生成结果。Python core 离线运行；AI 建议是可选功能。
 
+## 工作台概览
+
+![sqlseed Web 简体中文浅色界面：左侧选表、上方生成流程和四表关系图](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-zh-CN-light.jpg)
+
+0.2.5 正式界面的实际截图，使用仓库中的虚构 SQLite 订单示例。另见[深色主题下的只读样例预览](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-zh-CN-dark.jpg)。
+
+连接已有数据库 → 选择表和生成数量 → 核对字段规则与依赖 → 预览样例 → 确认生成计划。
+
+| 页面 | 可以做什么 |
+| --- | --- |
+| 工作台 | 编辑规则、浏览关系图、只读预览样例，并确认生成。 |
+| 配置管理 | 保存可复用规则、导入导出 YAML、重新打开对应数据库的配置。 |
+| 运行记录 | 查看逐表结果、实际已提交行数和本次使用的配置快照。 |
+| 设置 | 调整生成默认值、浅色/深色外观、可选 AI 设置与组件。 |
+
+[订单工作流示例](https://github.com/sunbos/sqlseed/tree/main/examples/order_workflow)提供建表结构、生成规则和操作说明，可用于创建自己的独立演示库。
+
 ## 安装
 
 本文安装说明对应 0.2.5 版本；发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准。测试尚未发布的候选版本时，使用下方的源码安装方式。请先创建并激活 Python 3.10+ 虚拟环境：

@@ -731,6 +731,34 @@
     "业务进程意外退出，原有连接与会话密钥需要重新配置。",
     "The application process stopped unexpectedly. Reconfigure connections and session keys."
   ],
+  "backend.supervisor.worker_startup_timeout": [
+    "应用进程未在启动期限内就绪，请重试恢复；不会重复安装组件。",
+    "The application process did not become ready before its startup deadline. Retry recovery; the component will not be installed again."
+  ],
+  "backend.supervisor.worker_exited_before_ready": [
+    "应用进程在就绪前退出，请检查组件环境后重试恢复。",
+    "The application process exited before becoming ready. Check the component environment and retry recovery."
+  ],
+  "backend.supervisor.worker_startup_failed": [
+    "应用进程初始化失败，请检查组件环境后重试恢复。",
+    "Application process initialization failed. Check the component environment and retry recovery."
+  ],
+  "backend.supervisor.worker_resume_failed": [
+    "未能确认应用进程已恢复服务，将先等待该进程安全退出，再恢复工作台。",
+    "The application process did not acknowledge service resumption. Wait for that process to exit safely before restoring the workbench."
+  ],
+  "backend.supervisor.worker_shutdown_timeout": [
+    "原应用进程尚未安全退出，已保留进程与环境锁；请稍后重试恢复。",
+    "The previous application process has not exited safely. Its ownership and environment lock are retained; retry recovery shortly."
+  ],
+  "backend.supervisor.worker_stop_pending": [
+    "原应用进程尚未完成清理，不能启动替代进程；请稍后重试恢复。",
+    "The previous application process has not finished cleanup. A replacement cannot start yet; retry recovery shortly."
+  ],
+  "backend.supervised_plugins.service_restore_failed": [
+    "服务恢复未完成，请重试恢复；组件操作不会重复执行。",
+    "Service recovery did not complete. Retry recovery; the component operation will not run again."
+  ],
   "backend.supervisor.another_web_service_is_using_this_python": [
     "此 Python 环境正被另一个 Web 服务使用，无法启动受管服务。",
     "Another Web service is using this Python environment. Cannot start the managed service."

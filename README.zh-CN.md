@@ -17,7 +17,7 @@
 [![CI](https://github.com/sunbos/sqlseed/actions/workflows/ci.yml/badge.svg)](https://github.com/sunbos/sqlseed/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](https://github.com/sunbos/sqlseed/blob/main/LICENSE)
 
-[快速开始](#快速开始) · [Web 工作台](#web-工作台) · [命令行](#命令行) · [完整文档](https://sunbos.github.io/sqlseed/)
+[快速开始](#快速开始) · [Web 工作台](#web-工作台) · [命令行](#命令行) · [MCP](#mcp-工具) · [完整文档](https://sunbos.github.io/sqlseed/)
 
 </div>
 
@@ -31,18 +31,22 @@ sqlseed 向已有数据库表中填充测试数据。它会为姓名、邮箱等
 ## 选择使用入口
 
 需要 **Python 3.10+**。建议使用虚拟环境，按自己的使用方式安装对应包，
-无需把下表中的包全部安装。各入口包会自动安装所需的 Core。
+无需把下表中的包全部安装。`sqlseed` 是离线 Core 库，其余四个包提供可选入口与能力，
+会自动安装所需的 Core。
 
 本文对应 0.2.5 版本，发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准；
 尚未发布的候选版本按[源码安装指南](https://sunbos.github.io/sqlseed/guide/#source-installation)体验。
 
-| 我想要…… | 安装命令 | 从这里开始 |
+| 包与用途 | 安装命令 | 从这里开始 |
 | --- | --- | --- |
-| 在 Python 中生成数据 | `python -m pip install sqlseed` | [快速开始](#快速开始) |
-| 在浏览器中操作 | `python -m pip install sqlseed-web` | [Web 工作台](#web-工作台) |
-| 在终端中操作 | `python -m pip install sqlseed-cli` | [命令行](#命令行) |
-| 让模型建议或修复规则 | `python -m pip install sqlseed-ai` | [可选的 AI 辅助](#可选的-ai-辅助) |
-| 在 MCP 客户端中使用规则工具 | `python -m pip install mcp-server-sqlseed` | [MCP 配置](https://sunbos.github.io/sqlseed/guide/#mcp-server) |
+| **Core — `sqlseed`**：通过 Python 或配置文件推断规则、预览并生成数据 | `python -m pip install sqlseed` | [快速开始](#快速开始) |
+| **Web — `sqlseed-web`**：在浏览器中编辑规则、查看关系、预览和查看运行结果 | `python -m pip install sqlseed-web` | [Web 工作台](#web-工作台) |
+| **CLI — `sqlseed-cli`**：在终端检查结构、填充数据、保存和重放配置 | `python -m pip install sqlseed-cli` | [命令行](#命令行) |
+| **AI — `sqlseed-ai`**：通过已配置的模型建议或修复生成规则 | `python -m pip install sqlseed-ai` | [可选的 AI 辅助](#可选的-ai-辅助) |
+| **MCP — `mcp-server-sqlseed`**：向 MCP 客户端提供规则型 YAML 生成和数据填充工具 | `python -m pip install mcp-server-sqlseed` | [MCP 工具](#mcp-工具) |
+
+Web 和规则型 MCP 均可独立安装，无需 CLI 或 AI。安装 AI 会自动安装 CLI 并增加 AI 命令。
+`sqlseed[all]` 是 Core 的一组选装依赖，不代表安装上面的全部四个包。
 
 Core 已包含 Faker，下面的示例会明确选择它。
 Mimesis 是可选依赖，可通过 `python -m pip install 'sqlseed[mimesis]'` 安装。
@@ -141,12 +145,33 @@ python -m pip install sqlseed-web
 sqlseed-web
 ```
 
-打开 **[http://127.0.0.1:8630](http://127.0.0.1:8630)**，连接已有数据库
-（例如上面创建的 `demo.db`），选择表、编辑规则、预览，再生成数据。
+打开 **[http://127.0.0.1:8630](http://127.0.0.1:8630)**，连接已有的 SQLite 或 PostgreSQL
+数据库，例如上面创建的 `demo.db`。
+使用 PostgreSQL 时，请在启动工作台前，在同一个 Python 环境中安装驱动：
+`python -m pip install 'sqlseed[postgres]'`。
 `sqlseed-web` 命令随安装包提供，不需要自定义启动脚本，也不需要仓库源码。
 
-工作台还提供配置保存、关系图和运行记录。AI 为可选功能，未安装时仍可手动编辑、预览和生成。
-0.2.5 版本可从顶栏切换简体中文与 English；切换界面语言保留正在编辑的内容，不改变生成配置中的数据语言与地区。
+勾选要生成的表，设置行数并编辑字段规则；通过关系图查看外键并检查依赖。
+先预览样例，预览不会写入数据库；再查看生成计划，确认后写入。
+配置可以保存复用，执行结果可在运行记录中查看。
+
+![中文 Web 工作台关系图：虚构的 SQLite 订单演示](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-zh-CN-light.jpg)
+
+0.2.5 正式界面的实际截图，使用仓库中的
+[虚构 SQLite 订单示例](https://github.com/sunbos/sqlseed/tree/main/examples/order_workflow)。
+[查看深色主题下的只读样例预览](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-zh-CN-dark.jpg)。
+预览样例仅供检查，不会插入数据库。
+
+0.2.5 版本可从顶栏切换简体中文与 English；切换界面语言保留正在编辑的内容，
+不改变生成配置中的数据语言与地区。界面也提供浅色和深色主题。
+
+未安装 AI 时，手动编辑、预览与生成均可使用。需要可选的配置助手时，在同一环境中安装：
+
+```bash
+python -m pip install 'sqlseed-web[ai]'
+```
+
+随后在设置中配置模型服务。AI 建议经审阅和应用后进入配置，生成时使用你已确认的规则。
 连接设置、可选组件与部署要求见 [Web 使用指南](https://sunbos.github.io/sqlseed/web-workbench/)。
 
 ## 命令行
@@ -161,7 +186,7 @@ sqlseed fill demo.db -t users -n 100 --provider faker --no-ai
 ```
 
 运行 `sqlseed --help` 或 `sqlseed <命令> --help` 查看选项。
-配置模板、快照和重放的用法见 [CLI 参考](https://sunbos.github.io/sqlseed/guide/#cli-reference)。
+配置模板、配置快照和重放的用法见 [CLI 参考](https://sunbos.github.io/sqlseed/guide/#cli-reference)。
 只安装 Core 时提供 Python API，`sqlseed` 命令由 `sqlseed-cli` 包提供。
 
 ## PostgreSQL
@@ -206,8 +231,31 @@ SQLite 路径与 `url` 不能同时传入。支持的外键结构和各入口差
 
 具体用法见 [AI 命令参考](https://sunbos.github.io/sqlseed/guide/#ai-suggest)和
 [模型后端与校验说明](https://sunbos.github.io/sqlseed/gemma4-integration.zh-CN/)。
-如需模型辅助的 MCP 工具，使用 `sqlseed-ai[mcp]` 提供的独立服务；
-[MCP 配置](https://sunbos.github.io/sqlseed/guide/#mcp-server)说明了两种服务的区别。
+
+## MCP 工具
+
+需要不调用模型的规则工具时，安装并启动 stdio 服务：
+
+```bash
+python -m pip install mcp-server-sqlseed
+mcp-server-sqlseed
+```
+
+在 MCP 客户端中配置该环境的 `mcp-server-sqlseed` 可执行文件；客户端未继承该环境的 PATH 时，
+使用可执行文件的绝对路径。服务提供 `sqlseed_generate_yaml` 供你准备和审阅规则，
+以及向指定已有表写入数据的 `sqlseed_execute_fill`。填充后检查返回的 `count` 与 `errors`。
+
+需要模型辅助工具时，使用 AI 包提供的另一个 stdio 服务：
+
+```bash
+python -m pip install 'sqlseed-ai[mcp]'
+mcp-server-sqlseed-ai
+```
+
+按 [AI 配置指南](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/README.zh-CN.md)
+为该进程配置模型后端。它提供 AI YAML 建议、表分析、分析后直接填充，以及模型和后端可用性信息。
+安装 AI 不会向规则型服务注入这些工具；需要两组工具时，在客户端分别配置两个进程。
+客户端配置与工具详情见 [MCP 配置](https://sunbos.github.io/sqlseed/guide/#mcp-server)。
 
 ## 用于自己的数据库时
 

@@ -28,6 +28,33 @@ if TYPE_CHECKING:
 
     from sqlseed_web.runtime_lifecycle import RuntimeGate
 
+_WORKER_STARTUP_FAILED = "backend.supervisor.worker_startup_failed"
+
+
+class WorkerLifecycleError(RuntimeError):
+    """Only fixed lifecycle facts may cross the public recovery boundary."""
+
+    def __init__(self, code: str, *, mode: str, phase: str, elapsed_ms: int, exit_code: int | None) -> None:
+        """Build a localized error from fixed lifecycle facts without private exception text."""
+        messages = {
+            "worker_startup_timeout": tr("backend.supervisor.worker_startup_timeout"),
+            "worker_exited_before_ready": tr("backend.supervisor.worker_exited_before_ready"),
+            "worker_startup_failed": tr(_WORKER_STARTUP_FAILED),
+            "worker_resume_failed": tr("backend.supervisor.worker_resume_failed"),
+            "worker_shutdown_timeout": tr("backend.supervisor.worker_shutdown_timeout"),
+            "worker_stop_pending": tr("backend.supervisor.worker_stop_pending"),
+        }
+        message = messages[code]
+        super().__init__(message)
+        self.detail: dict[str, Any] = {
+            "code": code,
+            "message": message,
+            "worker_mode": mode,
+            "phase": phase,
+            "elapsed_ms": elapsed_ms,
+            "exit_code": exit_code,
+        }
+
 
 class RemotePluginManager:
     """The HTTP worker cannot execute package operations itself."""
@@ -145,6 +172,33 @@ def _serve_worker(server: uvicorn.Server, listener: socket.socket) -> None:
         asyncio.set_event_loop(None)
 
 
+def _restore_worker_session(mode: str, session: dict[str, Any]) -> dict[str, Any]:
+    """Restore business connections only; maintenance workers must not open databases."""
+    if mode != "business":
+        return {}
+    from sqlseed_web.runtime_session import restore_session
+
+    if session:
+        return restore_session(session)
+    return {"restored_connections": 0, "failed_connections": [], "ai_session_restored": True}
+
+
+def _wait_for_http_start(server: uvicorn.Server, thread: threading.Thread) -> None:
+    """Wait for HTTP readiness or report a safe error if its serving thread exits first."""
+    while thread.is_alive() and not server.started:
+        time.sleep(0.01)
+    if not server.started:
+        raise RuntimeError(tr(_WORKER_STARTUP_FAILED))
+
+
+def _report_startup_failure(channel: ControlChannel, mode: str, stage: str) -> None:
+    """Send only the failed stage, tolerating a parent control channel that has already closed."""
+    try:
+        channel.call("worker_failed", {"mode": mode, "phase": stage})
+    except (OSError, RuntimeError):
+        pass
+
+
 def run_worker(
     listener: socket.socket,
     connection: ControlTransport,
@@ -163,7 +217,6 @@ def run_worker(
     signal.signal(signal.SIGTERM, signal.SIG_IGN)
     channel = ControlChannel(connection)
     manager = RemotePluginManager(channel, token)
-    result: dict[str, Any] = {}
     server: uvicorn.Server | None = None
     thread: threading.Thread | None = None
     lock_fd = lock_descriptor.detach() if lock_descriptor is not None else None
@@ -172,20 +225,14 @@ def run_worker(
         return _worker_control(method, mode, server, runtime_gate)
 
     channel.start(control)
+    stage = "session"
+    announced_ready = False
     try:
+        channel.call("worker_starting", {"mode": mode, "phase": stage})
         runtime_gate.pause_if_idle()
-        if mode == "business":
-            from sqlseed_web.runtime_session import restore_session
-
-            result = (
-                restore_session(session)
-                if session
-                else {
-                    "restored_connections": 0,
-                    "failed_connections": [],
-                    "ai_session_restored": True,
-                }
-            )
+        result = _restore_worker_session(mode, session)
+        stage = "application"
+        channel.call("worker_starting", {"mode": mode, "phase": stage})
         app = create_app(manage_plugins=mode == "maintenance", management_service=manager, supervised_worker=True)
         config = uvicorn.Config(
             app, log_level="warning", access_log=False, lifespan="on", timeout_graceful_shutdown=None
@@ -194,14 +241,20 @@ def run_worker(
         thread = threading.Thread(
             target=_serve_worker, args=(server, listener), daemon=False, name="sqlseed-http-worker"
         )
+        stage = "http"
+        channel.call("worker_starting", {"mode": mode, "phase": stage})
         thread.start()
-        while thread.is_alive() and not server.started:
-            time.sleep(0.01)
-        if server.started:
-            channel.call("worker_ready", {"mode": mode, "restoration": result})
+        _wait_for_http_start(server, thread)
+        channel.call("worker_ready", {"mode": mode, "restoration": result})
+        announced_ready = True
         while thread.is_alive():
             if channel.wait_closed(0.1):
                 break
+    except (HTTPException, ImportError, OSError, RuntimeError, TypeError, ValueError):
+        if not announced_ready:
+            _report_startup_failure(channel, mode, stage)
+        # Import/ASGI failures may contain credentials or driver parameters.
+        raise RuntimeError(tr(_WORKER_STARTUP_FAILED)) from None
     finally:
         _drain_worker_runtime(mode, runtime_gate)
         if server is not None:

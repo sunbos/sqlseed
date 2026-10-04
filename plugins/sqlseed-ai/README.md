@@ -157,9 +157,14 @@ Strict tool calling also rejects arrays, scalars and `null` arguments as `invali
 compatibility mode may still fall back to response text. Parsed suggestions still
 require scope and rule validation.
 
-AI configuration caches include schema hashes. Schema changes invalidate cached
-suggestions; `--no-cache` bypasses them. Malformed cache metadata or configuration
-containers are treated as cache misses. Review model output before writing data.
+Single-table suggestion caches use a versioned hash of sorted column names, encoded
+as a JSON array so names containing delimiters remain distinct. The check detects
+added, removed, or renamed columns; column order, types, and constraints are not
+included. Caches using the older delimiter encoding are ignored and regenerated.
+Use `--no-cache` to analyze again without cached suggestions. This cache check is
+separate from AutoHeal's full schema fingerprint. Malformed cache metadata
+or configuration containers are treated as cache misses. Review model output before
+writing data.
 
 ## Requirements
 

@@ -19,6 +19,7 @@
 - logger 首次使用后会缓存绑定配置；宿主应在 import 或首次使用前配置日志，不能假设后续 `configure_logging()` 会更新已缓存 logger。
 - [metrics.py](metrics.py)：`MetricsCollector` 聚合 count/total/min/max/avg；保留单次遍历与按名称过滤。
 - [progress.py](progress.py)：通过 `create_progress()` 选 backend，disabled → Null，Jupyter 且有 tqdm → notebook backend，其他环境且有 Rich → Rich；缺少对应可选库均降级为 Null，保留编码不支持时的 ASCII fallback。
+- 输出流及其编码可能在捕获、重定向期间变化；已经创建的进度显示也需按实际输出选择安全字符，不能用首次编码检测结果覆盖后续状态或掩盖原始业务异常。
 - tqdm 是 notebook 可选依赖，Rich 由 CLI 依赖提供；不能让缺失进度显示库破坏 core 的 import 或生成路径。
 - `get_cache_dir()` 优先 `SQLSEED_CACHE_DIR`，否则遵循 macOS/Linux/Windows 路径约定；只返回路径，调用方负责创建目录。
 - [daemon_task.py](daemon_task.py) 用 Future 管理单个 daemon worker 的结果与异常；超时只停止等待，不终止工作。需要在 worker 内执行的完成回调通过构造参数 `on_done` 在线程启动前注册，避免快速任务完成后回调落到调用线程。进程控制异常也必须传回等待方，不能变成 `None` 成功结果。

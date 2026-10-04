@@ -17,7 +17,7 @@
 [![CI](https://github.com/sunbos/sqlseed/actions/workflows/ci.yml/badge.svg)](https://github.com/sunbos/sqlseed/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](https://github.com/sunbos/sqlseed/blob/main/LICENSE)
 
-[Quick start](#quick-start) · [Web workbench](#web-workbench) · [CLI](#command-line) · [Documentation](https://sunbos.github.io/sqlseed/)
+[Quick start](#quick-start) · [Web workbench](#web-workbench) · [CLI](#command-line) · [MCP](#mcp-tools) · [Documentation](https://sunbos.github.io/sqlseed/)
 
 </div>
 
@@ -32,20 +32,25 @@ choices, or relationships your application needs in Python or YAML.
 ## Choose an entry point
 
 Requires **Python 3.10+**. Use a virtual environment and install the package for the
-interface you want; you do not need to install every row below. Interface packages
-install Core as a dependency.
+interface you want; you do not need to install every row below. `sqlseed` is the
+offline Core library. The other four packages provide optional interfaces and
+capabilities, and install Core as a dependency.
 
 This README describes version 0.2.5. Check [Releases](https://github.com/sunbos/sqlseed/releases)
 for publication status; the [source installation guide](https://sunbos.github.io/sqlseed/guide/#source-installation)
 covers unpublished candidates.
 
-| I want to… | Install | Start here |
+| Package and purpose | Install | Start here |
 | --- | --- | --- |
-| Generate data from Python | `python -m pip install sqlseed` | [Quick start](#quick-start) |
-| Use a browser | `python -m pip install sqlseed-web` | [Web workbench](#web-workbench) |
-| Work in a terminal | `python -m pip install sqlseed-cli` | [Command line](#command-line) |
-| Ask a model to suggest or repair rules | `python -m pip install sqlseed-ai` | [AI assistance](#optional-ai-assistance) |
-| Use rule-driven tools from an MCP client | `python -m pip install mcp-server-sqlseed` | [MCP setup](https://sunbos.github.io/sqlseed/guide/#mcp-server) |
+| **Core — `sqlseed`**: infer rules, preview, and generate data through Python or configuration files | `python -m pip install sqlseed` | [Quick start](#quick-start) |
+| **Web — `sqlseed-web`**: edit rules, inspect relationships, preview, and review runs in a browser | `python -m pip install sqlseed-web` | [Web workbench](#web-workbench) |
+| **CLI — `sqlseed-cli`**: inspect schema, fill tables, and save or replay configurations from a terminal | `python -m pip install sqlseed-cli` | [Command line](#command-line) |
+| **AI — `sqlseed-ai`**: use a configured model to suggest or repair generation rules | `python -m pip install sqlseed-ai` | [AI assistance](#optional-ai-assistance) |
+| **MCP — `mcp-server-sqlseed`**: expose rule-driven YAML generation and data filling to an MCP client | `python -m pip install mcp-server-sqlseed` | [MCP tools](#mcp-tools) |
+
+Web and the rule-driven MCP server can each be installed without CLI or AI.
+Installing AI also installs CLI and adds its AI commands. The Core `sqlseed[all]`
+extra groups optional dependencies; it does not install all four packages above.
 
 Faker is included with Core and is selected explicitly in the examples below.
 Mimesis is optional: install it with `python -m pip install 'sqlseed[mimesis]'`.
@@ -149,16 +154,38 @@ python -m pip install sqlseed-web
 sqlseed-web
 ```
 
-Open **[http://127.0.0.1:8630](http://127.0.0.1:8630)**, connect to an existing database
-(such as the `demo.db` above), select tables, edit rules, preview, and generate.
+Open **[http://127.0.0.1:8630](http://127.0.0.1:8630)** and connect to an existing
+SQLite or PostgreSQL database, such as the `demo.db` above.
+For PostgreSQL, install the driver in the same Python environment before starting
+the workbench: `python -m pip install 'sqlseed[postgres]'`.
 The `sqlseed-web` command is installed with the package; no custom startup script
 or source checkout is required.
 
-The workbench includes saved configurations, relationship views, and run history.
-AI is optional, and manual editing, preview, and generation work without it.
+Select the tables to generate, set row counts, and edit column rules. Use the
+relationship view to inspect foreign keys and check dependencies. Preview samples
+without writing to the database, then review the generation plan and confirm the
+write. Save configurations for reuse and inspect the results in run history.
+
+![English Web workbench relationship view for a fictional SQLite order demo](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-en-light.jpg)
+
+The actual 0.2.5 interface with the repository's
+[fictional SQLite order example](https://github.com/sunbos/sqlseed/tree/main/examples/order_workflow).
+[See the dark theme with a read-only sample preview](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-en-dark.jpg).
+Previewed samples are generated for inspection and are not inserted into the database.
+
 Version 0.2.5 offers Simplified Chinese and English from the top
 bar. Changing the interface language keeps your edits and does not change the
-data language and region used for generation.
+data language and region used for generation. Light and dark themes are also available.
+
+Manual editing, preview, and generation work without AI. To add the optional
+configuration assistant, install AI in the same environment:
+
+```bash
+python -m pip install 'sqlseed-web[ai]'
+```
+
+Then configure a model service in settings. AI suggestions remain available for
+review before you apply them; generation uses the rules you have confirmed.
 See the [Web guide](https://sunbos.github.io/sqlseed/web-workbench/) for connection
 settings, optional components, and deployment requirements.
 
@@ -174,7 +201,7 @@ sqlseed fill demo.db -t users -n 100 --provider faker --no-ai
 ```
 
 Use `sqlseed --help` or `sqlseed <command> --help` for options. The CLI also supports
-configuration templates, snapshots, and replay; see the
+configuration templates, configuration snapshots, and replay; see the
 [CLI reference](https://sunbos.github.io/sqlseed/guide/#cli-reference).
 Installing Core alone provides the Python API; `sqlseed-cli` supplies the `sqlseed`
 command.
@@ -224,8 +251,35 @@ before relying on it.
 
 See the [AI command reference](https://sunbos.github.io/sqlseed/guide/#ai-suggest)
 and [backend and validation guide](https://sunbos.github.io/sqlseed/gemma4-integration/).
-For model-assisted MCP tools, use the separate server provided by `sqlseed-ai[mcp]`;
-[MCP setup](https://sunbos.github.io/sqlseed/guide/#mcp-server) explains both servers.
+
+## MCP tools
+
+For rule-driven tools that need no model service, install and start the stdio server:
+
+```bash
+python -m pip install mcp-server-sqlseed
+mcp-server-sqlseed
+```
+
+Configure your MCP client to launch `mcp-server-sqlseed` from that environment;
+use the executable's absolute path if the client does not inherit its PATH.
+The server provides `sqlseed_generate_yaml` to prepare rules for review and
+`sqlseed_execute_fill` to write data to the specified existing table. Check the
+returned `count` and `errors` after a fill.
+
+Model-assisted tools use a separate stdio server supplied by the AI package:
+
+```bash
+python -m pip install 'sqlseed-ai[mcp]'
+mcp-server-sqlseed-ai
+```
+
+Configure the AI backend for that process using the [AI setup guide](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/README.md).
+It provides AI YAML suggestions, table analysis, an analyze-and-fill tool, and
+model/backend availability information. Installing AI does not add these tools
+to the rule-driven server; configure both processes if you want both tool sets.
+See [MCP setup](https://sunbos.github.io/sqlseed/guide/#mcp-server) for client
+configuration and tool details.
 
 ## Working with your own database
 

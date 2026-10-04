@@ -8,11 +8,15 @@ import threading
 from typing import Any, Protocol
 
 from fastapi import HTTPException
+from sqlseed._utils.logger import get_logger
 
 from sqlseed_web import plugin_environment
+from sqlseed_web.managed_worker import WorkerLifecycleError
 from sqlseed_web.messages import message as tr
 from sqlseed_web.plugin_environment import InstalledPackage
 from sqlseed_web.plugin_management import ExecuteRequest, PlanRequest, PluginManager, _reject
+
+logger = get_logger(__name__)
 
 
 class LifecycleController(Protocol):
@@ -26,12 +30,14 @@ class SupervisedPluginManager(PluginManager):
     """Keep task ownership in the parent while serving workers are replaced."""
 
     def __init__(self, controller: LifecycleController) -> None:
+        """Keep package task and service recovery state in the persistent supervisor."""
         super().__init__(enabled=True)
         self.controller = controller
         self.instance_id = secrets.token_hex(16)
         self.service_generation = 1
         self.phase = "ready"
         self.session_restore: dict[str, Any] = {}
+        self.recovery_error: dict[str, Any] | None = None
         self._package_status = "failed"
         self._package_message = tr("backend.supervised_plugins.the_component_operation_did_not_complete")
 
@@ -43,6 +49,7 @@ class SupervisedPluginManager(PluginManager):
         return super()._reason()
 
     def status(self) -> dict[str, Any]:
+        """Return a locked snapshot of management availability and safe recovery diagnostics."""
         with self._lock:
             result = super().status()
             result.update(
@@ -54,6 +61,7 @@ class SupervisedPluginManager(PluginManager):
                 session_restore=dict(self.session_restore),
                 restart_required=False,
                 maintenance_command=None,
+                recovery_error=dict(self.recovery_error) if self.recovery_error is not None else None,
             )
             return result
 
@@ -70,6 +78,7 @@ class SupervisedPluginManager(PluginManager):
             return result
 
     def execute(self, body: ExecuteRequest) -> dict[str, Any]:
+        """Pause business admission before installation and resume immediately if dispatch fails."""
         with self._lock:
             if reason := self._reason():
                 raise _reject(reason)
@@ -82,6 +91,7 @@ class SupervisedPluginManager(PluginManager):
             if result["status"] == "failed":
                 self.controller.resume()
                 return result
+            self.recovery_error = None
             self._stage(
                 "preparing",
                 tr("backend.supervised_plugins.preserving_connections_and_preparing_the_component_operation"),
@@ -89,9 +99,15 @@ class SupervisedPluginManager(PluginManager):
             return self.task_snapshot()
 
     def task_snapshot(self, task_id: str | None = None) -> dict[str, Any]:
+        """Keep tasks running until service recovery reaches a confirmed terminal state."""
         with self._lock:
             task = super().task_snapshot(task_id)
-            task.update(stage=self.phase, service_ready=self.phase == "ready", restart_required=False)
+            task.update(
+                stage=self.phase,
+                service_ready=self.phase == "ready",
+                restart_required=False,
+                recovery_error=dict(self.recovery_error) if self.recovery_error is not None else None,
+            )
             if self.phase not in {"ready", "recovery_failed"}:
                 task["status"] = "running"
             return task
@@ -147,6 +163,7 @@ class SupervisedPluginManager(PluginManager):
                 )
 
     def _restore(self, *, retry_cleanup: bool = False) -> None:
+        """Restore service readiness after confirmed installer cleanup without rerunning installation."""
         if self._installer_cleanup is not None:
             try:
                 if not retry_cleanup:
@@ -159,7 +176,8 @@ class SupervisedPluginManager(PluginManager):
         restored = None
         try:
             restored = self.controller.restore_business()
-        except (HTTPException, OSError, RuntimeError, ValueError):
+        except (HTTPException, OSError, RuntimeError, ValueError) as exc:
+            self._record_recovery_error(exc)
             return
         finally:
             if restored is None:
@@ -169,6 +187,7 @@ class SupervisedPluginManager(PluginManager):
             self.restart_required = False
             self.service_generation += int(restored.get("service_restarted", True))
             self.session_restore = restored
+            self.recovery_error = None
             if self._task is not None:
                 self._task.update(
                     status=self._package_status,
@@ -176,6 +195,23 @@ class SupervisedPluginManager(PluginManager):
                     restart_required=False,
                     service_ready=True,
                 )
+
+    def _record_recovery_error(self, error: Exception) -> None:
+        """Publish fixed lifecycle diagnostics, replacing all other exceptions with a safe message."""
+        detail = (
+            dict(error.detail)
+            if isinstance(error, WorkerLifecycleError)
+            else {
+                "code": "service_restore_failed",
+                "message": tr("backend.supervised_plugins.service_restore_failed"),
+            }
+        )
+        with self._lock:
+            self.recovery_error = detail
+            self._output(detail["message"])
+        # Never serialize exception text: imports and connection restoration
+        # can include user credentials even when their type is RuntimeError.
+        logger.warning("service_recovery_failed", **{key: value for key, value in detail.items() if key != "message"})
 
     def recover(self) -> dict[str, Any]:
         with self._lock:

@@ -559,15 +559,16 @@ class AiConfigRefiner:
             table_name: Name of the table to hash.
 
         Returns:
-            Truncated SHA-256 hex digest (16 chars) of the sorted column names.
+            Versioned, truncated SHA-256 digest of unambiguously encoded sorted column names.
 
         Raises:
             ValueError: If the target has no columns to generate, including a missing table.
         """
         if not (column_names := orch.get_column_names(table_name)):
             raise ValueError(f"Table '{table_name}' does not exist or has no columns")
-        raw = "|".join(sorted(column_names))
-        return hashlib.sha256(raw.encode()).hexdigest()[:16]
+        raw = json.dumps(sorted(column_names), ensure_ascii=True, separators=(",", ":"))
+        # Keep legacy delimiter hashes separate even when a column name spells JSON.
+        return "columns-v2:" + hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
     def _validate_config(
         self,

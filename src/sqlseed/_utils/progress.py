@@ -11,6 +11,7 @@ import builtins
 import importlib
 import sys
 from abc import ABC, abstractmethod
+from copy import copy
 from functools import lru_cache
 from importlib.util import find_spec
 from typing import Any, Literal
@@ -35,6 +36,7 @@ except ImportError:
 # ``None`` (when absent), allowing runtime ``is None`` guards and
 # instantiation in RichProgressBackend.__init__.
 try:
+    _GET_CONSOLE = importlib.import_module("rich").get_console
     _rich_progress_module = importlib.import_module("rich.progress")
     _PROGRESS_CLASS = _rich_progress_module.Progress
     _BAR_COLUMN_CLASS = _rich_progress_module.BarColumn
@@ -43,6 +45,7 @@ try:
     _TIME_REMAINING_COLUMN_CLASS = _rich_progress_module.TimeRemainingColumn
     _TRANSFER_SPEED_COLUMN_CLASS = _rich_progress_module.TransferSpeedColumn
 except ImportError:
+    _GET_CONSOLE = None
     _PROGRESS_CLASS = None
     _BAR_COLUMN_CLASS = None
     _SPINNER_COLUMN_CLASS = None
@@ -98,18 +101,18 @@ def _is_jupyter_shell(shell: Any) -> bool:
     return "IPKernelApp" in config
 
 
-@lru_cache(maxsize=1)
-def _can_render_unicode() -> bool:
-    """Check whether stdout can encode characters used by Rich progress bars.
+def _can_render_unicode(*, encoding: str | None = None) -> bool:
+    """Check whether the current output can encode Rich progress characters.
 
     Rich's default ``SpinnerColumn`` uses Braille patterns (e.g. ``⠋`` U+280B)
     and ``BarColumn`` uses block elements (``█`` U+2588, ``░`` U+2591).  On
     Windows consoles with GBK / GB2312 / Big5 encodings these characters cause
     ``UnicodeEncodeError``.  This helper probes the actual encoding so that
-    ``create_progress()`` can fall back to an ASCII-safe layout.
+    rendering can fall back to an ASCII-safe layout. Do not cache the result:
+    stdout may be redirected or its encoding reconfigured during a run.
     """
     try:
-        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        encoding = encoding or getattr(sys.stdout, "encoding", None) or "utf-8"
         "\u280b\u2588\u2591".encode(encoding)
         return True
     except (UnicodeEncodeError, LookupError, TypeError):
@@ -184,6 +187,62 @@ class NullProgressBackend(ProgressBackend):
 # ---------------------------------------------------------------------------
 
 
+class _EncodingAwareColumn:
+    """Select a real Rich column using the output encoding at render time."""
+
+    def __init__(self, unicode_column: Any, ascii_column: Any, *, console: Any) -> None:
+        """Retain both layouts so later stream redirection can change the chosen column."""
+        self._unicode_column = unicode_column
+        self._ascii_column = ascii_column
+        self._console = console
+
+    def _current_column(self) -> Any:
+        """Choose a column using the console's current encoding rather than its initial stream."""
+        if _can_render_unicode(encoding=self._console.encoding):
+            return self._unicode_column
+        return self._ascii_column
+
+    def get_table_column(self) -> Any:
+        """Use the selected column's layout, including an empty fallback bar."""
+        column = self._current_column().get_table_column().copy()
+        if not _can_render_unicode(encoding=self._console.encoding):
+            # Rich's default truncation inserts a Unicode ellipsis, even
+            # when the actual text and spinner are entirely ASCII.
+            column.overflow = "crop"
+        return column
+
+    def __call__(self, task: Any) -> Any:
+        """Render safely even when an existing progress changes output streams."""
+        return self._current_column()(task)
+
+
+class _EncodingAwareDescriptionColumn:
+    """Escape unencodable display text without changing the original task."""
+
+    def __init__(self, column: Any, *, console: Any) -> None:
+        """Wrap the display column while leaving task descriptions available in their original form."""
+        self._column = column
+        self._console = console
+
+    def get_table_column(self) -> Any:
+        """Keep the description column's normal Rich layout."""
+        return self._column.get_table_column()
+
+    def __call__(self, task: Any) -> Any:
+        """Use the current output encoding, including during exception cleanup."""
+        description: str = task.description
+        encoding = self._console.encoding
+        try:
+            safe_description = description.encode(encoding, errors="backslashreplace").decode(encoding)
+        except (LookupError, TypeError):
+            safe_description = description.encode("ascii", errors="backslashreplace").decode("ascii")
+        if safe_description == description:
+            return self._column(task)
+        display_task = copy(task)
+        display_task.description = safe_description
+        return self._column(display_task)
+
+
 class RichProgressBackend(ProgressBackend):
     """Rich Progress backend for terminal environments.
 
@@ -193,6 +252,8 @@ class RichProgressBackend(ProgressBackend):
     (Braille spinners, block-element bars) that cannot be encoded by
     limited console encodings such as GBK or Big5.  The spinner falls back
     to the ``"line"`` style (``|/-\\``) and the graphical bar is omitted.
+    Otherwise, columns follow the actual Rich console encoding on every render,
+    including background refreshes and changes to an already-created backend.
 
     Raises:
         RuntimeError: If ``rich`` is not installed. Callers should use
@@ -224,11 +285,17 @@ class RichProgressBackend(ProgressBackend):
             raise RuntimeError(_not_installed)
         if _TEXT_COLUMN_CLASS is None or _TIME_REMAINING_COLUMN_CLASS is None or _TRANSFER_SPEED_COLUMN_CLASS is None:
             raise RuntimeError(_not_installed)
+        if _GET_CONSOLE is None:
+            raise RuntimeError(_not_installed)
 
+        console = _GET_CONSOLE()
+        description_column = _EncodingAwareDescriptionColumn(
+            _TEXT_COLUMN_CLASS("[progress.description]{task.description}"), console=console
+        )
         if ascii_only:
             columns: list[Any] = [
                 _SPINNER_COLUMN_CLASS("line"),
-                _TEXT_COLUMN_CLASS("[progress.description]{task.description}"),
+                description_column,
                 _TEXT_COLUMN_CLASS("[progress.percentage]{task.percentage:>3.0f}%"),
                 _TEXT_COLUMN_CLASS("{task.completed}/{task.total}"),
                 _TRANSFER_SPEED_COLUMN_CLASS(),
@@ -236,16 +303,23 @@ class RichProgressBackend(ProgressBackend):
             ]
         else:
             columns = [
-                _SPINNER_COLUMN_CLASS(),
-                _TEXT_COLUMN_CLASS("[progress.description]{task.description}"),
-                _BAR_COLUMN_CLASS(),
+                _EncodingAwareColumn(_SPINNER_COLUMN_CLASS(), _SPINNER_COLUMN_CLASS("line"), console=console),
+                description_column,
+                _EncodingAwareColumn(_BAR_COLUMN_CLASS(), _TEXT_COLUMN_CLASS(""), console=console),
                 _TEXT_COLUMN_CLASS("[progress.percentage]{task.percentage:>3.0f}%"),
                 _TEXT_COLUMN_CLASS("{task.completed}/{task.total}"),
                 _TRANSFER_SPEED_COLUMN_CLASS(),
                 _TIME_REMAINING_COLUMN_CLASS(),
             ]
+        safe_columns = [
+            column
+            if isinstance(column, _EncodingAwareColumn)
+            else _EncodingAwareColumn(column, column, console=console)
+            for column in columns
+        ]
         self._progress = _PROGRESS_CLASS(
-            *columns,
+            *safe_columns,
+            console=console,
             transient=False,
             refresh_per_second=1,
         )
@@ -379,7 +453,7 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
         Jupyter+tqdm  → TqdmNotebookBackend     (native notebook widget)
         Jupyter-tqdm  → NullProgressBackend      (graceful degradation)
         Terminal+UTF8 → RichProgressBackend      (rich spinner + bar)
-        Terminal+GBK  → RichProgressBackend(ascii_only=True)  (ASCII spinner, no bar)
+        Terminal+GBK  → RichProgressBackend      (ASCII spinner, no bar)
 
     The Jupyter-without-tqdm path logs a one-time warning instead of raising
     ImportError, because progress display is a UX nicety, not a correctness
@@ -389,6 +463,8 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
     Rich's default spinner (Braille patterns) and bar (block elements), the
     factory automatically switches to an ASCII-safe layout so that Windows
     consoles with GBK / Big5 encodings do not crash with ``UnicodeEncodeError``.
+    The layout is checked again at render time so that redirected output does
+    not inherit the encoding decision of an earlier console.
     """
     if disable:
         return NullProgressBackend()
@@ -401,7 +477,7 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
         )
         return NullProgressBackend()
 
-    if ascii_only := not _can_render_unicode():
+    if not _can_render_unicode():
         logger.debug("Console encoding does not support Unicode progress characters — using ASCII-safe layout")
 
     if _PROGRESS_CLASS is None:
@@ -412,4 +488,4 @@ def create_progress(*, disable: bool = False) -> ProgressBackend:
         logger.debug("rich not installed — progress bars disabled. Install with: pip install sqlseed-cli")
         return NullProgressBackend()
 
-    return RichProgressBackend(ascii_only=ascii_only)
+    return RichProgressBackend()
