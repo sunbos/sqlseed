@@ -166,11 +166,12 @@ relationship view to inspect foreign keys and check dependencies. Preview sample
 without writing to the database, then review the generation plan and confirm the
 write. Save configurations for reuse and inspect the results in run history.
 
-![English Web workbench relationship view for a fictional SQLite order demo](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-en-light.jpg)
+![English Web workbench relationship view for a fictional SQLite order demo](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-en-light.png)
 
 The actual 0.2.5 interface with the repository's
 [fictional SQLite order example](https://github.com/sunbos/sqlseed/tree/main/examples/order_workflow).
-[See the dark theme with a read-only sample preview](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-en-dark.jpg).
+[Open the full-size PNG](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-en-light.png)
+or [see the read-only sample preview in the dark theme](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-en-dark.png).
 Previewed samples are generated for inspection and are not inserted into the database.
 
 Version 0.2.5 offers Simplified Chinese and English from the top

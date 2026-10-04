@@ -79,9 +79,12 @@ no custom launcher is required. Save configurations, inspect table relationships
 and review per-table results in run history. The interface supports English and
 Simplified Chinese, with light and dark appearances.
 
-![sqlseed-web 0.2.5 workbench in English with the light appearance](assets/screenshots/web-workbench-en-light.jpg)
+![sqlseed-web 0.2.5 workbench in English with the light appearance](assets/screenshots/web-workbench-en-light.png)
 
-The released 0.2.5 workbench. Follow the [Web guide (中文)](web-workbench.md)
+The actual released 0.2.5 interface.
+[Open the full-size PNG](assets/screenshots/web-workbench-en-light.png)
+or [see the read-only sample preview in the dark theme](assets/screenshots/web-workbench-en-dark.png).
+Follow the [Web guide (中文)](web-workbench.md)
 or the [English Web README](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-web/README.md)
 for setup and workflow details.
 

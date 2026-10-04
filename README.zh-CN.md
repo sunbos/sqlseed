@@ -155,11 +155,12 @@ sqlseed-web
 先预览样例，预览不会写入数据库；再查看生成计划，确认后写入。
 配置可以保存复用，执行结果可在运行记录中查看。
 
-![中文 Web 工作台关系图：虚构的 SQLite 订单演示](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-zh-CN-light.jpg)
+![中文 Web 工作台关系图：虚构的 SQLite 订单演示](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-zh-CN-light.png)
 
 0.2.5 正式界面的实际截图，使用仓库中的
 [虚构 SQLite 订单示例](https://github.com/sunbos/sqlseed/tree/main/examples/order_workflow)。
-[查看深色主题下的只读样例预览](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-zh-CN-dark.jpg)。
+[查看原尺寸高清 PNG](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-zh-CN-light.png)，
+或[查看深色主题下的只读样例预览](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-zh-CN-dark.png)。
 预览样例仅供检查，不会插入数据库。
 
 0.2.5 版本可从顶栏切换简体中文与 English；切换界面语言保留正在编辑的内容，
