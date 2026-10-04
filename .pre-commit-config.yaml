@@ -17,7 +17,12 @@ repos:
       - id: check-merge-conflict
       - id: check-added-large-files
         # These two bundled fonts have reviewed origins and recorded SHA-256 hashes.
-        exclude: ^plugins/sqlseed-web/src/sqlseed_web/static/fonts/chill-round-gothic/ChillRoundGothic-(Regular|Medium)\.woff2$
+        # Lossless workbench captures have a separate, bounded size check below.
+        exclude: ^(?:plugins/sqlseed-web/src/sqlseed_web/static/fonts/chill-round-gothic/ChillRoundGothic-(Regular|Medium)\.woff2|docs/assets/screenshots/web-workbench-(?:en|zh-CN)-(?:light|dark)\.png)$
+      - id: check-added-large-files
+        name: Check lossless workbench screenshot sizes
+        files: ^docs/assets/screenshots/web-workbench-(?:en|zh-CN)-(?:light|dark)\.png$
+        args: [--maxkb=1536, --enforce-all]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.7

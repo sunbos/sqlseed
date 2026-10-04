@@ -8,10 +8,11 @@ generation results. The Python core runs offline; AI suggestions are optional.
 
 ## A look at the workbench
 
-![sqlseed Web in English: selected tables, generation workflow, and a four-table relationship graph in the light theme](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-en-light.jpg)
+![sqlseed Web in English: selected tables and a four-table relationship graph in the light theme](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-en-light.png)
 
 The actual 0.2.5 interface with the repository's fictional SQLite order example.
-See also the [read-only sample preview in the dark theme](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-en-dark.jpg).
+[Open the full-size PNG](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-en-light.png)
+or [see the read-only sample preview in the dark theme](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-en-dark.png).
 
 Connect an existing database, select tables and row counts, review field rules and
 dependencies, preview samples, then confirm the generation plan.

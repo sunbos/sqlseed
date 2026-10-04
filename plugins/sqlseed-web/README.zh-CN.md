@@ -6,9 +6,11 @@
 
 ## 工作台概览
 
-![sqlseed Web 简体中文浅色界面：左侧选表、上方生成流程和四表关系图](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-zh-CN-light.jpg)
+![sqlseed Web 简体中文浅色界面：左侧选表和四表关系图](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-zh-CN-light.png)
 
-0.2.5 正式界面的实际截图，使用仓库中的虚构 SQLite 订单示例。另见[深色主题下的只读样例预览](https://raw.githubusercontent.com/sunbos/sqlseed/bf91fd26c9923eda226f9473fb1efd8725a1c147/docs/assets/screenshots/web-workbench-zh-CN-dark.jpg)。
+0.2.5 正式界面的实际截图，使用仓库中的虚构 SQLite 订单示例。
+[查看原尺寸高清 PNG](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-zh-CN-light.png)，
+或[查看深色主题下的只读样例预览](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-zh-CN-dark.png)。
 
 连接已有数据库 → 选择表和生成数量 → 核对字段规则与依赖 → 预览样例 → 确认生成计划。
 

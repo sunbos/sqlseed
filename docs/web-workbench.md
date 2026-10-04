@@ -8,9 +8,9 @@ Web 工作台通过真实数据库结构建立生成配置。不安装 AI 插件
 
 0.2.5 工作台使用一套清透玻璃设计，提供浅色与深色模式；导航、操作区域、连接弹窗与规则抽屉共享材质层级，表格保留稳定的阅读底色。中英文 UI 均使用随包分发的寒蝉圆黑 400/500，代码与字段标识保留等宽字体，无需外部字体服务或系统安装。浏览器不支持背景模糊或系统要求减少透明度时提供实色回退。材质仅作用于网页内部，不依赖操作系统窗口特效。
 
-![sqlseed-web 0.2.5 中文工作台，浅色外观](assets/screenshots/web-workbench-zh-CN-light.jpg)
+![sqlseed-web 0.2.5 中文工作台，浅色外观](assets/screenshots/web-workbench-zh-CN-light.png)
 
-正式发布的 0.2.5 工作台截图；另可查看[中文深色外观](assets/screenshots/web-workbench-zh-CN-dark.jpg)。界面语言与生成数据的语言地区分别设置。
+0.2.5 正式界面的实际截图。[查看原尺寸高清 PNG](assets/screenshots/web-workbench-zh-CN-light.png)，或[查看深色主题下的只读样例预览](assets/screenshots/web-workbench-zh-CN-dark.png)。界面语言与生成数据的语言地区分别设置。
 
 在 Python 3.10+ 虚拟环境中安装并启动 0.2.5：
 
