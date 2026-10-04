@@ -84,6 +84,7 @@ def _find_doc_files() -> list[Path]:
         ROOT / "docs" / "architecture.md",
         ROOT / "docs" / "architecture.zh-CN.md",
         ROOT / "docs" / "guide.md",
+        ROOT / "docs" / "guide.zh-CN.md",
         ROOT / "plugins" / "sqlseed-ai" / "README.md",
         ROOT / "plugins" / "sqlseed-ai" / "README.zh-CN.md",
         ROOT / "plugins" / "mcp-server-sqlseed" / "README.md",
@@ -346,7 +347,6 @@ class TestBilingualSync:
         [
             ("README.md", "README.zh-CN.md"),
             ("CHANGELOG.md", "CHANGELOG.zh-CN.md"),
-            ("docs/architecture.md", "docs/architecture.zh-CN.md"),
             ("plugins/sqlseed-ai/README.md", "plugins/sqlseed-ai/README.zh-CN.md"),
             ("plugins/mcp-server-sqlseed/README.md", "plugins/mcp-server-sqlseed/README.zh-CN.md"),
         ],

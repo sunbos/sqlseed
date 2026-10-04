@@ -1,7 +1,5 @@
 # Upgrading to the five-package workbench
 
-[中文](migration.zh-CN.md)
-
 The five-package layout was introduced in 0.2.4, replacing the older combined Core/CLI/MCP installation. This guide targets 0.2.5; use matching versions when upgrading from 0.2.3 or 0.2.4. The [installation guide](guide.md#installation) covers version 0.2.5 and source checkouts. Check [Releases](https://github.com/sunbos/sqlseed/releases) for publication status; use source installation for an unpublished candidate.
 
 ## Install a compatible set

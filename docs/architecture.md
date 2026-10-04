@@ -1,7 +1,5 @@
 # sqlseed Architecture
 
-**[English](architecture.md)** | [中文](architecture.zh-CN.md)
-
 > This document uses Mermaid diagrams to visualize sqlseed's overall architecture and internal module structures.
 
 ---

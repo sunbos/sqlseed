@@ -1,7 +1,5 @@
 # sqlseed 架构图
 
-[English](architecture.md) | **[中文](architecture.zh-CN.md)**
-
 > 本文档使用 Mermaid 图表可视化 sqlseed 的整体架构和各模块内部结构。
 
 ***

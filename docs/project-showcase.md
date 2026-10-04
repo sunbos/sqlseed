@@ -1,74 +1,90 @@
-# sqlseed 项目展示与技术讲解
+<a id="sqlseed"></a>
 
-## 一句话介绍
+# Project walkthrough and technical presentation
 
-sqlseed 是面向 Python 开发与 CI 的声明式数据库测试数据工具：根据数据库结构和规则生成有关联的数据，提供可选 AI 建议，并保留离线执行与可重复实验能力。
+<a id="_1"></a>
 
-展示范围以 [支持与维护约定](maintainable-release.md)为准。项目不是通用数据脱敏平台，也不声称所有数据库约束或任意业务聚合都已经自动支持。
+## A one-sentence introduction
 
-## 从订单案例开始
+sqlseed is a declarative database test-data tool for Python development and CI. It generates related data from database structures and rules, offers optional AI suggestions, and preserves offline execution and reproducible experiments.
 
-先按[安装指南](guide.md#installation)安装本地 Core 并激活所选 Python 环境。在仓库根执行，目标目录必须尚不存在：
+The [scope and maintenance commitments](maintainable-release.md) define what to demonstrate. The project is not a general data-masking platform and does not claim automatic support for every database constraint or arbitrary business aggregate.
+
+<a id="_2"></a>
+
+## Start with the order example
+
+First follow the [installation guide](guide.md#installation) to install local Core and activate your chosen Python environment. Run the following from the repository root; the output directory must not already exist:
 
 ```bash
 python examples/order_workflow/run.py --output-dir /tmp/sqlseed-order-showcase
 ```
 
-详细产物和再次运行方式见[订单案例说明](https://github.com/sunbos/sqlseed/blob/main/examples/order_workflow/README.md)。演示应打开实际生成的报告、规则文件和数据库，而不是只播放成功截图。
+See the [order example README](https://github.com/sunbos/sqlseed/blob/main/examples/order_workflow/README.md) for detailed outputs and how to run it again. Open the actual generated report, rule files and database during the demonstration, rather than showing only successful screenshots.
 
-建议按以下顺序讲解：
+A suggested presentation order:
 
-1. **问题**：用户、商品、订单和明细有依赖；每列看起来合理的数据仍可能违反外键或金额约束。
-2. **规则**：展示 YAML 中的固定 seed、日期边界、父键引用、字段生成与派生关系，说明哪些由数据库处理。
-3. **失败**：展示坏规则的实际错误，以及失败后数据库的实际记录数量。
-4. **修正**：展示修改后的规则与真实写入结果，不靠关闭 CHECK/FK 或篡改数据库结构通过验证。
-5. **重放**：使用相同规则在新的数据库中生成，比较逻辑数据；解释 provider 版本和初始数据也是复现条件。
-6. **边界**：订单金额合计可以查询得到，不把查询统计描述成已实现通用跨表聚合生成。
+1. **Problem:** users, products, orders and line items have dependencies. Values that look reasonable in isolation can still violate foreign-key or amount constraints.
+2. **Rules:** show the fixed seed, date boundaries, parent-key references, field generation and derived relationships in YAML. Explain which values the database handles.
+3. **Failure:** show the actual error from a bad rule and the actual number of records in the database afterward.
+4. **Correction:** show the revised rules and real write results. Do not disable CHECK/FK constraints or alter the database structure to make validation pass.
+5. **Replay:** generate into a new database with the same rules and compare logical data. Explain that provider versions and initial data are also reproduction conditions.
+6. **Boundary:** queries can calculate order totals. Do not present those query results as an implemented general capability to generate cross-table aggregates.
 
-该命令演示离线执行，不调用真实 LLM。AI 是可选的规则建议来源；展示 AI 时应另行记录真实分析结果、校验结果和确认后的 YAML。固定模型响应的回归不能代替模型质量实测。
+This command demonstrates offline execution and does not call a real LLM. AI is an optional source of rule suggestions. When demonstrating AI, separately record the real analysis results, validation results and confirmed YAML. Regressions using fixed model responses do not replace real model-quality testing.
 
-## 可讲清楚的架构决策
+<a id="_3"></a>
 
-| 决策 | 要解决的问题 | 代价与边界 |
+## Architecture decisions to explain
+
+| Decision | Problem it addresses | Cost and boundary |
 | --- | --- | --- |
-| 离线 Python core 与入口插件分离 | 模型或 UI 改动不要求重写数据执行算法 | 需要防止插件读取私有引擎或借用 CLI 运行时 |
-| 声明式规则 | 将测试数据需求纳入版本管理并重放 | 不自动覆盖所有业务状态机和跨表汇总 |
-| 确定性处理与 AI 建议结合 | 让明确约束由代码检查，语义需求可由模型补充 | 模型输出需要校验，失败恢复要有范围和预算 |
-| 分批写入 | 限制每批缓冲并报告进度 | 不等于整个生成流程恒定内存，也不默认保证多表原子性 |
-| 明确拒绝不支持的关系 | 在副作用前给出可解释边界 | 支持面暂时更窄，但承诺可以验证 |
+| Separate offline Python Core from entry-point plugins | Model or UI changes do not require rewriting data execution algorithms | Plugins must not reach into private engine internals or borrow CLI runtime code |
+| Declarative rules | Keep test-data requirements under version control and replay them | Does not automatically cover every business state machine or cross-table aggregate |
+| Combine deterministic processing with AI suggestions | Code checks explicit constraints; a model can supplement semantic requirements | Model output needs validation, and failure recovery needs a defined scope and budget |
+| Batch writes | Bound per-batch buffering and report progress | Does not imply constant memory for the complete generation workflow or default multi-table atomicity |
+| Explicitly reject unsupported relationships | Explain support boundaries before side effects | The supported scope is narrower, but its commitments can be verified |
 
-## 一个源码故障案例
+<a id="_4"></a>
 
-SQLite 两列复合外键的父键第一列不一定唯一。若先抽第一列，再按它查找另一列，会丢失合法父键组合。已有修复使用完整元组抽样，并通过真实数据库约束检查结果。
+## A source-level failure example
 
-可展示 `tests/test_core/test_composite_fk_pair_pool.py`：说明输入结构、旧算法失败条件、修复后的实际引用组合。进一步说明本版为何拒绝尚未协调的三列以上关系，而不是独立抽三列后侥幸写入。
+The first column of a SQLite two-column composite parent key is not necessarily unique. Sampling that column first and then looking up the second column can lose valid parent-key combinations. The existing fix samples complete tuples and verifies the results with real database constraints.
 
-另一个可展示案例是第二批插入失败：`tests/test_core/test_generation_partial.py` 通过真实 SQLite trigger 拒绝后续批次，检查错误结果仍报告第一批已提交的数量。这能解释数据库事务与应用结果之间的关系。
+Use `tests/test_core/test_composite_fk_pair_pool.py` to explain the input structure, the old algorithm's failure conditions and the actual reference combinations after the fix. Then explain why this version rejects uncoordinated relationships with three or more columns instead of sampling each column independently and hoping the insert succeeds.
 
-## 简历内容草稿
+Another useful example is failure in the second insertion batch. `tests/test_core/test_generation_partial.py` uses a real SQLite trigger to reject later batches and checks that the error result still reports the first batch's committed count. This illustrates the relationship between database transactions and application results.
 
-根据本人实际负责的设计、实现和验证范围使用以下内容；AI 辅助部分应能够说明如何审查和验证，不填写未经实测的吞吐量、节省比例、用户量或模型成功率。
+<a id="_5"></a>
 
-**偏 Python 后端／测试开发：**
+## Draft résumé descriptions
 
-> 开发声明式数据库测试数据工具，将 schema 推断、外键依赖与批量生成封装为离线 Python 核心；提供 CLI、Web 与 MCP 入口，通过真实 SQLite 回归验证关系约束、部分提交结果及固定条件下的数据重放。
+Use the following wording according to the design, implementation and verification work you actually performed. Be ready to explain how AI-assisted work was reviewed and verified. Do not add unmeasured throughput, savings, user counts or model success rates.
 
-**偏 AI 应用工程：**
+**For Python backend or test engineering:**
 
-> 在数据库测试数据工具中实现可选 AI 规则建议与校验流程，隔离模型调用和离线执行边界；整理非交互运行时服务，减少 Web 对 CLI 私有实现的依赖，并使用确定性回归验证候选处理与失败路径。
+> Developed a declarative database test-data tool with an offline Python core for schema inference, foreign-key dependencies and batch generation. Provided CLI, Web and MCP entry points, and used real SQLite regressions to verify relational constraints, partial-commit results and data replay under fixed conditions.
 
-后续有真实模型或性能实验时，再补充可追溯数据：测试集范围、模型与版本、运行条件、成功判据、耗时和调用成本。不能把通过的单元测试数量换算成模型成功率。
+**For AI application engineering:**
 
-## 讲解准备
+> Implemented optional AI rule suggestions and validation in a database test-data tool, separating model calls from offline execution. Consolidated non-interactive runtime services to reduce Web dependencies on private CLI implementations, and used deterministic regressions to verify candidate processing and failure paths.
 
-能够自己说明：为什么选择插件而没有拆微服务；为什么 core 不依赖模型 SDK；什么时候数据库负责 ID/default；FK 合法与业务合理有什么区别；失败后哪些批次已提交；seed 为什么不是全部复现条件；不支持的功能为何暂缓。
+When real model or performance experiments become available, add traceable measurements: dataset scope, model and version, run conditions, success criteria, duration and call cost. A passing unit-test count cannot be converted into a model success rate.
 
-展示一个范围清楚、结果可检查的版本即可开始获取反馈。项目后续完善与求职准备可以并行。
+<a id="_6"></a>
 
-## 当前展示版本的取舍
+## Preparing the explanation
 
-优先整理 GitHub 展示版本，冻结新增功能。四表订单案例、真实数据库约束、离线重放、可选 AI 与 Web 组件管理已经提供足够的技术讲解内容。继续增加数据库、模型或 UI 功能，会增加验收范围；先让其他开发者能安装、复现、看懂失败和修复，再依据反馈迭代。
+Be able to explain: why plugins were chosen instead of microservices; why Core does not depend on model SDKs; when the database supplies IDs or defaults; how FK validity differs from business validity; which batches have committed after a failure; why a seed is not the only reproduction condition; and why unsupported features have been deferred.
 
-本轮还可以讲解两个有实际证据的工程问题：PostgreSQL 大批量优化曾关闭 trigger/FK，修复后用 10001 行、触发器与孤儿记录检查验证完整性；Web 组件维护通过进程切换避免修改正在执行的包，并在异常、卸载和恢复时保留明确的功能状态。讲解时区分“同源与本机保护”和“多用户认证”，当前 Web 面向可信本机用户。
+A version with a clear scope and inspectable results is enough to start gathering feedback. Project improvements and job-search preparation can proceed in parallel.
 
-建议简历保留 2–3 条自己能够从源码解释的内容。提交数、测试数和代码量是过程证据，不能代替问题难度、设计理由和真实结果；固定响应测试也不能换算成模型成功率。跨平台 CI、公开版本和真实模型实验应分别给出可访问的证据，再写入相应声明。
+<a id="_7"></a>
+
+## Trade-offs in the current showcase version
+
+Prioritize preparing the GitHub showcase and freeze new features. The four-table order example, real database constraints, offline replay, optional AI and Web component management already provide enough material for a technical walkthrough. Adding databases, models or UI features increases the acceptance scope. First make sure other developers can install the project, reproduce results, and understand failures and fixes; then iterate from feedback.
+
+Two further engineering issues have concrete evidence worth discussing. A PostgreSQL bulk optimization previously disabled triggers/FK checks; after the fix, a 10,001-row case, triggers and orphan-record checks verify integrity. Web component maintenance uses process replacement to avoid modifying packages that are executing, and preserves explicit capability status during exceptions, uninstall and recovery. Distinguish same-origin and local-machine protections from multi-user authentication when explaining this work: the current Web app targets trusted local users.
+
+Keep two or three résumé points that you can explain from the source. Commit counts, test counts and lines of code are process evidence, not substitutes for problem difficulty, design reasoning or real results. Fixed-response tests cannot establish model success rates. Provide accessible evidence for cross-platform CI, public releases and real model experiments separately before making those claims.

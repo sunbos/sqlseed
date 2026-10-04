@@ -3,7 +3,7 @@
 [English](https://github.com/sunbos/sqlseed/blob/main/plugins/mcp-server-sqlseed/README.md) |
 **[中文](https://github.com/sunbos/sqlseed/blob/main/plugins/mcp-server-sqlseed/README.zh-CN.md)**
 
-为 [sqlseed](https://sunbos.github.io/sqlseed/) 提供
+为 [sqlseed](https://sunbos.github.io/sqlseed/zh-CN/) 提供
 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 工具：从数据库结构推导
 YAML 配置，再生成测试数据。两个工具均使用离线 Core 规则，无需 LLM。
 
@@ -97,8 +97,8 @@ AI YAML 工具名为 `sqlseed_ai_generate_yaml`，命令入口为 `mcp-server-sq
 - `sqlseed>=0.2.5.dev0,<0.3`
 - `mcp>=1.0,<2`
 
-更多信息见[用户指南](https://sunbos.github.io/sqlseed/guide/)、
-[升级说明](https://sunbos.github.io/sqlseed/migration.zh-CN/)和
+更多信息见[用户指南](https://sunbos.github.io/sqlseed/zh-CN/guide/)、
+[升级说明](https://sunbos.github.io/sqlseed/zh-CN/migration/)和
 [服务器源码](https://github.com/sunbos/sqlseed/tree/main/plugins/mcp-server-sqlseed)。
 
 许可证：[AGPL-3.0-or-later](https://github.com/sunbos/sqlseed/blob/main/LICENSE)。

@@ -34,4 +34,7 @@ make docs-build
 - 不手改 `AUTO-GENERATED` 区域；数量与名称由 `scripts/_fact_extractors.py` 从源码提取。普通说明、例子和未使用标记的表格仍需人工核对。
 - 发布范围由根 `mkdocs.yml` 的 nav/exclude_docs 决定。评审记录、设计稿、原型及本 AGENTS 不作为用户站点页面；保留已发布页面的 strict 校验，不通过全局忽略 warning 掩盖断链。
 - 新增正式页面时补 nav 和相关入口；移动内容时检查相对路径、标题锚点及双语链接。构建输出不提交。
+- 正式页面必须成对维护：无后缀 `.md` 为英文，`.zh-CN.md` 为简体中文；站点根路径为英文，`/zh-CN/` 为中文。`mkdocs-static-i18n` 按后缀选择正文，导航与主题标签按语言切换。插件回退仅用于共有资产；构建 hook 会拒绝导航中缺少译本的页面。
+- 站内链接优先使用通用文件名，如 `guide.md#installation`，由插件选择当前语言；翻译标题保留被引用的稳定锚点。对照术语、代码标识和示例数据可以保留原文，普通说明不能跨语言混排。
+- `scripts/docs_hooks.py` 将搜索索引分为当前语言结果，并保留已发布的 `architecture.zh-CN/`、`migration.zh-CN/`、`gemma4-integration.zh-CN/` 入口。更改语言路径、主题模板或搜索插件时，运行 `pytest tests/test_docs_site.py` 并在浏览器验证搜索、同主题语言切换和旧链接。
 - 文档构建通过不证明命令或代码示例可用；变更入门例子时实际运行，发行功能声明以相应安装环境的验收结果为依据。
