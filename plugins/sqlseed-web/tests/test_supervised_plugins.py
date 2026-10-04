@@ -271,6 +271,7 @@ def test_initial_business_boot_does_not_admit_a_package_plan(managed: Any, monke
 def test_unconfirmed_worker_exit_keeps_ownership_and_blocks_new_package_operation(
     managed: Any, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Keep an unconfirmed worker owned and reject package changes until it exits."""
     from sqlseed_web import supervisor as module
 
     manager = managed[0]
@@ -282,10 +283,11 @@ def test_unconfirmed_worker_exit_keeps_ownership_and_blocks_new_package_operatio
         exitcode = None
 
         def is_alive(self) -> bool:
+            """Model a draining process whose exit has not yet been confirmed."""
             return True
 
         def join(self, timeout: float) -> None:
-            pass
+            """Leave the process alive to exercise the supervisor's shutdown timeout."""
 
     process = DrainingProcess()
     channel = object()
@@ -300,5 +302,6 @@ def test_unconfirmed_worker_exit_keeps_ownership_and_blocks_new_package_operatio
     assert supervisor._shutdown_requested is True
     assert manager.status()["phase"] == "recovery_failed"
     assert manager.status()["recovery_error"]["code"] == "worker_shutdown_timeout"
+    request = module.PlanRequest(component_id="mimesis", action="install")
     with pytest.raises(HTTPException):
-        manager.plan(module.PlanRequest(component_id="mimesis", action="install"))
+        manager.plan(request)

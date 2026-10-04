@@ -147,6 +147,8 @@ sqlseed-web
 
 打开 **[http://127.0.0.1:8630](http://127.0.0.1:8630)**，连接已有的 SQLite 或 PostgreSQL
 数据库，例如上面创建的 `demo.db`。
+使用 PostgreSQL 时，请在启动工作台前，在同一个 Python 环境中安装驱动：
+`python -m pip install 'sqlseed[postgres]'`。
 `sqlseed-web` 命令随安装包提供，不需要自定义启动脚本，也不需要仓库源码。
 
 勾选要生成的表，设置行数并编辑字段规则；通过关系图查看外键并检查依赖。

@@ -10,6 +10,7 @@ import pytest
 
 from sqlseed._utils.sql_safe import quote_identifier
 from sqlseed.config.models import TableConfig
+from sqlseed.core.orchestrator import DataOrchestrator
 from tests.sqlite_helpers import sqlite_connection
 
 try:
@@ -106,6 +107,7 @@ def test_existing_empty_table_keeps_sqlite_identifier_resolution(
 
 @pytest.mark.parametrize("streaming", [False, True])
 def test_existing_target_valid_cache_still_avoids_http(tmp_path: Path, streaming: bool) -> None:
+    """Reuse a matching target cache without an HTTP request or database mutation."""
     database = tmp_path / "cached.db"
     with sqlite_connection(database) as db:
         db.execute("CREATE TABLE events(value INTEGER)")
@@ -114,7 +116,9 @@ def test_existing_target_valid_cache_still_avoids_http(tmp_path: Path, streaming
     requests: list[dict[str, object]] = []
     with _completion_server([('{"wrong": "shape"}', "stop")], requests) as base_url:
         refiner = _refiner(database, base_url)
-        refiner._cache_successful_config("events", config, hashlib.sha256(b"value").hexdigest()[:16])
+        with DataOrchestrator(str(database)) as orch:
+            schema_hash = refiner._compute_schema_hash(orch, "events")
+        refiner._cache_successful_config("events", config, schema_hash)
         cache_file = refiner._cache_path("events")
         cache_before = cache_file.read_bytes()
         generate = refiner.generate_and_refine_streaming if streaming else refiner.generate_and_refine
@@ -123,6 +127,78 @@ def test_existing_target_valid_cache_still_avoids_http(tmp_path: Path, streaming
     assert result == config
     assert not requests
     assert cache_file.read_bytes() == cache_before
+    assert database.read_bytes() == before
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+def test_column_set_changes_invalidate_cache_without_confusing_delimiters(tmp_path: Path, streaming: bool) -> None:
+    """A renamed column set needs fresh rules, while column order alone keeps the cache."""
+    database = tmp_path / "column-boundaries.db"
+    column_sets = [("a|b", "c"), ("a", "b|c"), ("b|c", "a")]
+    configs = [
+        {
+            "name": "events",
+            "columns": [
+                {"name": name, "generator": "integer", "params": {"min_value": 7, "max_value": 7}} for name in names
+            ],
+        }
+        for names in column_sets[:2]
+    ]
+    requests: list[dict[str, object]] = []
+    hashes: list[str] = []
+    with _completion_server([(json.dumps(config), "stop") for config in configs], requests) as base_url:
+        refiner = _refiner(database, base_url)
+        generate = refiner.generate_and_refine_streaming if streaming else refiner.generate_and_refine
+        for index, names in enumerate(column_sets):
+            with sqlite_connection(database) as db:
+                db.execute("DROP TABLE IF EXISTS events")
+                columns = ", ".join(
+                    f"{quote_identifier(name)} INTEGER NOT NULL CHECK({quote_identifier(name)}=7)" for name in names
+                )
+                db.execute(f"CREATE TABLE events({columns})")
+            before = database.read_bytes()
+            result = generate("events", max_retries=0)
+            assert result == configs[min(index, 1)]
+            assert len(requests) == min(index + 1, 2)
+            entry = json.loads(refiner._cache_path("events").read_text(encoding="utf-8"))
+            hashes.append(entry["_meta"]["schema_hash"])
+            assert database.read_bytes() == before
+
+    assert hashes[0] != hashes[1]
+    assert hashes[1] == hashes[2]
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("old_column_name", ["value", '["value"]'])
+def test_legacy_delimiter_hash_is_not_reused_for_new_cache_encoding(
+    tmp_path: Path, streaming: bool, old_column_name: str
+) -> None:
+    """Reject old hashes even when an old column name spells the new JSON payload."""
+    database = tmp_path / "legacy-hash.db"
+    with sqlite_connection(database) as db:
+        db.execute("CREATE TABLE events(value INTEGER NOT NULL CHECK(value=7))")
+    before = database.read_bytes()
+    correct = {
+        "name": "events",
+        "columns": [{"name": "value", "generator": "integer", "params": {"min_value": 7, "max_value": 7}}],
+    }
+    stale = {
+        "name": "events",
+        "columns": [{"name": old_column_name, "generator": "integer", "params": {"min_value": 99, "max_value": 99}}],
+    }
+    old_hash = hashlib.sha256(old_column_name.encode("utf-8")).hexdigest()[:16]
+    requests: list[dict[str, object]] = []
+    with _completion_server([(json.dumps(correct), "stop")], requests) as base_url:
+        refiner = _refiner(database, base_url)
+        refiner._cache_successful_config("events", stale, old_hash)
+        generate = refiner.generate_and_refine_streaming if streaming else refiner.generate_and_refine
+        result = generate("events", max_retries=0)
+
+    assert result == correct
+    assert len(requests) == 1
+    entry = json.loads(refiner._cache_path("events").read_text(encoding="utf-8"))
+    assert entry["_meta"]["schema_hash"] != old_hash
+    assert entry["config"] == correct
     assert database.read_bytes() == before
 
 
@@ -177,6 +253,7 @@ def test_other_target_exhausts_budget_without_caching_it(tmp_path: Path, streami
 
 @pytest.mark.parametrize("streaming", [False, True])
 def test_other_target_cache_is_ignored_and_replaced_only_by_valid_suggestion(tmp_path: Path, streaming: bool) -> None:
+    """Replace a mismatched target cache only after validating fresh rules for the requested table."""
     database = tmp_path / "targets.db"
     with sqlite_connection(database) as db:
         db.execute("CREATE TABLE events(value INTEGER)")
@@ -187,7 +264,9 @@ def test_other_target_cache_is_ignored_and_replaced_only_by_valid_suggestion(tmp
     requests: list[dict[str, object]] = []
     with _completion_server([(json.dumps(correct), "stop")], requests) as base_url:
         refiner = _refiner(database, base_url)
-        refiner._cache_successful_config("events", wrong, hashlib.sha256(b"value").hexdigest()[:16])
+        with DataOrchestrator(str(database)) as orch:
+            schema_hash = refiner._compute_schema_hash(orch, "events")
+        refiner._cache_successful_config("events", wrong, schema_hash)
         generate = refiner.generate_and_refine_streaming if streaming else refiner.generate_and_refine
         result = generate("events", max_retries=0)
 

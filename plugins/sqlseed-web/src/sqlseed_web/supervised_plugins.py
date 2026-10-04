@@ -30,6 +30,7 @@ class SupervisedPluginManager(PluginManager):
     """Keep task ownership in the parent while serving workers are replaced."""
 
     def __init__(self, controller: LifecycleController) -> None:
+        """Keep package task and service recovery state in the persistent supervisor."""
         super().__init__(enabled=True)
         self.controller = controller
         self.instance_id = secrets.token_hex(16)
@@ -48,6 +49,7 @@ class SupervisedPluginManager(PluginManager):
         return super()._reason()
 
     def status(self) -> dict[str, Any]:
+        """Return a locked snapshot of management availability and safe recovery diagnostics."""
         with self._lock:
             result = super().status()
             result.update(
@@ -76,6 +78,7 @@ class SupervisedPluginManager(PluginManager):
             return result
 
     def execute(self, body: ExecuteRequest) -> dict[str, Any]:
+        """Pause business admission before installation and resume immediately if dispatch fails."""
         with self._lock:
             if reason := self._reason():
                 raise _reject(reason)
@@ -96,6 +99,7 @@ class SupervisedPluginManager(PluginManager):
             return self.task_snapshot()
 
     def task_snapshot(self, task_id: str | None = None) -> dict[str, Any]:
+        """Keep tasks running until service recovery reaches a confirmed terminal state."""
         with self._lock:
             task = super().task_snapshot(task_id)
             task.update(
@@ -159,6 +163,7 @@ class SupervisedPluginManager(PluginManager):
                 )
 
     def _restore(self, *, retry_cleanup: bool = False) -> None:
+        """Restore service readiness after confirmed installer cleanup without rerunning installation."""
         if self._installer_cleanup is not None:
             try:
                 if not retry_cleanup:
@@ -192,6 +197,7 @@ class SupervisedPluginManager(PluginManager):
                 )
 
     def _record_recovery_error(self, error: Exception) -> None:
+        """Publish fixed lifecycle diagnostics, replacing all other exceptions with a safe message."""
         detail = (
             dict(error.detail)
             if isinstance(error, WorkerLifecycleError)

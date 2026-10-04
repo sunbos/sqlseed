@@ -191,11 +191,13 @@ class _EncodingAwareColumn:
     """Select a real Rich column using the output encoding at render time."""
 
     def __init__(self, unicode_column: Any, ascii_column: Any, *, console: Any) -> None:
+        """Retain both layouts so later stream redirection can change the chosen column."""
         self._unicode_column = unicode_column
         self._ascii_column = ascii_column
         self._console = console
 
     def _current_column(self) -> Any:
+        """Choose a column using the console's current encoding rather than its initial stream."""
         if _can_render_unicode(encoding=self._console.encoding):
             return self._unicode_column
         return self._ascii_column
@@ -218,6 +220,7 @@ class _EncodingAwareDescriptionColumn:
     """Escape unencodable display text without changing the original task."""
 
     def __init__(self, column: Any, *, console: Any) -> None:
+        """Wrap the display column while leaving task descriptions available in their original form."""
         self._column = column
         self._console = console
 

@@ -156,6 +156,8 @@ sqlseed-web
 
 Open **[http://127.0.0.1:8630](http://127.0.0.1:8630)** and connect to an existing
 SQLite or PostgreSQL database, such as the `demo.db` above.
+For PostgreSQL, install the driver in the same Python environment before starting
+the workbench: `python -m pip install 'sqlseed[postgres]'`.
 The `sqlseed-web` command is installed with the package; no custom startup script
 or source checkout is required.
 

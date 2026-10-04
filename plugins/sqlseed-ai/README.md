@@ -157,10 +157,12 @@ Strict tool calling also rejects arrays, scalars and `null` arguments as `invali
 compatibility mode may still fall back to response text. Parsed suggestions still
 require scope and rule validation.
 
-Single-table suggestion caches hash the set of column names. Adding, removing, or
-renaming columns changes that hash; changes to column types or constraints alone
-do not. Use `--no-cache` to analyze again without cached suggestions. This cache
-check is separate from AutoHeal's full schema fingerprint. Malformed cache metadata
+Single-table suggestion caches use a versioned hash of sorted column names, encoded
+as a JSON array so names containing delimiters remain distinct. The check detects
+added, removed, or renamed columns; column order, types, and constraints are not
+included. Caches using the older delimiter encoding are ignored and regenerated.
+Use `--no-cache` to analyze again without cached suggestions. This cache check is
+separate from AutoHeal's full schema fingerprint. Malformed cache metadata
 or configuration containers are treated as cache misses. Review model output before
 writing data.
 

@@ -29,6 +29,7 @@ class Supervisor:
     """One supervised app owns its environment, children, and listening socket."""
 
     def __init__(self, *, host: str = "127.0.0.1", port: int = 8630) -> None:
+        """Initialize lifecycle ownership without opening a listener or starting workers."""
         self.host, self.port = host, port
         self.manager = SupervisedPluginManager(self)
         self.listener: socket.socket | None = None
@@ -74,6 +75,7 @@ class Supervisor:
             raise HTTPException(exc.status_code, detail=exc.detail) from exc
 
     def _handle(self, method: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Validate worker lifecycle reports and dispatch private management requests."""
         if method in {"worker_starting", "worker_failed"}:
             phase = params.get("phase")
             if params.get("mode") != self.mode or phase not in {"session", "application", "http"}:
@@ -100,6 +102,7 @@ class Supervisor:
         raise ValueError("unsupported supervisor method")
 
     def _spawn(self, mode: str) -> dict[str, Any]:
+        """Start an unowned worker and confirm business admission before returning restoration results."""
         if self.listener is None:
             raise RuntimeError(tr("backend.supervisor.the_service_listening_port_is_unavailable"))
         if self.process is not None:
@@ -141,26 +144,7 @@ class Supervisor:
         finally:
             child.close()
         channel.start(self._handle)
-        deadline = time.monotonic() + WORKER_START_TIMEOUT
-        while not self._ready.wait(0.05):
-            if self._startup_failed or not process.is_alive() or time.monotonic() >= deadline:
-                code = (
-                    "worker_startup_failed"
-                    if self._startup_failed
-                    else "worker_startup_timeout"
-                    if process.is_alive()
-                    else "worker_exited_before_ready"
-                )
-                error = self._failure(code, started)
-                # No public API was admitted before readiness. A failed boot
-                # can be stopped without interrupting a generation transaction.
-                if process.is_alive():
-                    process.kill()
-                process.join(timeout=3)
-                channel.close()
-                if not process.is_alive():
-                    self.channel, self.process, self.mode = None, None, None
-                raise error
+        self._wait_for_worker_ready(process, channel, started)
         if mode == "business":
             self._startup_phase = "resume"
             try:
@@ -172,7 +156,31 @@ class Supervisor:
             self._business_ready = True
         return dict(self._restoration)
 
+    def _wait_for_worker_ready(self, process: SpawnProcess, channel: ControlChannel, started: float) -> None:
+        """Bound pre-admission startup and retain ownership until failed workers have exited."""
+        deadline = time.monotonic() + WORKER_START_TIMEOUT
+        while not self._ready.wait(0.05):
+            if not self._startup_failed and process.is_alive() and time.monotonic() < deadline:
+                continue
+            if self._startup_failed:
+                code = "worker_startup_failed"
+            elif process.is_alive():
+                code = "worker_startup_timeout"
+            else:
+                code = "worker_exited_before_ready"
+            error = self._failure(code, started)
+            # No public API was admitted before readiness. A failed boot
+            # can be stopped without interrupting a generation transaction.
+            if process.is_alive():
+                process.kill()
+            process.join(timeout=3)
+            channel.close()
+            if not process.is_alive():
+                self.channel, self.process, self.mode = None, None, None
+            raise error
+
     def _failure(self, code: str, started: float, *, phase: str | None = None) -> WorkerLifecycleError:
+        """Record credential-free lifecycle facts for the task result and diagnostic log."""
         error = WorkerLifecycleError(
             code,
             mode=self.mode or "business",
@@ -186,6 +194,7 @@ class Supervisor:
         return error
 
     def _stop_worker(self) -> None:
+        """Request a natural drain, keeping process ownership when shutdown is not yet confirmed."""
         if (process := self.process) is None:
             return
         started = time.monotonic()
@@ -230,6 +239,7 @@ class Supervisor:
             self._spawn("maintenance")
 
     def restore_business(self) -> dict[str, Any]:
+        """Resume or replace the business worker, restoring maintenance only after a safe shutdown."""
         with self._lifecycle_lock:
             if (
                 self.mode == "business"

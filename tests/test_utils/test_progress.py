@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import io
 import sys
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
@@ -22,7 +24,31 @@ from sqlseed._utils.progress import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Generator
+    from collections.abc import Callable, Generator
+
+
+@contextmanager
+def _redirectable_output(
+    encoding: str,
+) -> Generator[tuple[io.TextIOWrapper, io.TextIOWrapper, pytest.MonkeyPatch], None, None]:
+    """Restore stdout before closing either strict stream, including on failure."""
+    with (
+        io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as utf8,
+        io.TextIOWrapper(io.BytesIO(), encoding=encoding, write_through=True) as limited,
+        pytest.MonkeyPatch.context() as patcher,
+    ):
+        patcher.setattr(sys, "stdout", utf8)
+        yield utf8, limited, patcher
+
+
+def _fail_generation(
+    backend: RichProgressBackend, error: ValueError, before_failure: Callable[[RichProgressBackend], None]
+) -> None:
+    """Exercise the backend's exception cleanup with a known business error."""
+    with backend:
+        before_failure(backend)
+        raise error
+
 
 # ---------------------------------------------------------------------------
 # _detect_environment
@@ -135,6 +161,36 @@ class TestRichProgressBackend:
     def test_default_is_unicode_mode(self) -> None:
         backend = RichProgressBackend()
         assert isinstance(backend, RichProgressBackend)
+
+    def test_missing_console_factory_reports_optional_dependency(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Report the optional Rich dependency when its console entry point is unavailable."""
+        monkeypatch.setattr(progress_mod, "_GET_CONSOLE", None)
+        with pytest.raises(RuntimeError, match="rich is not installed"):
+            RichProgressBackend()
+
+    def test_module_remains_usable_when_rich_cannot_be_imported(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Keep task lifecycle operations usable after the optional Rich import fails."""
+        original_import = progress_mod.importlib.import_module
+
+        def without_rich(name: str, package: str | None = None) -> object:
+            """Emulate the missing optional package at the import boundary only."""
+            if name == "rich" or name.startswith("rich."):
+                raise ImportError("optional rich package is absent")
+            return original_import(name, package)
+
+        monkeypatch.setattr(progress_mod.importlib, "import_module", without_rich)
+        spec = importlib.util.spec_from_file_location("progress_without_rich", progress_mod.__file__)
+        assert spec is not None
+        assert spec.loader is not None
+        isolated = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(isolated)
+        with isolated.create_progress() as backend:
+            assert isinstance(backend, isolated.NullProgressBackend)
+            task = backend.add_task("Generate without Rich", total=2)
+            backend.update(task, advance=2)
+            backend.remove_task(task)
+        with pytest.raises(RuntimeError, match="rich is not installed"):
+            isolated.RichProgressBackend()
 
 
 # ---------------------------------------------------------------------------
@@ -337,6 +393,7 @@ class TestCanRenderUnicode:
             assert _can_render_unicode() is False
 
     def test_follows_reconfigured_encoding(self) -> None:
+        """Reevaluate support after the same stdout object changes its encoding."""
         with (
             io.TextIOWrapper(io.BytesIO(), encoding="utf-8") as stdout,
             patch.object(sys, "stdout", stdout),
@@ -388,6 +445,7 @@ class TestRichOutputEncodingChanges:
 
     @pytest.fixture(autouse=True)
     def _terminal_console(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Isolate a real terminal console that follows redirected stdout."""
         rich = pytest.importorskip("rich")
         console_module = pytest.importorskip("rich.console")
         monkeypatch.setenv("TERM", "xterm")
@@ -400,16 +458,13 @@ class TestRichOutputEncodingChanges:
 
     @pytest.mark.parametrize("encoding", ["gbk", "big5", "cp936", "ascii"])
     def test_new_progress_after_stdout_redirect(self, encoding: str) -> None:
-        with (
-            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as utf8,
-            io.TextIOWrapper(io.BytesIO(), encoding=encoding, write_through=True) as limited,
-            patch.object(sys, "stdout", utf8),
-        ):
+        """Create a fresh progress display safely after switching from UTF-8 to a strict stream."""
+        with _redirectable_output(encoding) as (utf8, limited, patcher):
             with create_progress() as backend:
                 backend.add_task("Before redirect", total=2)
             assert any("\u2800" <= char <= "\u28ff" for char in utf8.buffer.getvalue().decode("utf-8"))
 
-            sys.stdout = limited
+            patcher.setattr(sys, "stdout", limited)
             with create_progress() as backend:
                 task = backend.add_task("After redirect", total=2)
                 backend.update(task, advance=1)
@@ -420,16 +475,13 @@ class TestRichOutputEncodingChanges:
 
     @pytest.mark.parametrize("encoding", ["gbk", "big5", "ascii"])
     def test_existing_progress_follows_output_encoding(self, encoding: str) -> None:
-        with (
-            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as utf8,
-            io.TextIOWrapper(io.BytesIO(), encoding=encoding, write_through=True) as limited,
-            patch.object(sys, "stdout", utf8),
-        ):
+        """Retain task counts while an active display switches between strict and Unicode streams."""
+        with _redirectable_output(encoding) as (utf8, limited, patcher):
             backend = create_progress()
             assert isinstance(backend, RichProgressBackend)
             backend._progress.live.auto_refresh = False
             # The object is created under UTF-8 but entered after redirection.
-            sys.stdout = limited
+            patcher.setattr(sys, "stdout", limited)
             with backend:
                 task = backend.add_task("Changing encoding", total=4)
                 backend.update(task, advance=1)
@@ -438,26 +490,23 @@ class TestRichOutputEncodingChanges:
                 assert "1/4" in limited_output
                 assert limited_output.isascii()
 
-                sys.stdout = utf8
+                patcher.setattr(sys, "stdout", utf8)
                 backend.update(task, advance=1)
                 backend._progress.refresh()
                 utf8_output = utf8.buffer.getvalue().decode("utf-8")
                 assert "2/4" in utf8_output
                 assert any("\u2800" <= char <= "\u28ff" for char in utf8_output)
 
-                sys.stdout = limited
+                patcher.setattr(sys, "stdout", limited)
                 backend.update(task, advance=1)
                 backend._progress.refresh()
             assert "3/4" in limited.buffer.getvalue().decode(encoding)
 
     def test_reconfigured_console_file_uses_actual_encoding(self) -> None:
+        """Follow a file whose codec changes without replacing the stream object."""
         import rich
 
-        with (
-            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as stdout,
-            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as output,
-            patch.object(sys, "stdout", stdout),
-        ):
+        with _redirectable_output("utf-8") as (_, output, _patcher):
             rich.get_console().file = output
             backend = create_progress()
             assert isinstance(backend, RichProgressBackend)
@@ -474,6 +523,32 @@ class TestRichOutputEncodingChanges:
             assert "2/4" in gbk_output
             assert gbk_output.isascii()
 
+    def test_unknown_output_codec_escapes_description_without_changing_task(self) -> None:
+        """Render ASCII escapes when codec lookup fails while retaining the original task text."""
+        import rich
+
+        class StrictOutput(io.StringIO):
+            @property
+            def encoding(self) -> str:
+                """Expose an invalid codec name while the underlying sink remains strict ASCII."""
+                return "sqlseed-unknown-test-codec"
+
+            def write(self, text: str) -> int:
+                """Reject any Unicode characters that escape the progress fallback."""
+                text.encode("ascii", errors="strict")
+                return super().write(text)
+
+        with StrictOutput() as output:
+            rich.get_console().file = output
+            with RichProgressBackend() as backend:
+                task = backend.add_task("Generating 用户🚀", total=2)
+                backend.update(task, advance=1)
+                backend._progress.refresh()
+                assert backend._progress.tasks[0].description == "Generating 用户🚀"
+            assert r"Generating \u7528\u6237\U0001f680" in output.getvalue()
+            assert "1/2" in output.getvalue()
+            assert output.getvalue().isascii()
+
     @pytest.mark.parametrize("ascii_only", [False, True])
     @pytest.mark.parametrize(
         ("encoding", "expected"),
@@ -485,6 +560,7 @@ class TestRichOutputEncodingChanges:
         ],
     )
     def test_description_escapes_only_unencodable_text(self, encoding: str, expected: str, ascii_only: bool) -> None:
+        """Preserve encodable text and the original task description in both layout modes."""
         with (
             io.TextIOWrapper(io.BytesIO(), encoding=encoding, write_through=True) as output,
             patch.object(sys, "stdout", output),
@@ -498,26 +574,28 @@ class TestRichOutputEncodingChanges:
 
     @pytest.mark.parametrize("encoding", ["ascii", "gbk", "big5"])
     def test_unencodable_description_preserves_original_business_exception(self, encoding: str) -> None:
+        """Keep the original generation error when cleanup renders to a newly restricted stream."""
         import rich
 
         original = ValueError("generation failed")
-        with (
-            io.TextIOWrapper(io.BytesIO(), encoding="utf-8", write_through=True) as utf8,
-            io.TextIOWrapper(io.BytesIO(), encoding=encoding, write_through=True) as limited,
-            patch.object(sys, "stdout", utf8),
-        ):
+        with _redirectable_output(encoding) as (_, limited, _patcher):
             backend = create_progress()
             assert isinstance(backend, RichProgressBackend)
             backend._progress.live.auto_refresh = False
-            with pytest.raises(ValueError) as caught, backend:
-                backend.add_task("Generating 用户🚀", total=2)
+
+            def redirect_before_failure(active: RichProgressBackend) -> None:
+                """Change the active output only after the Unicode task has been created."""
+                active.add_task("Generating 用户🚀", total=2)
                 rich.get_console().file = limited
-                raise original
+
+            with pytest.raises(ValueError) as caught:
+                _fail_generation(backend, original, redirect_before_failure)
             assert caught.value is original
             assert "Generating" in limited.buffer.getvalue().decode(encoding)
 
     @pytest.mark.parametrize("width", [8, 20])
     def test_narrow_ascii_console_does_not_add_unicode_ellipsis(self, width: int) -> None:
+        """Keep narrow layout truncation from replacing the original business error."""
         import rich
 
         rich.get_console().width = width
@@ -529,10 +607,14 @@ class TestRichOutputEncodingChanges:
             backend = create_progress()
             assert isinstance(backend, RichProgressBackend)
             backend._progress.live.auto_refresh = False
-            with pytest.raises(ValueError) as caught, backend:
-                task = backend.add_task("initial", total=20)
-                backend.update(task, description="Generating 用户🚀" * 10)
-                raise original
+
+            def long_description_before_failure(active: RichProgressBackend) -> None:
+                """Force description cropping before the simulated generation failure."""
+                task = active.add_task("initial", total=20)
+                active.update(task, description="Generating 用户🚀" * 10)
+
+            with pytest.raises(ValueError) as caught:
+                _fail_generation(backend, original, long_description_before_failure)
             assert caught.value is original
             rendered = output.buffer.getvalue().decode("ascii")
             assert rendered

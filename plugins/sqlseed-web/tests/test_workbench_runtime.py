@@ -29,6 +29,7 @@ class _RunPlanRegistry(UIState):
     """Own the actual worker and its connection without replacing runtime startup."""
 
     def __init__(self) -> None:
+        """Track worker ownership and failures independently of persisted job state."""
         super().__init__()
         self.worker_started = threading.Event()
         self.worker: threading.Thread | None = None
@@ -36,6 +37,7 @@ class _RunPlanRegistry(UIState):
 
     @contextmanager
     def job_completion(self, job_id: str) -> Iterator[None]:
+        """Close the worker's connection while retaining generation and cleanup errors."""
         self.worker = threading.current_thread()
         self.worker_started.set()
         with ExitStack() as ownership:
@@ -50,17 +52,18 @@ class _RunPlanRegistry(UIState):
     def _record_error(
         self, _error_type: type[BaseException] | None, error: BaseException | None, _traceback: TracebackType | None
     ) -> bool:
+        """Capture worker exceptions for re-raising on the test thread after shutdown."""
         if error is not None:
             # Re-raise in the test after worker exit, including control errors.
             self.worker_errors.append(error)
         return error is not None
 
     def wait_for_worker(self, timeout: float) -> bool:
+        """Wait for thread publication and exit within one shared timeout budget."""
         deadline = time.monotonic() + timeout
         if not self.worker_started.wait(timeout):
             return False
-        worker = self.worker
-        if worker is None:
+        if (worker := self.worker) is None:
             raise RuntimeError("Worker started without publishing its thread")
         worker.join(max(0.0, deadline - time.monotonic()))
         return not worker.is_alive()

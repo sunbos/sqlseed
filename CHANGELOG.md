@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Distinguish AI rule-cache column sets containing separator characters. Use a versioned, unambiguous column-name hash; legacy hashes are safely invalidated and refreshed on the next suggestion request.
 - Adapt terminal progress rendering when the output stream or encoding changes, including UTF-8 capture returning to GBK, and safely display non-ASCII descriptions in narrow terminals without replacing the original generation error.
 - Retain ownership of a newly started Web worker if its resume acknowledgement fails, drain it before returning to maintenance, and restore the recovery page after delayed shutdown. Preserve startup diagnostics for service-only recovery without repeating the component installation.
 
