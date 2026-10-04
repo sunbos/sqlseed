@@ -68,9 +68,11 @@ MANIFEST_IMPORTS = {
     "yaml": ManifestImport("pyyaml", "pyproject.toml"),
 }
 # These imports belong to locked transitive dependencies: Docker/testcontainers,
-# FastAPI/Starlette, the Python 3.10 TOML fallback, and Windows pywin32 support.
+# FastAPI/Starlette, Material/MkDocs, the Python 3.10 TOML fallback, and Windows
+# pywin32 support. MkDocs hooks are exercised through real strict builds in CI.
 CI_IMPORTS = {
     "docker": "docker",
+    "mkdocs": "mkdocs",
     "pywintypes": "pywin32",
     "requests": "requests",
     "starlette": "starlette",

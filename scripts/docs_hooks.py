@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from mkdocs.structure.pages import Page
 
 _CONFIG_SCRIPT = re.compile(r'(<script id="__config"[^>]*>)(.*?)(</script>)', re.DOTALL)
-_HEAD_LANGUAGE_LINK = re.compile(r'\s*<link rel="alternate" href="[^"]+" hreflang="(?:en|zh-CN)">')
+_HEAD_LANGUAGE_LINK = re.compile(r'<link rel="alternate" href="[^"]+" hreflang="(?:en|zh-CN)">')
 _CHINESE_PREFIX = "zh-CN/"
 _LEGACY_PAGES = ("architecture", "migration", "gemma4-integration")
 
@@ -44,7 +44,7 @@ def on_config(config: MkDocsConfig) -> None:
     )
 
 
-def on_post_page(output: str, *, page: Page, config: MkDocsConfig) -> str:
+def on_post_page(output: str, *, page: Page, **_context: object) -> str:
     """Use i18n's page links and point search at the current language's index."""
     # Material 9.7 treats head alternates as site roots and fetches a sitemap
     # below each page URL. i18n already renders working, page-specific switcher
@@ -52,8 +52,7 @@ def on_post_page(output: str, *, page: Page, config: MkDocsConfig) -> str:
     output = _HEAD_LANGUAGE_LINK.sub("", output)
     if not page.url.startswith(_CHINESE_PREFIX):
         return output
-    match = _CONFIG_SCRIPT.search(output)
-    if match is None:
+    if (match := _CONFIG_SCRIPT.search(output)) is None:
         raise ValueError("Material's search configuration was not rendered")
     settings = json.loads(match[2])
     page_dir = posixpath.dirname(page.url)

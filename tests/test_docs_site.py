@@ -35,8 +35,8 @@ TOPICS = (
 )
 LANGUAGES = ("en", "zh-CN")
 NAV_LABELS = {
-    "en": ("Home", "User Guide", "Reference", "Maintenance"),
-    "zh-CN": ("首页", "使用指南", "参考文档", "维护开发"),
+    "en": ["Home", "User Guide", "Reference", "Maintenance"],
+    "zh-CN": ["首页", "使用指南", "参考文档", "维护开发"],
 }
 
 
@@ -86,11 +86,18 @@ class Document(HTMLParser):
             )
             self.links.append(self._link)
         elif tag in {"img", "script", "link"}:
-            resource = attributes.get("href" if tag == "link" else "src")
-            if resource:
-                self.resources.append(resource)
-                if tag == "link" and attributes.get("rel") == "alternate" and attributes.get("hreflang"):
-                    self.language_roots.append(resource)
+            self._read_resource(tag, attributes)
+        self._start_content(tag, attributes)
+
+    def _read_resource(self, tag: str, attributes: dict[str, str | None]) -> None:
+        """Collect asset references and the language links inspected by Material."""
+        if resource := attributes.get("href" if tag == "link" else "src"):
+            self.resources.append(resource)
+            if tag == "link" and attributes.get("rel") == "alternate" and attributes.get("hreflang"):
+                self.language_roots.append(resource)
+
+    def _start_content(self, tag: str, attributes: dict[str, str | None]) -> None:
+        """Track text-bearing elements and read redirect metadata."""
         if tag == "h1":
             self._in_heading = True
             self.headings.append("")
@@ -130,8 +137,7 @@ def _document(site: Path, page: str) -> Document:
 
 def _internal_target(page: str, href: str) -> tuple[str, str] | None:
     """Resolve a browser URL, leaving external services outside this test."""
-    target = urlsplit(urljoin(SITE_URL + page, href))
-    if target.scheme != "https" or target.netloc != "sunbos.github.io":
+    if (target := urlsplit(urljoin(SITE_URL + page, href))).scheme != "https" or target.netloc != "sunbos.github.io":
         return None
     if not target.path.startswith("/sqlseed/"):
         return None
@@ -162,8 +168,8 @@ def _build(site: Path, config: Path) -> subprocess.CompletedProcess[str]:
     )
 
 
-@pytest.fixture(scope="module")
-def docs_site(tmp_path_factory: pytest.TempPathFactory) -> Path:
+@pytest.fixture(name="docs_site", scope="module")
+def build_docs_site(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """Build once so all assertions observe the same deployable artifact."""
     site = tmp_path_factory.mktemp("docs-site")
     result = _build(site, ROOT / "mkdocs.yml")
@@ -181,7 +187,7 @@ def test_pages_keep_language_navigation_and_topic_when_switching(docs_site: Path
     assert len(document.headings) == 1
     contains_chinese = re.search(r"[\u4e00-\u9fff]", document.headings[0]) is not None
     assert contains_chinese == (language == "zh-CN"), document.headings
-    navigation = tuple(" ".join(link.text.split()) for link in document.links if link.top_navigation)
+    navigation = [" ".join(link.text.split()) for link in document.links if link.top_navigation]
     assert navigation == NAV_LABELS[language]
     for other_language in LANGUAGES:
         switches = [link for link in document.links if link.language == other_language]
@@ -235,8 +241,7 @@ def test_published_internal_links_and_assets_exist(docs_site: Path) -> None:
     }
     for page, document in documents.items():
         for href in [link.href for link in document.links] + document.resources:
-            target = _internal_target(page, href)
-            if target is None:
+            if (target := _internal_target(page, href)) is None:
                 continue
             path, fragment = target
             destination = docs_site / path
@@ -287,8 +292,7 @@ def test_missing_translation_fails_instead_of_silently_publishing_english(tmp_pa
         stem = topic.rstrip("/") or "index"
         for language in LANGUAGES:
             suffix = ".zh-CN.md" if language == "zh-CN" else ".md"
-            relative = Path(stem + suffix)
-            if relative == Path("guide.zh-CN.md"):
+            if (relative := Path(stem + suffix)) == Path("guide.zh-CN.md"):
                 continue
             destination = source / relative
             destination.parent.mkdir(parents=True, exist_ok=True)

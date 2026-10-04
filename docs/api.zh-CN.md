@@ -444,6 +444,9 @@ class ProviderType(str, Enum):
 `fill()` 和 `fill_from_config()` 返回的数据类，封装数据生成任务执行后的统计信息。`count` 是报告的实际插入行数，`batch_count` 是已完成的批次数。Core 常规分批执行中，失败批次会回滚，但之前已提交的批次可能保留。外层事务仍可能决定最终是否提交。请同时检查 `errors` 和 `count`；取消、中断与 Web 事务边界见[支持与维护](maintainable-release.md)。
 
 ```python
+from dataclasses import dataclass, field
+
+
 @dataclass
 class GenerationResult:
     table_name: str
@@ -451,7 +454,7 @@ class GenerationResult:
     elapsed: float
     rows_per_second: float = 0.0     # auto-computed in __post_init__
     batch_count: int = 0
-    errors: list[str] = []
+    errors: list[str] = field(default_factory=list)
 ```
 
 **示例**
