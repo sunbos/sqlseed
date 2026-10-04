@@ -10,7 +10,7 @@ import threading
 from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +35,8 @@ class WorkerHarness:
     gate: runtime_lifecycle.RuntimeGate
     descriptor: int
     descriptor_transferred: bool = False
+    child_transferred: bool = False
+    child_closed: threading.Event = field(default_factory=threading.Event)
 
     def detach(self) -> int:
         """Transfer descriptor ownership once so teardown cannot close a reused descriptor."""
@@ -45,6 +47,9 @@ class WorkerHarness:
 
     def run(self) -> None:
         """Execute the real maintenance worker against this harness transport and listener."""
+        if self.child_transferred:
+            raise RuntimeError("Worker transport was already transferred")
+        self.child_transferred = True
         managed_worker.run_worker(self.listener, self.child, "maintenance", {}, "test-token", self)
 
 
@@ -78,23 +83,39 @@ def fixture_worker_harness(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> I
     monkeypatch.setenv("SQLSEED_WEB_SETTINGS_PATH", str(tmp_path / "settings.json"))
     descriptor = os.open(tmp_path / "environment.lock", os.O_CREAT | os.O_RDWR)
     harness = WorkerHarness(listener, channel, child, messages, ready, gate, descriptor)
+    close_child = child.close
+
+    def record_child_close() -> None:
+        """Signal completion only after the real socket or pipe handle has closed successfully."""
+        close_child()
+        harness.child_closed.set()
+
+    monkeypatch.setattr(child, "close", record_child_close)
     previous_signals = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
     try:
         yield harness
     finally:
-        channel.close()
-        child.close()
-        listener.close()
-        if not harness.descriptor_transferred:
-            with suppress(OSError):
-                os.close(descriptor)
-        for sig, handler in previous_signals.items():
-            signal.signal(sig, handler)
+        try:
+            channel.close()
+            if harness.child_transferred:
+                # ControlChannel's closed event precedes the OS close. Its reader
+                # can still own that close after run_worker has already returned.
+                assert harness.child_closed.wait(5), "worker did not close its transport"
+            else:
+                child.close()
+        finally:
+            listener.close()
+            if not harness.descriptor_transferred:
+                with suppress(OSError):
+                    os.close(descriptor)
+            for sig, handler in previous_signals.items():
+                signal.signal(sig, handler)
 
 
 def _assert_worker_closed(harness: WorkerHarness) -> None:
     """Require released descriptors, stopped HTTP threads and closed runtime admission."""
     assert harness.parent.wait_closed(5)
+    assert harness.child_closed.wait(5), "worker transport close did not finish"
     assert harness.listener.fileno() == -1
     with pytest.raises(OSError):
         os.fstat(harness.descriptor)
