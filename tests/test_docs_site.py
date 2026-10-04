@@ -34,10 +34,6 @@ TOPICS = (
     "project-showcase/",
 )
 LANGUAGES = ("en", "zh-CN")
-NAV_LABELS = {
-    "en": ["Home", "User Guide", "Reference", "Maintenance"],
-    "zh-CN": ["首页", "使用指南", "参考文档", "维护开发"],
-}
 
 
 @dataclass
@@ -177,9 +173,17 @@ def build_docs_site(tmp_path_factory: pytest.TempPathFactory) -> Path:
     return site
 
 
-@pytest.mark.parametrize("language", LANGUAGES)
+@pytest.mark.parametrize(
+    ("language", "navigation_labels"),
+    [
+        pytest.param("en", ["Home", "User Guide", "Reference", "Maintenance"], id="en"),
+        pytest.param("zh-CN", ["首页", "使用指南", "参考文档", "维护开发"], id="zh-CN"),
+    ],
+)
 @pytest.mark.parametrize("topic", TOPICS, ids=lambda topic: topic or "home")
-def test_pages_keep_language_navigation_and_topic_when_switching(docs_site: Path, language: str, topic: str) -> None:
+def test_pages_keep_language_navigation_and_topic_when_switching(
+    docs_site: Path, language: str, navigation_labels: list[str], topic: str
+) -> None:
     """Every topic has genuine localized content and a matching language switch."""
     page = _page_path(language, topic)
     document = _document(docs_site, page)
@@ -188,7 +192,7 @@ def test_pages_keep_language_navigation_and_topic_when_switching(docs_site: Path
     contains_chinese = re.search(r"[\u4e00-\u9fff]", document.headings[0]) is not None
     assert contains_chinese == (language == "zh-CN"), document.headings
     navigation = [" ".join(link.text.split()) for link in document.links if link.top_navigation]
-    assert navigation == NAV_LABELS[language]
+    assert navigation == navigation_labels
     for other_language in LANGUAGES:
         switches = [link for link in document.links if link.language == other_language]
         assert switches, (page, other_language)
