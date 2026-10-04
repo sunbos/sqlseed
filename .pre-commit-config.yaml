@@ -22,7 +22,7 @@ repos:
       - id: check-added-large-files
         name: Check lossless workbench screenshot sizes
         files: ^docs/assets/screenshots/web-workbench-(?:en|zh-CN)-(?:light|dark)\.png$
-        args: [--maxkb=1536]
+        args: [--maxkb=1536, --enforce-all]
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.7
