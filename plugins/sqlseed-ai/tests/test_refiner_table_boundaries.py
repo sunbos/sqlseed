@@ -26,6 +26,17 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def _prepare_checked_events(database: Path) -> tuple[bytes, dict[str, object]]:
+    """Create a real CHECK-constrained target and return its snapshot and valid rules."""
+    with sqlite_connection(database) as db:
+        db.execute("CREATE TABLE events(value INTEGER NOT NULL CHECK(value=7))")
+    correct = {
+        "name": "events",
+        "columns": [{"name": "value", "generator": "integer", "params": {"min_value": 7, "max_value": 7}}],
+    }
+    return database.read_bytes(), correct
+
+
 @pytest.mark.parametrize("streaming", [False, True])
 @pytest.mark.parametrize("cached", [False, True])
 def test_missing_target_rejected_without_http_cache_or_database_changes(
@@ -175,13 +186,7 @@ def test_legacy_delimiter_hash_is_not_reused_for_new_cache_encoding(
 ) -> None:
     """Reject old hashes even when an old column name spells the new JSON payload."""
     database = tmp_path / "legacy-hash.db"
-    with sqlite_connection(database) as db:
-        db.execute("CREATE TABLE events(value INTEGER NOT NULL CHECK(value=7))")
-    before = database.read_bytes()
-    correct = {
-        "name": "events",
-        "columns": [{"name": "value", "generator": "integer", "params": {"min_value": 7, "max_value": 7}}],
-    }
+    before, correct = _prepare_checked_events(database)
     stale = {
         "name": "events",
         "columns": [{"name": old_column_name, "generator": "integer", "params": {"min_value": 99, "max_value": 99}}],
@@ -292,14 +297,9 @@ def test_other_target_cache_is_ignored_and_replaced_only_by_valid_suggestion(tmp
 def test_malformed_cache_is_a_miss_then_replaced_after_real_validation(
     tmp_path: Path, streaming: bool, entry: dict[str, object]
 ) -> None:
+    """Treat malformed cache entries as misses and replace them only with validated rules."""
     database = tmp_path / "cache-shape.db"
-    with sqlite_connection(database) as db:
-        db.execute("CREATE TABLE events(value INTEGER NOT NULL CHECK(value=7))")
-    before = database.read_bytes()
-    correct = {
-        "name": "events",
-        "columns": [{"name": "value", "generator": "integer", "params": {"min_value": 7, "max_value": 7}}],
-    }
+    before, correct = _prepare_checked_events(database)
     requests: list[dict[str, object]] = []
     with _completion_server([(json.dumps(correct), "stop")], requests) as base_url:
         refiner = _refiner(database, base_url)
