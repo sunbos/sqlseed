@@ -1,78 +1,92 @@
-# 个人可维护版本：范围与维护约定
+<a id="_1"></a>
 
-本文描述 0.2.5 五包工作台及支持边界。正式版本、源码与同一构建产物的安装方式见[升级说明](migration.zh-CN.md)；实际发布与验收记录以[发布指南](releasing.md)和对应 release 为准。
+# Scope and maintenance commitments
 
-这个版本面向 Python 项目与 CI 的数据库测试数据准备：从现有结构和明确规则生成数据，保存规则，并在相同条件下重复实验。完成一个可验证的订单流程，不把所有数据库特性和所有 AI 后端同时作为交付前提。
+This page describes the five-package workbench and support boundaries in 0.2.5. See the [migration guide](migration.md) for installing published releases, source checkouts and artifacts from the same build. The [release guide](releasing.md) and the corresponding release contain the publication and acceptance records.
 
-## 支持范围如何理解
+This version prepares database test data for Python projects and CI: generate data from an existing schema and explicit rules, save those rules, and repeat experiments under the same conditions. The delivery target is a verifiable order workflow; support for every database feature and every AI backend is not a prerequisite.
 
-| 能力 | 本版本承诺 | 验证方式 |
+<a id="_2"></a>
+
+## Understanding the support scope
+
+| Capability | Commitment in this version | Verification |
 | --- | --- | --- |
-| SQLite 订单流程 | users、products、orders、order_items 的真实生成、FK、UNIQUE、行级 CHECK、固定条件重放 | 仓库中的 `examples/order_workflow/README.md`与 `tests/test_order_workflow.py` |
-| SQLite 单列外键 | 从实际父记录取值；生成顺序考虑依赖 | core 真实 SQLite 回归与订单示例 |
-| SQLite 两列复合外键 | 按完整父键元组协调；不等于任意重叠复合关系或跨表业务规则都受支持 | `tests/test_core/test_composite_fk_pair_pool.py` |
-| 三列及以上复合外键 | 本版不执行自动生成，预检明确拒绝 | 支持边界回归确认拒绝发生在清空、写入之前 |
-| PostgreSQL | 真实 PostgreSQL 16 验证 adapter、URL API、FK、trigger 与实际写入计数；大批量也保留约束 | `tests/integration/test_pg_*.py` 与 `test_url_e2e.py`；缺少环境的 skip 不算通过 |
-| PostgreSQL 复合／跨 schema 外键 | 当前生成实现不提供完整保证，检测到不支持的关系时拒绝执行 | reflection 元数据契约测试不替代真实 PostgreSQL 验收 |
-| PostgreSQL 仅 ASCII 大小写不同的同表列 | 当前 CHECK 推断无法区分，生成与预览在副作用前拒绝 | 真实 PostgreSQL 哨兵记录验证，不通过猜测合并字段 |
-| AI 建议 | 可选插件；建议、校验与用户确认后的执行分开 | 固定响应回归验证本地逻辑；真实模型可达性与质量需要额外实测 |
-| 跨表 SUM、完整订单状态机 | 不作为通用自动生成能力承诺 | 订单演示通过查询展示明细合计，未伪造订单头聚合生成能力 |
+| SQLite order workflow | Real generation, FK, UNIQUE, row-level CHECK and replay under fixed conditions for users, products, orders and order_items | `examples/order_workflow/README.md` and `tests/test_order_workflow.py` in the repository |
+| SQLite single-column foreign keys | Sample actual parent records and account for dependencies in generation order | Core regressions against real SQLite and the order example |
+| SQLite two-column composite foreign keys | Coordinate complete parent-key tuples; this does not imply support for arbitrary overlapping composite relationships or cross-table business rules | `tests/test_core/test_composite_fk_pair_pool.py` |
+| Composite foreign keys with three or more columns | No automatic generation in this version; preflight explicitly rejects them | Boundary regressions verify rejection before clearing or writing data |
+| PostgreSQL | Real PostgreSQL 16 verification of the adapter, URL API, FK, triggers and actual write counts; constraints remain enabled for large batches | `tests/integration/test_pg_*.py` and `test_url_e2e.py`; skips caused by an unavailable environment do not count as passes |
+| PostgreSQL composite or cross-schema foreign keys | The current generator does not provide a complete guarantee and rejects unsupported relationships when detected | Reflection metadata contract tests do not replace acceptance against real PostgreSQL |
+| PostgreSQL columns in one table that differ only in ASCII letter case | Current CHECK inference cannot distinguish them; generation and preview reject them before side effects | Sentinel records in real PostgreSQL verify this boundary; fields are not merged by guessing |
+| AI suggestions | An optional plugin; suggestions, validation and execution after user confirmation remain separate | Fixed-response regressions verify local logic; real model availability and quality require separate testing |
+| Cross-table SUM and complete order state machines | Not promised as general automatic generation capabilities | The order demonstration queries line-item totals rather than claiming automatic generation of order-header aggregates |
 
-数据库能读取某个结构，并不代表生成器已经支持该结构。24 表的 `examples/scenario_lab/README.md` 是复杂结构与边界夹具；四表订单示例是完整生成演示，两者承担不同验证任务。
+Being able to read a database structure does not mean the generator supports it. The 24-table `examples/scenario_lab/README.md` fixture exercises complex structures and boundaries. The four-table order example demonstrates complete generation. They serve different verification purposes.
 
 <a id="write-semantics"></a>
 
-## 写入与失败语义
+<a id="_3"></a>
 
-调用 core 后应检查 `GenerationResult.errors` 和 `count`，不能只检查函数是否返回。`count` 表示执行报告的实际写入数；在普通分批提交模式下，它对应已经提交的批次。`batch_count` 是完成的批次，不是计划批数。
+## Write and failure semantics
 
-- **预检拒绝**：不支持的结构在清空和生成前报错。配置包含多张表时先检查全部目标，不能先改变前面的表，再发现后面的表不支持。
-- **运行中失败**：失败批次回滚，先前已提交批次可以保留；错误结果仍报告已提交数量。
-- **协作取消**：在引擎检查点停止，保留已经提交的批次；不是强制终止正在运行的任意 Python 函数或远程请求。
-- **进程被终止**：调用方可能拿不到最终结果，不能从计划数量推断实际提交量，应重新检查数据库。
-- **多表 core 配置**：不是整库原子事务。通过支持预检也不等于所有后续业务约束、触发器或资源条件都必然成功。
+After calling Core, check both `GenerationResult.errors` and `count`, rather than only whether the function returned. `count` is the actual number of writes reported by execution; under normal per-batch commits, it counts committed batches. `batch_count` counts completed batches, not planned batches.
 
-如果调用方拥有外层事务，core 的单表结果不能提前当成最终事务提交证明。正式 Web 的 SQLite 替换执行具有单独的事务与回滚策略，以运行记录的最终状态为准；这不是 core 所有入口的默认保证。
+- **Preflight rejection:** unsupported structures produce an error before clearing or generating data. A configuration containing multiple tables checks every target first, so an earlier table is not changed before discovering that a later table is unsupported.
+- **Failure during execution:** the failing batch rolls back; earlier committed batches can remain. The error result still reports the committed count.
+- **Cooperative cancellation:** execution stops at engine checkpoints and preserves committed batches. This does not forcibly terminate an arbitrary Python function or remote request already running.
+- **Process termination:** the caller may never receive the final result. Planned counts cannot establish the actual committed count; inspect the database again.
+- **Multi-table Core configurations:** these are not one atomic transaction across the database. Passing support preflight does not guarantee that every subsequent business constraint, trigger or resource condition will succeed.
 
-## 稳定的边界
+When the caller owns an outer transaction, a single-table Core result is not proof that the final transaction has committed. SQLite replacement runs in the supported Web workbench have their own transaction and rollback strategy; use the final status in the run record. This is not a default guarantee for every Core entry point.
 
-| 变化来源 | 首选改动位置 | 需要守住的契约 |
+<a id="_4"></a>
+
+## Stable boundaries
+
+| Source of change | Preferred place to change | Contract to preserve |
 | --- | --- | --- |
-| 模型、SDK、响应协议 | `sqlseed-ai` 的客户端与协议适配 | 模型厂商类型不进入 core；已接受的配置能离线执行 |
-| prompt、推断、修复策略 | `sqlseed-ai` 内部 | 数据库硬约束、用户显式规则和候选校验结果不被静默改写 |
-| 终端、HTTP、MCP 展示 | 对应入口插件 | 入口转换错误与进度，调用共享 Python 服务 |
-| 数据库方言 | database adapter；确有需要时扩展 core 元数据 | 已支持结构的行为和旧配置兼容 |
-| 新业务语义 | 先确认能由现有规则表达 | 不把跨表执行逻辑藏进 prompt 或 UI |
+| Models, SDKs and response protocols | Clients and protocol adapters in `sqlseed-ai` | Provider-specific model types stay outside Core; accepted configurations can run offline |
+| Prompts, inference and repair strategies | Inside `sqlseed-ai` | Database constraints, explicit user rules and candidate validation results are not silently rewritten |
+| Terminal, HTTP and MCP presentation | The corresponding entry-point plugin | Entry points translate errors and progress and call shared Python services |
+| Database dialects | Database adapters; extend Core metadata when necessary | Preserve behavior for supported structures and compatibility with existing configurations |
+| New business semantics | First check whether existing rules can express them | Do not hide cross-table execution logic in prompts or the UI |
 
-AI 的共享构造入口是 `sqlseed_ai.runtime`：`build_ai_config()`、`build_llm_client()`、`build_heal_orchestrator()`。它使用普通 Python 异常；终端输出和退出码留在 CLI。Web 不导入 CLI 私有工厂。客户端由创建它的运行入口释放，注入的客户端所有权应明确。
+The shared AI construction entry point is `sqlseed_ai.runtime`: `build_ai_config()`, `build_llm_client()` and `build_heal_orchestrator()`. It uses ordinary Python exceptions; terminal output and exit codes belong in the CLI. Web does not import private CLI factories. The entry point that creates a client releases it; ownership of injected clients must be explicit.
 
-`ai-analyze` 保留现有 AutoHeal 默认分析流程。正式工作台的待审阅规则建议和命令行完整分析有不同输入与产物，本版不把它们强行合并成一个巨型函数，也不新增另一条替代算法。新的调用入口应复用已有对应服务；修改公共构造流程时运行 CLI 与 Web 的兼容回归。
+`ai-analyze` retains its existing default AutoHeal analysis flow. Workbench rule suggestions awaiting review and complete command-line analysis have different inputs and outputs. This version neither forces them into one large function nor introduces another replacement algorithm. New entry points should reuse the corresponding existing service. Run CLI and Web compatibility regressions when changing shared construction flows.
 
-`tests/test_package_boundaries.py` 检查静态导入方向：core 不直接依赖入口插件或模型 SDK，Web/MCP 不依赖 AI CLI，AI runtime 不依赖终端入口。它补充 import-linter，不声称检查所有运行时动态导入。
+`tests/test_package_boundaries.py` checks static import direction: Core does not directly depend on entry-point plugins or model SDKs, Web/MCP do not depend on the AI CLI, and AI runtime does not depend on terminal entry points. This supplements import-linter; it does not claim to check every dynamic import at runtime.
 
-## 控制个人维护成本
+<a id="_5"></a>
 
-1. 新功能先用现有 YAML/模型表达；只有真实场景证明无法表达，才扩展配置与核心能力。当前不设计新的业务 DSL。
-2. Faker/Mimesis、SQLAlchemy、Pydantic 继续承担成熟基础能力，不复制它们的实现。
-3. AI 编排按实际改动逐步提取纯规则处理，不为了缩短文件启动整体重写。
-4. 每次支持一种新数据库结构，都同时增加一个能成功的真实案例和一个应明确拒绝的边界案例。
-5. 公开 Python 参数、配置文档与结果含义属于兼容契约；变更记录说明破坏性变化与迁移方式。内部算法可以修复和演进。
-6. 新模型先通过既有场景与结果检查，再决定是否启用；本版不承诺模型切换后自然语言或规则建议完全一致。
+## Keeping maintenance manageable
 
-本版暂缓：微服务、通用多 Agent 平台、全面编排器替换、通用业务 DSL、大规模模型排行榜及生产数据统计仿真。未来是否投入由真实使用反馈决定。
+1. Express new features through existing YAML and models first. Extend configuration and Core capabilities only when a real use case cannot be expressed. This version does not introduce a new business DSL.
+2. Continue using Faker/Mimesis, SQLAlchemy and Pydantic for established foundational capabilities rather than duplicating their implementations.
+3. Extract pure rule processing from AI orchestration as changes require it; do not launch a full rewrite merely to shorten files.
+4. For every newly supported database structure, add both a successful real case and a boundary case that must be explicitly rejected.
+5. Public Python parameters, configuration documentation and result semantics are compatibility contracts. Changelogs must explain breaking changes and migration. Internal algorithms can be corrected and evolved.
+6. Evaluate new models against existing scenarios and result checks before enabling them. This version does not promise identical natural-language output or rule suggestions after switching models.
+
+Deferred in this version: microservices, a general multi-agent platform, a complete orchestrator replacement, a general business DSL, large model leaderboards and statistical simulation of production data. Actual usage feedback will determine future investment.
 
 <a id="reproduction-conditions"></a>
 
-## 复现条件
+<a id="_6"></a>
 
-保存规则、schema、provider 与依赖版本、seed、固定时间范围和初始引用数据。对新建数据库重放；相同 seed 不代表向已经填充的数据库重复追加时不会遇到 UNIQUE 冲突。AI 的已接受输出是规则文件，离线重放不需要再次询问模型。
+## Reproduction conditions
 
-## 版本完成条件
+Save the rules, schema, provider and dependency versions, seed, fixed time ranges and initial reference data. Replay into a new database. An identical seed does not prevent UNIQUE conflicts when appending repeatedly to an already populated database. Accepted AI output is a rule file; offline replay does not need another model request.
 
-- 从新目录运行订单案例，得到生成数据、坏规则诊断、修正配置和逻辑重放比对结果。
-- 声明不支持的关系不会先触发清空／部分写入；已提交计数和真实数据库一致。
-- AI 共享构造不依赖 CLI 私有函数，修改后原有分析/错误/进度回归保持通过。
-- 安装与演示命令能实际执行，源码检查与回归结果有记录；外部环境未验证部分明确列出。
-- [项目展示说明](project-showcase.md)只描述实际功能与证据，不把后续设想写成现有能力。
+<a id="_7"></a>
 
-达到这些条件后冻结这一版的新增范围，转向实际使用、项目演示与反馈。下一轮按反馈选择一个改进点。
+## Completion criteria
+
+- Run the order example from a new directory and obtain generated data, bad-rule diagnostics, a corrected configuration and a logical replay comparison.
+- Unsupported relationships do not trigger clearing or partial writes first; committed counts match the real database.
+- Shared AI construction does not depend on private CLI functions; existing analysis, error and progress regressions pass after changes.
+- Installation and demonstration commands run successfully, with source checks and regression results recorded. Unverified external environments are explicitly listed.
+- The [project walkthrough](project-showcase.md) describes actual functionality and evidence, without presenting future ideas as existing capabilities.
+
+Once these criteria are met, freeze the new-feature scope for this version and move to actual use, demonstrations and feedback. Choose one improvement from that feedback for the next iteration.

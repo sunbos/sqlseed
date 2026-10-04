@@ -17,7 +17,7 @@
 [![CI](https://github.com/sunbos/sqlseed/actions/workflows/ci.yml/badge.svg)](https://github.com/sunbos/sqlseed/actions/workflows/ci.yml)
 [![License: AGPL v3](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](https://github.com/sunbos/sqlseed/blob/main/LICENSE)
 
-[快速开始](#快速开始) · [Web 工作台](#web-工作台) · [命令行](#命令行) · [MCP](#mcp-工具) · [完整文档](https://sunbos.github.io/sqlseed/)
+[快速开始](#快速开始) · [Web 工作台](#web-工作台) · [命令行](#命令行) · [MCP](#mcp-工具) · [完整文档](https://sunbos.github.io/sqlseed/zh-CN/)
 
 </div>
 
@@ -35,7 +35,7 @@ sqlseed 向已有数据库表中填充测试数据。它会为姓名、邮箱等
 会自动安装所需的 Core。
 
 本文对应 0.2.5 版本，发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准；
-尚未发布的候选版本按[源码安装指南](https://sunbos.github.io/sqlseed/guide/#source-installation)体验。
+尚未发布的候选版本按[源码安装指南](https://sunbos.github.io/sqlseed/zh-CN/guide/#source-installation)体验。
 
 | 包与用途 | 安装命令 | 从这里开始 |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ Web 和规则型 MCP 均可独立安装，无需 CLI 或 AI。安装 AI 会自�
 
 Core 已包含 Faker，下面的示例会明确选择它。
 Mimesis 是可选依赖，可通过 `python -m pip install 'sqlseed[mimesis]'` 安装。
-旧版本用户请先看[升级指南](https://sunbos.github.io/sqlseed/migration.zh-CN/)。
+旧版本用户请先看[升级指南](https://sunbos.github.io/sqlseed/zh-CN/migration/)。
 
 ## 快速开始
 
@@ -94,7 +94,7 @@ print(result.count, result.errors)  # 100 []
 
 0.2.5 版本可用 `sqlseed.FillOptions(provider="faker", seed=42)` 复用生成设置，
 通过 `fill(..., options=settings)` 传入。原有单独关键字仍可使用，详见
-[Python API 参考](https://sunbos.github.io/sqlseed/api/#filloptions)。
+[Python API 参考](https://sunbos.github.io/sqlseed/zh-CN/api/#filloptions)。
 
 只想查看样例、不写入数据库时，可以使用：
 
@@ -135,8 +135,8 @@ for result in sqlseed.fill_from_config("generate.yaml"):
     print(result.count, result.errors)
 ```
 
-[配置指南](https://sunbos.github.io/sqlseed/guide/#yaml-configuration)介绍了取值范围、
-加权选择、派生列和跨表关系；完整名称与参数见[生成器参考](https://sunbos.github.io/sqlseed/guide/#generators)。
+[配置指南](https://sunbos.github.io/sqlseed/zh-CN/guide/#yaml-configuration)介绍了取值范围、
+加权选择、派生列和跨表关系；完整名称与参数见[生成器参考](https://sunbos.github.io/sqlseed/zh-CN/guide/#generators)。
 
 ## Web 工作台
 
@@ -173,7 +173,7 @@ python -m pip install 'sqlseed-web[ai]'
 ```
 
 随后在设置中配置模型服务。AI 建议经审阅和应用后进入配置，生成时使用你已确认的规则。
-连接设置、可选组件与部署要求见 [Web 使用指南](https://sunbos.github.io/sqlseed/web-workbench/)。
+连接设置、可选组件与部署要求见 [Web 使用指南](https://sunbos.github.io/sqlseed/zh-CN/web-workbench/)。
 
 ## 命令行
 
@@ -187,7 +187,7 @@ sqlseed fill demo.db -t users -n 100 --provider faker --no-ai
 ```
 
 运行 `sqlseed --help` 或 `sqlseed <命令> --help` 查看选项。
-配置模板、配置快照和重放的用法见 [CLI 参考](https://sunbos.github.io/sqlseed/guide/#cli-reference)。
+配置模板、配置快照和重放的用法见 [CLI 参考](https://sunbos.github.io/sqlseed/zh-CN/guide/#cli-reference)。
 只安装 Core 时提供 Python API，`sqlseed` 命令由 `sqlseed-cli` 包提供。
 
 ## PostgreSQL
@@ -213,7 +213,7 @@ print(result.count, result.errors)
 ```
 
 SQLite 路径与 `url` 不能同时传入。支持的外键结构和各入口差异见
-[支持范围](https://sunbos.github.io/sqlseed/maintainable-release/)。
+[支持范围](https://sunbos.github.io/sqlseed/zh-CN/maintainable-release/)。
 
 ## 可选的 AI 辅助
 
@@ -230,8 +230,8 @@ SQLite 路径与 `url` 不能同时传入。支持的外键结构和各入口差
 其他约束可能需要显式配置或模型建议，不能把它理解为任意 SQL CHECK 的求解器。
 使用候选配置前，仍需审阅规则并验证实际生成的数据。
 
-具体用法见 [AI 命令参考](https://sunbos.github.io/sqlseed/guide/#ai-suggest)和
-[模型后端与校验说明](https://sunbos.github.io/sqlseed/gemma4-integration.zh-CN/)。
+具体用法见 [AI 命令参考](https://sunbos.github.io/sqlseed/zh-CN/guide/#ai-suggest)和
+[模型后端与校验说明](https://sunbos.github.io/sqlseed/zh-CN/gemma4-integration/)。
 
 ## MCP 工具
 
@@ -256,7 +256,7 @@ mcp-server-sqlseed-ai
 按 [AI 配置指南](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/README.zh-CN.md)
 为该进程配置模型后端。它提供 AI YAML 建议、表分析、分析后直接填充，以及模型和后端可用性信息。
 安装 AI 不会向规则型服务注入这些工具；需要两组工具时，在客户端分别配置两个进程。
-客户端配置与工具详情见 [MCP 配置](https://sunbos.github.io/sqlseed/guide/#mcp-server)。
+客户端配置与工具详情见 [MCP 配置](https://sunbos.github.io/sqlseed/zh-CN/guide/#mcp-server)。
 
 ## 用于自己的数据库时
 
@@ -265,17 +265,17 @@ mcp-server-sqlseed-ai
 - **保持复现条件一致。** 只有 seed 相同，并不能保证跨依赖版本、provider、配置或初始数据得到完全相同的结果。
 
 复杂 CHECK 和复合外键的支持范围因数据库而异，具体边界与写入行为见
-[支持与维护说明](https://sunbos.github.io/sqlseed/maintainable-release/)。
+[支持与维护说明](https://sunbos.github.io/sqlseed/zh-CN/maintainable-release/)。
 
 ## 文档导航
 
 | 下一步 | 文档 |
 | --- | --- |
-| 配置生成器、表达式与多表数据 | [用户指南](https://sunbos.github.io/sqlseed/guide/) |
-| 使用 `fill`、`FillOptions`、`preview`、`connect`、`fill_from_config`、`load_config` | [Python API 参考](https://sunbos.github.io/sqlseed/api/) |
+| 配置生成器、表达式与多表数据 | [用户指南](https://sunbos.github.io/sqlseed/zh-CN/guide/) |
+| 使用 `fill`、`FillOptions`、`preview`、`connect`、`fill_from_config`、`load_config` | [Python API 参考](https://sunbos.github.io/sqlseed/zh-CN/api/) |
 | 跑通完整的多表示例 | [订单工作流](https://github.com/sunbos/sqlseed/tree/main/examples/order_workflow) |
-| 了解包边界和扩展 hooks | [架构文档](https://sunbos.github.io/sqlseed/architecture.zh-CN/) |
-| 升级已有安装 | [迁移指南](https://sunbos.github.io/sqlseed/migration.zh-CN/) |
+| 了解包边界和扩展 hooks | [架构文档](https://sunbos.github.io/sqlseed/zh-CN/architecture/) |
+| 升级已有安装 | [迁移指南](https://sunbos.github.io/sqlseed/zh-CN/migration/) |
 | 查看已发布版本与变更 | [Releases](https://github.com/sunbos/sqlseed/releases) |
 
 ## 参与开发

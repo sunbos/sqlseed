@@ -486,6 +486,9 @@ Check `errors` as well as `count`; see [support and maintenance](maintainable-re
 for cancellation, interruption, and Web transaction boundaries.
 
 ```python
+from dataclasses import dataclass, field
+
+
 @dataclass
 class GenerationResult:
     table_name: str
@@ -493,7 +496,7 @@ class GenerationResult:
     elapsed: float
     rows_per_second: float = 0.0     # auto-computed in __post_init__
     batch_count: int = 0
-    errors: list[str] = []
+    errors: list[str] = field(default_factory=list)
 ```
 
 **Example**

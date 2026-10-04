@@ -3,7 +3,7 @@
 [English](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/README.md) |
 **[中文](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/README.zh-CN.md)**
 
-[sqlseed](https://sunbos.github.io/sqlseed/) 的可选 LLM Schema 分析与契约驱动配置修复插件。
+[sqlseed](https://sunbos.github.io/sqlseed/zh-CN/) 的可选 LLM Schema 分析与契约驱动配置修复插件。
 提供列规则建议、配置校验与修复，以及模板候选值生成。接受的配置可交由 Core 离线执行。
 
 支持 Google AI Studio、LM Studio、Ollama 和 OpenAI-compatible API 后端。
@@ -231,8 +231,8 @@ column-mapper 注册 hooks，也不要求 Core 导入 AI 实现。
 - 可选 `mcp` extra：`mcp>=1.0,<2`
 - 实际模型请求需要已配置且可达的后端
 
-更多信息见[AI 集成指南](https://sunbos.github.io/sqlseed/gemma4-integration.zh-CN/)、
-[升级说明](https://sunbos.github.io/sqlseed/migration.zh-CN/)和
+更多信息见[AI 集成指南](https://sunbos.github.io/sqlseed/zh-CN/gemma4-integration/)、
+[升级说明](https://sunbos.github.io/sqlseed/zh-CN/migration/)和
 [配置源码](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-ai/src/sqlseed_ai/config.py)。
 
 许可证：[AGPL-3.0-or-later](https://github.com/sunbos/sqlseed/blob/main/LICENSE)。

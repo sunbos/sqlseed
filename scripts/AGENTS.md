@@ -7,6 +7,7 @@
 | 脚本 | 用途与边界 |
 |---|---|
 | [sync_docs.py](sync_docs.py)、[_fact_extractors.py](_fact_extractors.py) | 从源码提取事实并校验 Markdown 标记；不手动固定计数 |
+| [docs_hooks.py](docs_hooks.py) | 构建文档站的分语言搜索索引，保留旧中文页面入口；由 MkDocs 调用 |
 | [check_wheel_install.py](check_wheel_install.py) | 验证已安装 Core/Web、真实 HTTP/SQLite 与最小可选组件边界 |
 | [check_public_entrypoints.py](check_public_entrypoints.py) | 验证发行包 CLI/MCP 的真实入口及写入结果 |
 | [check_pypi_metadata.py](check_pypi_metadata.py) | 校验正式 PyPI metadata、安装报告中的文件来源与哈希 |

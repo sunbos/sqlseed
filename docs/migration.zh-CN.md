@@ -1,8 +1,6 @@
 # 升级到五包工作台
 
-[English](migration.md)
-
-五包布局始于 0.2.4，将原来组合安装的 Core/CLI/MCP 拆分为独立 package。本文面向 0.2.5；从 0.2.3 或 0.2.4 升级时应使用匹配的版本集合。[安装指南](guide.md#installation)提供 0.2.5 版本与源码的安装方式。发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准；尚未发布的候选版本使用源码安装。
+五包布局始于 0.2.4，将原来组合安装的 Core/CLI/MCP 拆分为独立 package。本文面向 0.2.5；从 0.2.3 或 0.2.4 升级时应使用匹配的版本集合。[安装指南](guide.md#installation)提供 0.2.5 版本与源码的安装方式。发布状态以 [发布记录](https://github.com/sunbos/sqlseed/releases) 为准；尚未发布的候选版本使用源码安装。
 
 ## 成套安装
 

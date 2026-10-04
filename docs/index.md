@@ -1,4 +1,9 @@
-# sqlseed
+---
+hide:
+  - navigation
+---
+
+# Test data, from your schema {#sqlseed}
 
 **Test data for SQLite and PostgreSQL, from your existing schema.**
 
@@ -6,18 +11,65 @@ sqlseed fills existing tables with generated data. It infers rules for common
 columns such as names and email addresses, and lets you define application-specific
 values and relationships in Python or YAML. Core runs offline; AI is optional.
 
+[Open the Web guide](web-workbench.md){ .md-button .md-button--primary }
+[Start with Python](#generate-your-first-data){ .md-button }
+
 ## Choose how to use it
 
 Use a Python 3.10+ virtual environment and install the entry point you need.
 The four interface packages use the same offline Core and install it as a dependency.
 
-| Package | Use it for | Install | Guide |
-| --- | --- | --- | --- |
-| `sqlseed` | Generate data from Python or YAML rules | `python -m pip install sqlseed` | [Python API](api.md) |
-| `sqlseed-web` | Edit rules, preview data, and review runs in a browser | `python -m pip install sqlseed-web` | [Web guide (中文)](web-workbench.md) |
-| `sqlseed-cli` | Inspect, preview, fill, create templates, and replay snapshots | `python -m pip install sqlseed-cli` | [CLI reference](guide.md#cli-reference) |
-| `sqlseed-ai` | Ask a model to suggest, analyze, or repair rules | `python -m pip install sqlseed-ai` | [AI setup](guide.md#ai-plugin) |
-| `mcp-server-sqlseed` | Generate rule-driven YAML and execute fills through MCP | `python -m pip install mcp-server-sqlseed` | [MCP setup](guide.md#mcp-server) |
+<div class="grid cards sqlseed-entry-cards" markdown>
+
+-   **Python API**
+
+    Generate data from Python or YAML rules with the offline Core.
+
+    `python -m pip install sqlseed`
+
+    [API reference →](api.md)
+
+-   **Web workbench**
+
+    Edit rules, preview data, and review runs in a browser.
+
+    `python -m pip install sqlseed-web`
+
+    [Workbench guide →](web-workbench.md)
+
+-   **Command line**
+
+    Inspect, preview, fill, create templates, and replay snapshots.
+
+    `python -m pip install sqlseed-cli`
+
+    [Command reference →](guide.md#cli-reference)
+
+-   **AI assistance**
+
+    Ask a model to suggest, analyze, or repair rules.
+
+    `python -m pip install sqlseed-ai`
+
+    [Configure AI →](guide.md#ai-plugin)
+
+-   **MCP tools**
+
+    Generate rule-driven YAML and execute fills through an MCP client.
+
+    `python -m pip install mcp-server-sqlseed`
+
+    [Configure MCP →](guide.md#mcp-server)
+
+-   **Support and limits**
+
+    Check database support, constraint handling, write behavior, and reproducibility.
+
+    For every entry point, before writing data.
+
+    [Read the support guide →](maintainable-release.md)
+
+</div>
 
 AI installs CLI for its additional commands. Web's ordinary workflow works without
 AI. Model-assisted MCP tools are a separate entry point provided by `sqlseed-ai[mcp]`;
@@ -84,9 +136,7 @@ Simplified Chinese, with light and dark appearances.
 The actual released 0.2.5 interface.
 [Open the full-size PNG](assets/screenshots/web-workbench-en-light.png)
 or [see the read-only sample preview in the dark theme](assets/screenshots/web-workbench-en-dark.png).
-Follow the [Web guide (中文)](web-workbench.md)
-or the [English Web README](https://github.com/sunbos/sqlseed/blob/main/plugins/sqlseed-web/README.md)
-for setup and workflow details.
+Follow the [Web guide](web-workbench.md) for setup and workflow details.
 
 With `sqlseed-cli` installed, use the same database:
 

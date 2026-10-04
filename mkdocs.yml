@@ -6,6 +6,8 @@ repo_name: sunbos/sqlseed
 edit_uri: edit/main/docs/
 
 docs_dir: docs
+hooks:
+  - scripts/docs_hooks.py
 
 # The public site contains maintained user/reference documentation. Review logs,
 # screenshots and historical prototypes remain in the repository for contributors.
@@ -20,10 +22,12 @@ exclude_docs: |
 theme:
   name: material
   language: en
+  font: false
   features:
     - navigation.tabs
     - navigation.sections
-    - navigation.expand
+    - navigation.top
+    - navigation.footer
     - search.suggest
     - search.highlight
     - content.code.copy
@@ -43,32 +47,72 @@ theme:
 
 nav:
   - Home: index.md
-  - User Guide: guide.md
-  - Upgrade:
-      - Migration (EN): migration.md
-      - 升级说明（中文）: migration.zh-CN.md
-  - Web Workbench: web-workbench.md
-  - Support & Maintenance: maintainable-release.md
-  - Release Guide: releasing.md
-  - Project Walkthrough: project-showcase.md
-  - API Reference: api.md
-  - Architecture:
-      - Architecture (EN): architecture.md
-      - Architecture (中文): architecture.zh-CN.md
-  - Development:
+  - User Guide:
+      - Web Workbench: web-workbench.md
+      - Python & CLI: guide.md
+      - Upgrading: migration.md
+      - Support & Limits: maintainable-release.md
+  - Reference:
+      - Python API: api.md
+      - Architecture: architecture.md
+      - AI Integration: gemma4-integration.md
+  - Maintenance:
+      - Release Guide: releasing.md
       - Web UI Languages: development/web-i18n.md
-  - Gemma 4 Integration:
-      - Gemma 4 Integration (EN): gemma4-integration.md
-      - Gemma 4 Integration (中文): gemma4-integration.zh-CN.md
+      - Project Walkthrough: project-showcase.md
 
 plugins:
-  - search
+  - i18n:
+      docs_structure: suffix
+      # Shared assets need fallback; docs_hooks rejects missing page translations.
+      fallback_to_default: true
+      languages:
+        - locale: en
+          default: true
+          name: English
+        - locale: zh-CN
+          name: 简体中文
+          site_description: 根据现有数据库结构，为 SQLite 和 PostgreSQL 生成测试数据
+          theme:
+            language: zh
+            palette:
+              - scheme: default
+                primary: white
+                accent: black
+                toggle:
+                  icon: material/brightness-7
+                  name: 切换到深色外观
+              - scheme: slate
+                primary: black
+                accent: grey
+                toggle:
+                  icon: material/brightness-4
+                  name: 切换到浅色外观
+          nav_translations:
+            Home: 首页
+            User Guide: 使用指南
+            Web Workbench: Web 工作台
+            Python & CLI: Python 与命令行
+            Upgrading: 升级说明
+            Support & Limits: 支持范围与限制
+            Reference: 参考文档
+            Python API: Python API
+            Architecture: 系统架构
+            AI Integration: AI 集成
+            Maintenance: 维护开发
+            Release Guide: 发布指南
+            Web UI Languages: 界面语言维护
+            Project Walkthrough: 项目案例讲解
+  - search:
+      separator: '[\s\u200b\u3000\-、。，．？！；]+|(?=[\u4e00-\u9fff])|(?<=[\u4e00-\u9fff])'
   - mkdocstrings:
       handlers:
         python:
           paths: [src]
 
 markdown_extensions:
+  - attr_list
+  - md_in_html
   - admonition
   - pymdownx.details
   - pymdownx.superfences:
@@ -81,3 +125,9 @@ markdown_extensions:
   - pymdownx.inlinehilite
   - toc:
       permalink: true
+
+extra_css:
+  - assets/stylesheets/site.css
+
+extra:
+  generator: false

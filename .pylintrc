@@ -35,6 +35,7 @@ ignored-modules=
     httpx,
     hypothesis,
     mcp,
+    mkdocs,
     msvcrt,
     openai,
     packaging,

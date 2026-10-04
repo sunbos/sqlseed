@@ -48,7 +48,7 @@ python -m pip install -e . -e ./plugins/sqlseed-web
 
 切换就地更新标签、帮助和受支持的诊断，不刷新页面、不提交表单，也不发数据库或 AI 请求；未保存的修改、焦点和选择保持不变。**数据语言与地区**是独立的生成配置：切换界面语言不改变生成内容、配置名称、表列标识、YAML 或数据库原值。旧记录或第三方诊断可能保留原文，并附当前语言说明。
 
-语言资源随 wheel 分发，不需要翻译服务。覆盖与新增文案所需验证见 [Web 双语维护](https://sunbos.github.io/sqlseed/development/web-i18n/)。
+语言资源随 wheel 分发，不需要翻译服务。覆盖与新增文案所需验证见 [Web 双语维护](https://sunbos.github.io/sqlseed/zh-CN/development/web-i18n/)。
 
 ## 可选组件
 
@@ -70,7 +70,7 @@ python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai -e .
 
 服务面向一个可信的本机用户，没有多用户认证，默认只监听 loopback。不要直接暴露到不可信网络；同源请求检查不能替代认证或数据库权限。
 
-详见[工作台指南](https://sunbos.github.io/sqlseed/web-workbench/)与[支持边界](https://sunbos.github.io/sqlseed/maintainable-release/)。
+详见[工作台指南](https://sunbos.github.io/sqlseed/zh-CN/web-workbench/)与[支持边界](https://sunbos.github.io/sqlseed/zh-CN/maintainable-release/)。
 
 ## 依赖
 
