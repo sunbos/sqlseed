@@ -12,6 +12,7 @@ import json
 import os
 import re
 import time
+import urllib.error
 import urllib.request
 from enum import Enum
 from typing import Any, Literal, cast
@@ -317,7 +318,9 @@ class AIConfig(BaseModel):
                 models = [str(m.get("id")) for m in data.get("data", []) if m.get("id")]
                 self._all_models_cache = (time.monotonic(), models)
                 return models
-        except (OSError, ValueError, KeyError):
+        except (OSError, ValueError, KeyError) as error:
+            if isinstance(error, urllib.error.HTTPError):
+                error.close()
             logger.debug("Could not auto-detect local models", backend=self.backend.value)
 
         # Cache negative result too, to avoid hammering a dead endpoint
@@ -626,6 +629,8 @@ class AIConfig(BaseModel):
             return info
 
         except (OSError, ValueError, RuntimeError) as e:
+            if isinstance(e, urllib.error.HTTPError):
+                e.close()
             logger.debug("Inference speed probe failed", error=str(e))
             return None
 

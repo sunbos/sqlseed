@@ -21,6 +21,7 @@ import yaml
 # internal module or required SDK means the installed environment is broken.
 try:
     from sqlseed_ai.mcp import (
+        _build_models,
         sqlseed_ai_generate_yaml,
         sqlseed_gemma4_agent_fill,
         sqlseed_gemma4_analyze,
@@ -39,6 +40,38 @@ from tests.sqlite_helpers import sqlite_connection
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+
+
+def test_unified_memory_model_status_is_explicitly_an_estimate() -> None:
+    """Hardware screening must not imply a verified Metal/backend model run."""
+    hardware = {
+        "platform": {"system": "Darwin"},
+        "ram": {"total_gb": 8.0},
+        "max_vram_gb": 0.0,
+        "unified_memory_budget_gb": 4.0,
+        "gpus": [{"vendor": "apple", "memory_type": "unified"}],
+    }
+    model = next(model for model in _build_models(hardware) if model["id"] == "gemma-4-e2b-it")
+    assert model["status"] == "capable"
+    assert "heuristic unified-memory budget" in model["status_description"]
+    assert "not verified" in model["status_description"]
+
+
+def test_model_list_includes_the_separate_unified_memory_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The MCP response exposes the heuristic separately from reported VRAM."""
+    hardware = {
+        "platform": {"system": "Darwin"},
+        "ram": {"total_gb": 8.0},
+        "max_vram_gb": 0.0,
+        "unified_memory_budget_gb": 4.0,
+        "gpus": [{"vendor": "apple", "memory_type": "unified"}],
+    }
+    monkeypatch.setattr("sqlseed_ai.mcp.detect_hardware", lambda: hardware)
+    monkeypatch.setattr("sqlseed_ai.mcp._build_backends", lambda config: [])
+
+    result = sqlseed_list_gemma_models()
+    assert result["hardware"]["unified_memory_budget_gb"] == 4.0
+    assert result["hardware"]["max_vram_gb"] == 0.0
 
 
 @pytest.fixture(name="no_ai_requests")

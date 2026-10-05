@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
+import os
+import sys
 from dataclasses import dataclass
+from functools import cache
 from pathlib import Path
 from typing import Literal
 from urllib.parse import parse_qs, quote, unquote, urlencode, urlsplit
@@ -13,6 +18,37 @@ from sqlalchemy.engine import Dialect
 from sqlseed.database._connection_url import connection_url
 
 from sqlseed_web.messages import message as tr
+
+
+@cache
+def _macos_libc() -> ctypes.CDLL:
+    """Bind Darwin realpath once with its native pointer signature."""
+    library = ctypes.CDLL(None, use_errno=True)
+    library.realpath.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_char)]
+    library.realpath.restype = ctypes.c_void_p
+    return library
+
+
+def _canonical_file_path(filename: str) -> str:
+    """Resolve macOS filesystem spellings without folding distinct filenames."""
+    path = Path(filename).resolve()
+    if sys.platform != "darwin":
+        return str(path)
+    # Unlike Python's realpath, Darwin libc reads each component's actual
+    # filesystem name. It neither scans directories nor opens the database;
+    # closing an extra database descriptor would release active POSIX locks.
+    # Darwin sys/syslimits.h defines PATH_MAX=1024. Passing our own buffer
+    # avoids libc-allocated memory and retains ownership on every error path.
+    buffer = ctypes.create_string_buffer(1024)
+    if _macos_libc().realpath(os.fsencode(path), buffer):
+        return os.fsdecode(buffer.value)
+    error = ctypes.get_errno()
+    if error in {errno.ENOENT, errno.ENOTDIR}:
+        # Identity lookup must not create a missing database; existing callers
+        # retain their own create/no-create policy when opening it later.
+        return str(path)
+    # realpath's partial output on failure is not a valid target identity.
+    raise OSError(error, os.strerror(error), str(path))
 
 
 @dataclass(frozen=True)
@@ -86,7 +122,7 @@ def sqlite_target(target: str, conn_id: str) -> SQLiteTarget | None:
         # Re-encode the validated text so literal percent sequences are not
         # decoded twice by url2pathname; keep drive colons visible to it.
         filename = url2pathname(quote(filename, safe="/:"))
-    return SQLiteTarget("sqlite", str(Path(filename).resolve()))
+    return SQLiteTarget("sqlite", _canonical_file_path(filename))
 
 
 def existing_sqlite_connection_target(target: str, conn_id: str) -> str:

@@ -218,6 +218,17 @@ Ollama 使用 JSON 对象模式。服务明确拒绝该格式时，只进行一�
 CLI 命令另由 `sqlseed.cli_commands` entry point 注册。本插件不实现 provider 或
 column-mapper 注册 hooks，也不要求 Core 导入 AI 实现。
 
+## macOS 硬件估算
+
+AI MCP 模型列表区分 Apple 统一内存、Intel 共享显存与独立显存。Apple 统一内存
+不会被报告为独立显存，也不会与系统 RAM 相加。`unified_memory_budget_gb` 是静态
+启发式预算：`max(0, min(total_ram_gb * 0.75, total_ram_gb - 4))`，为系统预留
+至少 4 GiB 或 25% 内存。它不是实测可用内存，也不是 Metal 分配上限。
+
+仅在 macOS 上识别出 Apple GPU 后，模型筛选才使用该预算与既有最低 RAM、VRAM
+估算同时比较，最高返回 `capable`。该结果不代表已验证 Metal 加速、后端或模型支持，
+也不保证推理成功；其他应用占用和上下文大小可能增加实际内存需求。
+
 ## 依赖
 
 以下为 0.2.5 版本及其源码候选的依赖要求。源码开发时请在同一次解析中安装本地 Core 和插件。

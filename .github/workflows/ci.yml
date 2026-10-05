@@ -141,18 +141,26 @@ jobs:
         with:
           file: coverage.xml
 
-  # ── Platform compat: macOS + Windows on 3.12 ────────────────
+  # ── Platform compat: native Apple Silicon, Intel Mac and Windows ──
   test-compat:
     needs: lint
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: read
       id-token: write
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-15
+            python-version: "3.12"
+          - os: macos-15-intel
+            python-version: "3.12"
+          - os: macos-15
+            python-version: "3.13"
+          - os: windows-latest
+            python-version: "3.12"
 
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -161,11 +169,28 @@ jobs:
 
       - uses: ./.github/actions/setup-env
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
       - name: Test (macOS)
-        if: matrix.os == 'macos-latest'
+        if: runner.os == 'macOS'
         run: pytest --tb=short -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+
+      - name: Web and Pages regressions (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0, Node 24
+        with:
+          retries: 0
+          debug: false
+          script: |
+            const {execFileSync} = require('node:child_process');
+            const {readdirSync} = require('node:fs');
+            const directory = 'plugins/sqlseed-web/tests';
+            const tests = readdirSync(directory)
+              .filter(name => name.startsWith('test_') && name.endsWith('.cjs'))
+              .sort().map(name => `${directory}/${name}`);
+            execFileSync(process.execPath, ['--test', ...tests, 'tests/test_deploy_pages.cjs'], {
+              stdio: 'inherit'
+            });
 
       - name: Test with coverage (Windows)
         if: matrix.os == 'windows-latest'

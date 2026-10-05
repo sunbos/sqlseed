@@ -408,6 +408,8 @@ class LLMCallerMixin(_InteractionLoggingMixin):
                 error=str(e),
             )
             self._handle_llm_api_exception(e, model, streaming=False)
+        finally:
+            client.close()
 
         return self._parse_llm_completion(
             response,

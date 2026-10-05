@@ -30,6 +30,7 @@
 - SQLite URI 中解码后的 NUL、原始 TAB/CR/LF、无效 UTF-8 百分号编码也在注册前拒绝：SQLite 字符串截断与 Python URL 清理/替代解码不同，不能把异常编码折叠成另一目标。合法 UTF-8 与经过百分号编码的 TAB/CR/LF 文件名仍按真实路径识别。
 - URI 文件路径须经平台路径转换；Windows 的 `/C:/...` 与普通 `C:\...` 指向同一文件。百分号只解码一次，文件名中的字面 `%41` 不能被误识别为 `A`；真实文件别名回归覆盖空格、百分号及编码盘符。
 - 列表、打开和运行只接受当前 canonical `target_key`，不提供或接受旧身份 aliases。旧 URI hash 可能恰好属于另一个真实的 `file:` 前缀文件，不能仅凭当前连接写法推导旧 hash 并自动授权；没有可信身份版本的记录不得通过同 schema 或解析 target_label 猜库迁移。普通路径的旧 key 不变；身份发生变化的旧 URI 配置与运行仍保留可导出，由用户明确导入当前目标创建新配置，历史运行快照不改。历史记录未存原始连接或身份算法版本，旧错 hash 与真实字面 `file:` 路径 hash 的反向碰撞无法可靠区分，这是既有数据的限制，不自动推断或重绑。
+- macOS 的 SQLite 文件身份通过 Darwin libc `realpath(3)` 获取实际拼写，兼容文件系统认可的大小写和 Unicode 别名；不能直接 lower 路径或只凭文字归一化合并不同文件。身份查询不得打开再关闭数据库文件，否则可能释放同进程 SQLite 的 POSIX 锁；原生调用固定 ctypes 签名并使用 Python 持有的 PATH_MAX buffer，失败不采用部分输出。缺失路径不创建文件，其他查验失败不猜测身份；已保存的非规范别名历史不自动重绑，沿用明确导入策略。
 - Web locale 使用 Faker 风格（`zh_CN`/`en_US`）；`SUPPORTED_LOCALES` 与 `MimesisProvider.set_locale` 的映射保持一致。
 
 ## 后台任务与终态

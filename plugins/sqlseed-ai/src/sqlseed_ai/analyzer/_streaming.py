@@ -217,11 +217,11 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             raise RuntimeError("AIConfig must be initialized before calling LLM")
         client = get_openai_client(self._config)
         start_time = time.time()
-
-        if on_progress:
-            on_progress("connecting", {"model": model or self._config.model})
+        stream = None
 
         try:
+            if on_progress:
+                on_progress("connecting", {"model": model or self._config.model})
             kwargs = self._build_llm_kwargs(stream=True, model=model)
             kwargs["messages"] = messages
 
@@ -285,6 +285,12 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
                 error=str(e),
             )
             self._handle_llm_api_exception(e, model, streaming=True)
+        finally:
+            try:
+                if stream is not None:
+                    stream.close()
+            finally:
+                client.close()
 
     def _create_streaming_response(self, client: Any, kwargs: dict[str, Any], *, strict_json: bool) -> Any:
         """Apply local JSON sampling without changing cloud streaming dispatch."""

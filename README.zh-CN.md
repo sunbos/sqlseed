@@ -48,6 +48,9 @@ sqlseed 向已有数据库表中填充测试数据。它会为姓名、邮箱等
 Web 和规则型 MCP 均可独立安装，无需 CLI 或 AI。安装 AI 会自动安装 CLI 并增加 AI 命令。
 `sqlseed[all]` 是 Core 的一组选装依赖，不代表安装上面的全部四个包。
 
+macOS 用户可先阅读 [macOS 安装与开发指南](https://sunbos.github.io/sqlseed/zh-CN/macos/)，
+了解原生 Python、虚拟环境、Intel 依赖和桌面 MCP 路径配置。
+
 Core 已包含 Faker，下面的示例会明确选择它。
 Mimesis 是可选依赖，可通过 `python -m pip install 'sqlseed[mimesis]'` 安装。
 旧版本用户请先看[升级指南](https://sunbos.github.io/sqlseed/zh-CN/migration/)。

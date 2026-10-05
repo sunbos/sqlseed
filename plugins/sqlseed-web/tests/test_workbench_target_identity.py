@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+import ctypes
+import errno
 import hashlib
 import json
+import os
 import re
 import sqlite3
+import subprocess
 import sys
+import unicodedata
 import warnings
 from collections.abc import Iterator
 from contextlib import closing
@@ -98,6 +103,165 @@ def test_real_file_aliases_share_configuration_group_and_write_admission(
     assert equivalent["target_key"] == original["target_key"]
     assert equivalent["target_label"] == str(database.resolve())
     _assert_shared_write_admission(registry, one, two)
+
+
+@pytest.mark.parametrize("spelling", ["case", "unicode", "parent_case"])
+@pytest.mark.parametrize("as_uri", [False, True])
+def test_filesystem_spelling_aliases_share_saved_identity_and_serial_write_admission(
+    registry: UIState, tmp_path: Path, spelling: str, as_uri: bool, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    directory = tmp_path / "Orders Folder"
+    directory.mkdir()
+    database = directory / "Café Orders.db"
+    with sqlite_connection(database) as db:
+        db.executescript("CREATE TABLE items(id INTEGER PRIMARY KEY, value INTEGER); INSERT INTO items VALUES(1, 7)")
+    if spelling == "case":
+        alias = database.with_name(database.name.lower())
+    elif spelling == "unicode":
+        alias = database.with_name(unicodedata.normalize("NFD", database.name))
+    else:
+        alias = directory.with_name(directory.name.lower()) / database.name
+    if not alias.exists() or not database.samefile(alias):
+        pytest.skip("The test filesystem treats these spellings as distinct paths")
+    target = f"sqlite:///{alias.as_uri()}?uri=true&mode=rw" if as_uri else str(alias)
+    one = registry.add_connection(str(database), provider="base", require_existing=True)
+    two = registry.add_connection(target, provider="base", require_existing=True)
+    assert one.orchestrator.query("SELECT value FROM items") == two.orchestrator.query("SELECT value FROM items")
+    schema, equivalent = inspect_connection(one), inspect_connection(two)
+    assert schema["target_key"] == historical_key("sqlite", str(database.resolve()))
+    assert equivalent["target_key"] == schema["target_key"]
+    assert equivalent["target_label"] == schema["target_label"]
+    _assert_shared_write_admission(registry, one, two)
+    registry.complete_job(registry.recent_jobs()[0].job_id)
+    registry.create_job(two.conn_id, "workbench", "alias after completion")
+    with pytest.raises(ConnectionBusyError, match="此数据库"):
+        registry.create_job(one.conn_id, "workbench", "original while alias runs")
+    registry.complete_job(registry.recent_jobs()[0].job_id)
+
+    document = normalize_document(one, {"provider": "base", "tables": [{"name": "items", "count": 2}]})
+    store = WorkspaceStore(tmp_path / "workspace.db")
+    draft = store.save_draft(
+        {
+            "name": "Original spelling",
+            "document": document,
+            "view_state": {},
+            **{key: schema[key] for key in ("target_key", "target_label", "schema_hash")},
+        }
+    )
+    run = store.create_run({**draft, "id": "original-spelling-run", "draft_id": draft["id"], "status": "done"})
+    checked = check_document(two, document, schema["schema_hash"])
+    assert checked["ok"], checked
+    _checked_saved(two, store, draft["id"], draft["revision"], schema["schema_hash"], checked["config_hash"])
+    assert store.get_draft(draft["id"]) == draft
+    assert store.get_run(run["id"]) == run
+
+    from sqlseed_web import runtime_session
+
+    monkeypatch.setattr(runtime_session, "state", registry)
+    snapshot = runtime_session.export_session()
+    runtime_session.close_session()
+    assert runtime_session.restore_session(snapshot)["restored_connections"] == 2
+    assert registry.get_connection(two.conn_id).target == target
+    assert inspect_connection(registry.get_connection(two.conn_id))["target_key"] == schema["target_key"]
+    _assert_shared_write_admission(registry, registry.get_connection(one.conn_id), registry.get_connection(two.conn_id))
+
+
+@pytest.mark.parametrize("other_name", ["orders.db", "cafe\u0301.db"])
+def test_distinct_case_or_unicode_files_are_never_merged(registry: UIState, tmp_path: Path, other_name: str) -> None:
+    first_name = "Orders.db" if other_name == "orders.db" else "café.db"
+    first, second = tmp_path / first_name, tmp_path / other_name
+    with sqlite_connection(first) as db:
+        db.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(7)")
+    if second.exists():
+        pytest.skip("The test filesystem aliases these spellings rather than storing distinct files")
+    with sqlite_connection(second) as db:
+        db.executescript("CREATE TABLE items(value INTEGER); INSERT INTO items VALUES(99)")
+    assert not first.samefile(second)
+    one = registry.add_connection(str(first), provider="base")
+    two = registry.add_connection(str(second), provider="base")
+    assert one.orchestrator.query("SELECT value FROM items") == [{"value": 7}]
+    assert two.orchestrator.query("SELECT value FROM items") == [{"value": 99}]
+    assert inspect_connection(one)["target_key"] != inspect_connection(two)["target_key"]
+    registry.create_job(one.conn_id, "workbench", "first")
+    registry.create_job(two.conn_id, "workbench", "independent")
+
+
+def test_missing_sqlite_path_identity_does_not_create_the_file(tmp_path: Path) -> None:
+    from sqlseed_web.sqlite_target import sqlite_target
+
+    database = tmp_path / "missing" / "New Database.db"
+    target = sqlite_target(str(database), "not-yet-open")
+    assert target is not None
+    assert target.value == str(database.resolve())
+    assert not database.exists()
+
+
+def test_resolving_identity_does_not_release_an_active_sqlite_write_lock(database: Path) -> None:
+    from sqlseed_web.sqlite_target import sqlite_target
+
+    probe = """import sqlite3, sys
+db = sqlite3.connect(sys.argv[1], timeout=0)
+try:
+    db.execute('BEGIN IMMEDIATE')
+except sqlite3.OperationalError as error:
+    print(str(error))
+else:
+    print('acquired conflicting write lock')
+finally:
+    db.close()
+"""
+
+    def other_writer() -> str:
+        result = subprocess.run(
+            [sys.executable, "-c", probe, str(database)], capture_output=True, text=True, check=True, timeout=10
+        )
+        return result.stdout.strip()
+
+    with sqlite_connection(database) as db:
+        db.execute("BEGIN IMMEDIATE")
+        assert other_writer() == "database is locked"
+        assert sqlite_target(str(database), "active-writer") is not None
+        assert other_writer() == "database is locked"
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Darwin native path resolution")
+def test_macos_identity_does_not_require_listing_the_parent_directory(tmp_path: Path) -> None:
+    from sqlseed_web.sqlite_target import sqlite_target
+
+    if os.geteuid() == 0:
+        pytest.skip("The superuser bypasses directory read permissions")
+    directory = tmp_path / "Private Folder"
+    directory.mkdir()
+    database = directory / "Orders.db"
+    with sqlite_connection(database) as db:
+        db.execute("CREATE TABLE items(value INTEGER)")
+    alias = directory.with_name(directory.name.lower()) / database.name.lower()
+    if not alias.exists() or not alias.samefile(database):
+        pytest.skip("The test filesystem treats case spellings as distinct paths")
+    directory.chmod(0o311)
+    try:
+        with pytest.raises(PermissionError):
+            list(directory.iterdir())
+        assert sqlite_target(str(alias), "alias") == sqlite_target(str(database), "original")
+    finally:
+        directory.chmod(0o700)
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="Darwin realpath error boundary")
+def test_failed_macos_path_lookup_rejects_partial_identity(
+    registry: UIState, database: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from sqlseed_web.sqlite_target import _macos_libc
+
+    def fail_lookup(filename: bytes, buffer: ctypes.Array[ctypes.c_char]) -> None:
+        buffer.value = b"/partial/path"
+        ctypes.set_errno(errno.EACCES)
+
+    monkeypatch.setattr(_macos_libc(), "realpath", fail_lookup)
+    with pytest.raises(PermissionError) as failed:
+        registry.add_connection(str(database), provider="base")
+    assert failed.value.errno == errno.EACCES
+    assert registry.list_connections() == []
 
 
 def test_percent_filename_and_decoded_filename_have_distinct_contents_and_write_admission(

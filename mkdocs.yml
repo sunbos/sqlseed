@@ -50,6 +50,7 @@ nav:
   - User Guide:
       - Web Workbench: web-workbench.md
       - Python & CLI: guide.md
+      - macOS Setup: macos.md
       - Upgrading: migration.md
       - Support & Limits: maintainable-release.md
   - Reference:
@@ -93,6 +94,7 @@ plugins:
             User Guide: 使用指南
             Web Workbench: Web 工作台
             Python & CLI: Python 与命令行
+            macOS Setup: macOS 安装与开发
             Upgrading: 升级说明
             Support & Limits: 支持范围与限制
             Reference: 参考文档

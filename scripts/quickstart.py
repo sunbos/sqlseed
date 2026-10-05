@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 import urllib.request
@@ -46,6 +47,11 @@ def check_ollama() -> bool:
 def sqlseed_cmd(python: str) -> list[str]:
     """Build a sqlseed CLI invocation."""
     return [python, "-c", "from sqlseed_cli.main import cli; cli()", "--"]
+
+
+def shell_command(command: list[str]) -> str:
+    """Quote a command for cmd.exe on Windows or a POSIX shell elsewhere."""
+    return subprocess.list2cmdline(command) if os.name == "nt" else shlex.join(command)
 
 
 def _fill_data(python: str) -> None:
@@ -142,14 +148,37 @@ def main() -> None:
             else:
                 python = str(venv_path / "bin" / "python")
 
+            if not Path(python).is_file() or not (venv_path / "pyvenv.cfg").is_file():
+                raise ValueError(
+                    f"The virtual environment at {venv_path} cannot be used on this platform. "
+                    "Rename it to keep a backup, then recreate the virtual environment with this computer's Python."
+                )
+
             print("[2/5] Installing dependencies (may take a few minutes on first run)...")
-            run([python, "-m", "pip", "install", "-q", "-e", f"{PROJECT_ROOT}[dev,all]"])
-            run([python, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT / "plugins" / "sqlseed-ai")])
-            run([python, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT / "plugins" / "mcp-server-sqlseed")])
+            run(
+                [
+                    python,
+                    "-m",
+                    "pip",
+                    "install",
+                    "-q",
+                    "-e",
+                    f"{PROJECT_ROOT}[mimesis,postgres]",
+                    "-e",
+                    str(PROJECT_ROOT / "plugins" / "sqlseed-cli"),
+                    "-e",
+                    f"{PROJECT_ROOT / 'plugins' / 'sqlseed-ai'}[mcp]",
+                    "-e",
+                    str(PROJECT_ROOT / "plugins" / "mcp-server-sqlseed"),
+                    "-e",
+                    str(PROJECT_ROOT / "plugins" / "sqlseed-web"),
+                ]
+            )
+            run([python, "-m", "pip", "check"])
         except subprocess.CalledProcessError as e:
             print(f"\nERROR: Command failed (exit {e.returncode}): {' '.join(e.cmd)}")
             sys.exit(1)
-        except OSError as e:
+        except (OSError, ValueError) as e:
             print(f"\nERROR: Failed to create venv or run pip: {e}")
             sys.exit(1)
 
@@ -175,11 +204,14 @@ def main() -> None:
     print("=" * 50)
     print()
     print(f"  Database:    {DB_PATH}")
-    cli_call = 'python -c "from sqlseed_cli.main import cli; cli()" --'
-    print(f"  Preview:     {cli_call} preview {DB_PATH} -t users -n 5")
-    print(f"  Inspect:     {cli_call} inspect {DB_PATH} --show-mapping")
-    print(f"  AI Suggest:  {cli_call} ai-suggest {DB_PATH} -t users -o config.yaml")
-    print("  MCP Server:  mcp-server-sqlseed")
+    if os.name == "nt":
+        print("  Commands below use cmd.exe syntax.")
+    cli_call = sqlseed_cmd(python)
+    ai_call = [*cli_call, "ai-suggest", str(DB_PATH), "-t", "users", "-o", "config.yaml"]
+    print(f"  Preview:     {shell_command([*cli_call, 'preview', str(DB_PATH), '-t', 'users', '-n', '5'])}")
+    print(f"  Inspect:     {shell_command([*cli_call, 'inspect', str(DB_PATH), '--show-mapping'])}")
+    print(f"  AI Suggest:  {shell_command(ai_call)}")
+    print(f"  MCP Server:  {shell_command([python, '-m', 'mcp_server_sqlseed'])}")
     print()
 
 

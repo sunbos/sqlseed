@@ -11,8 +11,10 @@ from __future__ import annotations
 import ctypes
 import json
 import platform
+import re
 import subprocess
 import time
+from math import isfinite
 from typing import Any, NamedTuple
 
 from sqlseed._utils.logger import get_logger
@@ -200,8 +202,19 @@ def _detect_gpu_nvidia() -> list[dict[str, Any]]:
         return []
 
 
+def _video_memory_mb(value: object) -> int:
+    """Parse a profiler memory quantity without trusting malformed card fields."""
+    if not isinstance(value, str):
+        return 0
+    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(MB|GB)", value.strip(), re.IGNORECASE)
+    if match is None:
+        return 0
+    size_mb = float(match[1]) * (1024 if match[2].upper() == "GB" else 1)
+    return int(size_mb) if isfinite(size_mb) else 0
+
+
 def _detect_gpu_macos() -> list[dict[str, Any]]:
-    """Detect Apple Silicon GPU via system_profiler. macOS only."""
+    """Detect Apple, Intel and discrete GPUs via macOS system_profiler."""
     try:
         result = subprocess.run(
             ["system_profiler", "SPDisplaysDataType", "-json"],
@@ -214,26 +227,42 @@ def _detect_gpu_macos() -> list[dict[str, Any]]:
             return []
 
         data = json.loads(result.stdout)
+        if not isinstance(data, dict):
+            return []
         displays = data.get("SPDisplaysDataType", [])
+        if not isinstance(displays, list):
+            return []
         gpus: list[dict[str, Any]] = []
         for gpu_info in displays:
+            if not isinstance(gpu_info, dict):
+                continue
             name = gpu_info.get("sppci_model", "Unknown GPU")
-            vram_str = gpu_info.get("spdisplays_vram", "")
-            vram_mb = 0
-            if vram_str:
-                parts = vram_str.split()
-                if len(parts) >= 2:
-                    val = int(parts[0])
-                    unit = parts[1].upper()
-                    vram_mb = val * 1024 if "GB" in unit else val
+            if not isinstance(name, str):
+                name = "Unknown GPU"
+            vendor_label = str(gpu_info.get("spdisplays_vendor") or name).lower()
+            vendor = next((v for v in ("apple", "intel", "amd", "nvidia") if v in vendor_label), "unknown")
+            if vendor == "apple":
+                memory_type = "unified"
+                vram_mb = 0
+            else:
+                memory_type = "shared" if "spdisplays_vram_shared" in gpu_info else "dedicated"
+                vram_mb = next(
+                    (
+                        size
+                        for key in ("spdisplays_vram", "spdisplays_vram_shared", "_spdisplays_vram")
+                        if (size := _video_memory_mb(gpu_info.get(key))) > 0
+                    ),
+                    0,
+                )
 
             gpus.append(
                 {
                     "name": name,
                     "vram_total_mb": vram_mb,
-                    "vram_free_mb": 0,  # Apple Silicon uses unified memory; discrete VRAM is always 0
+                    "vram_free_mb": 0,  # system_profiler does not report free VRAM
                     "vram_total_gb": round(vram_mb / 1024, 1),
-                    "vendor": "apple",
+                    "vendor": vendor,
+                    "memory_type": memory_type,
                 }
             )
         return gpus
@@ -252,6 +281,13 @@ def _detect_gpus() -> list[dict[str, Any]]:
     return []
 
 
+def _has_apple_unified_memory(hw: dict[str, Any]) -> bool:
+    """Require an identified Apple GPU on macOS, including under Rosetta."""
+    return hw.get("platform", {}).get("system") == "Darwin" and any(
+        gpu.get("vendor") == "apple" and gpu.get("memory_type") == "unified" for gpu in hw.get("gpus", [])
+    )
+
+
 # ── Public API ───────────────────────────────────────────────────────
 
 
@@ -262,7 +298,8 @@ def detect_hardware() -> dict[str, Any]:
         platform: {system, release, machine}
         ram: {total_gb, available_gb}
         gpus: [{name, vram_total_mb, vram_free_mb, vram_total_gb, vendor, ...}]
-        max_vram_gb: float  (max VRAM across all GPUs, 0 if no GPU)
+        max_vram_gb: float (largest reported non-unified VRAM quantity)
+        unified_memory_budget_gb: float (heuristic budget, not measured free VRAM)
     """
     if _HardwareCache.data is not None:
         cached_time, cached_result = _HardwareCache.data
@@ -271,9 +308,9 @@ def detect_hardware() -> dict[str, Any]:
 
     ram = _detect_system_ram()
     gpus = _detect_gpus()
-    max_vram = max((g.get("vram_total_gb", 0) for g in gpus), default=0)
+    max_vram = max((g.get("vram_total_gb", 0) for g in gpus if g.get("memory_type") != "unified"), default=0)
 
-    result = {
+    result: dict[str, Any] = {
         "platform": {
             "system": platform.system(),
             "release": platform.release(),
@@ -282,7 +319,13 @@ def detect_hardware() -> dict[str, Any]:
         "ram": ram,
         "gpus": gpus,
         "max_vram_gb": max_vram,
+        "unified_memory_budget_gb": 0.0,
     }
+    if _has_apple_unified_memory(result):
+        # A static screening heuristic, not Metal's runtime allocation limit.
+        # Reserve at least 4 GiB / 25% for the OS and other applications.
+        total_ram = ram["total_gb"]
+        result["unified_memory_budget_gb"] = max(0.0, min(total_ram * 0.75, total_ram - 4.0))
 
     _HardwareCache.data = (time.monotonic(), result)
     logger.info(
@@ -340,6 +383,11 @@ def evaluate_model_status(
         return "recommended"
     if max_vram >= req.min_vram_gb:
         return "capable"
+    if _has_apple_unified_memory(hw):
+        budget = hw.get("unified_memory_budget_gb", 0)
+        # RAM and GPU allocations share this budget; never add them or grant
+        # a recommendation without verifying the backend and actual model.
+        return "capable" if budget >= max(req.min_ram_gb, req.min_vram_gb) else "insufficient"
     if total_ram >= req.min_ram_gb and max_vram == 0:
         return "cpu_only"
     if total_ram >= req.min_ram_gb:

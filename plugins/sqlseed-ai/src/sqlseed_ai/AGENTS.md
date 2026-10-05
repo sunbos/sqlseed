@@ -46,6 +46,7 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - `SchemaAnalyzer` 是 mixin 组合的 package：`_caller.py` 管请求与模型 fallback，`_streaming.py` 管流式分派，`_tool_calling.py` 管协议，`_context.py` 管上下文，`_json_parser.py` 管解析和分析入口。修改放入对应职责文件。
 - 单表上下文明确要求一个 JSON 对象且只配置请求表，保留标识符原文；数据库中的其他表名仅作参考，不扩张输出范围。该提示不能替代响应与缓存的目标身份校验。
 - OpenAI client 与异常类型统一通过 [_client.py](_client.py)；不要在 `analyzer/` 直接导入 `openai` 或重复构造 timeout。环境默认配置走 `AIConfig.from_env()`。
+- Analyzer 每次请求创建的 client 由该请求在 `finally` 中关闭；stream 也须关闭，包括严格解析失败、连接前进度回调失败与请求异常。不能依赖 SDK 析构释放自建 HTTP transport。urllib 探测捕获 `HTTPError` 时关闭异常持有的 response，保留原有错误/降级语义。
 - `_client.build_openai_client()` 由 analyzer 与 runtime 工厂共用；仅对明确的 loopback host（`localhost`、回环 IPv4/IPv6 地址）挂载直连路由。保留环境 TLS CA、远程代理和 SDK 默认连接池/重定向设置，不通过全局 `NO_PROXY` 或 `trust_env=False` 改变其它服务。
 - `AIConfig.resolve_*()` 返回解析值，不能改写公开配置字段；调用方必须使用返回值。`timeout=0` 和 `max_tokens=0` 表示自动解析，不能作为真实请求的零预算。
 - `gemma4` 协议仅 Google AI Studio 支持；`openai` 支持 Google AI Studio / OpenAI-compatible；LM Studio / Ollama 或不支持的请求协议回退 `none`。两个工具协议共用 [_tools.py](_tools.py) 的 `GEMMA_TOOLS`。
@@ -70,6 +71,7 @@ Layer 表示架构层；healer 的 Level 表示 LLM 修复粒度，二者不能�
 - `ai-analyze` 无 `--output` 时 stdout 交付 YAML，模型和进度提示写 stderr。共享 `runtime.py` 不承担这些终端行为。
 - [mcp.py](mcp.py) 提供 AI YAML、Gemma 分析、agent fill 与模型列表；保持既有工具名及各自的字符串 / dict 返回形状。它直接使用 AI Python 服务，不调用 CLI 私有实现。
 - AI MCP 的 agent fill 局部传入 `NullProgressBackend`，stdout 留给 JSON-RPC；不要全局重定向 stdout 或替换 Core progress factory。模型列表包含硬件评估与本地服务探测，不能当作纯静态枚举或真实推理成功证明。
+- macOS 硬件探测保留 Intel/AMD/Apple 厂商与共享/独立/统一内存区别；单个损坏的 profiler 条目不能丢弃其余显卡。Apple 统一内存不得计为独立 VRAM 或与 RAM 相加；仅在 Darwin 且识别出 Apple GPU 后采用预留至少 4 GiB/25% 的静态预算，最高评为 `capable`，MCP 输出明确该估算不验证 backend/model 支持。
 
 ## Hooks 与集成
 
