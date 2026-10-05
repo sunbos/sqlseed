@@ -24,6 +24,7 @@ TOPICS = (
     "",
     "guide/",
     "web-workbench/",
+    "macos/",
     "migration/",
     "maintainable-release/",
     "api/",
@@ -234,6 +235,41 @@ def test_search_results_use_only_the_current_language(docs_site: Path, language:
         settings = json.loads(documents[page].config_text)
         base_url = urljoin(SITE_URL + page, settings["base"].rstrip("/") + "/")
         assert base_url == SITE_URL + locale_root
+
+
+@pytest.mark.parametrize(
+    ("language", "navigation_label", "heading", "intro"),
+    [
+        pytest.param("en", "macOS Setup", "macOS setup", "Use these steps in Terminal with zsh or Bash.", id="en"),
+        pytest.param(
+            "zh-CN", "macOS 安装与开发", "macOS 安装与开发", "以下步骤在 Terminal 的 zsh 或 Bash 中执行", id="zh-CN"
+        ),
+    ],
+)
+def test_macos_setup_has_localized_navigation_article_and_search_content(
+    docs_site: Path, language: str, navigation_label: str, heading: str, intro: str
+) -> None:
+    locale_root = _page_path(language, "")
+    page = _page_path(language, "macos/")
+    home = _document(docs_site, locale_root)
+    document = _document(docs_site, page)
+    assert any(
+        " ".join(link.text.split()) == navigation_label and _internal_target(locale_root, link.href) == (page, "")
+        for link in home.links
+    )
+    assert [text.removesuffix("¶") for text in document.headings] == [heading]
+    assert {
+        "choose-python-and-its-architecture",
+        "create-a-fresh-environment",
+        "intel-macs-and-mcp-dependencies",
+        "postgresql-tests",
+    } <= document.ids
+    article = (docs_site / page / "index.html").read_text(encoding="utf-8")
+    assert intro in " ".join(article.split())
+    index = json.loads((docs_site / locale_root / "search/search_index.json").read_text(encoding="utf-8"))
+    search_entry = next(entry for entry in index["docs"] if entry["location"] == "macos/")
+    assert search_entry["title"] == heading
+    assert intro in " ".join(search_entry["text"].split())
 
 
 def test_published_internal_links_and_assets_exist(docs_site: Path) -> None:

@@ -1,0 +1,6 @@
+# cryptography's declared build dependencies for Intel macOS, where the
+# upstream project no longer distributes wheels. Keep runtime versions locked.
+-c requirements-ci.txt
+maturin>=1.14.1,<2
+cffi>=2.0.0
+setuptools

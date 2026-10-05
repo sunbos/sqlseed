@@ -52,6 +52,9 @@ Web and the rule-driven MCP server can each be installed without CLI or AI.
 Installing AI also installs CLI and adds its AI commands. The Core `sqlseed[all]`
 extra groups optional dependencies; it does not install all four packages above.
 
+On macOS, start with the [macOS setup guide](https://sunbos.github.io/sqlseed/macos/)
+for native Python, virtual environments, Intel dependencies, and desktop MCP paths.
+
 Faker is included with Core and is selected explicitly in the examples below.
 Mimesis is optional: install it with `python -m pip install 'sqlseed[mimesis]'`.
 For an older installation, see the [upgrade guide](https://sunbos.github.io/sqlseed/migration/).

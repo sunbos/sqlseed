@@ -8,7 +8,11 @@ First off, thank you for considering contributing to sqlseed! This document outl
 
 - Python 3.10 or higher
 - Git
+- Node.js 24 for frontend and Pages deployment tests
 - (Optional) Docker for integration tests
+
+For native Python, Intel dependency builds, desktop entry points, and local
+PostgreSQL on macOS, follow the [macOS setup guide](docs/macos.md).
 
 ### Setup
 
@@ -18,13 +22,21 @@ First off, thank you for considering contributing to sqlseed! This document outl
    cd sqlseed
    ```
 
-2. Create a virtual environment:
+2. Create a virtual environment with your chosen Python 3.10+ interpreter.
+   On macOS/Linux:
    ```bash
-   python -m venv .venv
-   source .venv/bin/activate  # Linux/macOS
-   # or
-   .venv\Scripts\activate  # Windows
+   python3 -m venv .venv
+   source .venv/bin/activate
    ```
+
+   On Windows, using PowerShell:
+   ```powershell
+   py -3 -m venv .venv
+   .\.venv\Scripts\Activate.ps1
+   ```
+
+   Recreate virtual environments when moving between operating systems or
+   architectures; preserve the old directory under an unused backup name first.
 
 3. Install development dependencies:
    ```bash

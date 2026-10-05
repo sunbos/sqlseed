@@ -19,6 +19,7 @@ required", not "online/offline". This package requires an LLM runtime.
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.request
 from typing import Any
 
@@ -30,7 +31,12 @@ except ImportError as _exc:  # pragma: no cover - import error path
     raise ImportError("mcp SDK not installed. Install with: pip install 'sqlseed-ai[mcp]'") from _exc
 
 from sqlseed_ai import AIBackend, AIConfig, AiConfigRefiner, AISuggestionFailedError, GemmaModel, SchemaAnalyzer
-from sqlseed_ai._hardware import MODEL_REQUIREMENTS, detect_hardware, evaluate_model_status
+from sqlseed_ai._hardware import (
+    MODEL_REQUIREMENTS,
+    _has_apple_unified_memory,
+    detect_hardware,
+    evaluate_model_status,
+)
 
 from sqlseed import ColumnConfig, DataOrchestrator
 from sqlseed._utils import paths
@@ -301,8 +307,9 @@ def _check_local_backend(backend_id: str, url: str) -> dict[str, Any]:
             data = json.loads(resp.read().decode())
             loaded = [m.get("id", "unknown") for m in data.get("data", []) if m.get("id")]
             reachable = True
-    except (OSError, ValueError):
-        pass
+    except (OSError, ValueError) as error:
+        if isinstance(error, urllib.error.HTTPError):
+            error.close()
 
     if reachable and loaded:
         reason = f"{len(loaded)} model(s) loaded"
@@ -358,12 +365,15 @@ def _build_models(hw: dict[str, Any]) -> list[dict[str, Any]]:
     for member in GemmaModel:
         status = evaluate_model_status(member.value, hw)
         req = MODEL_REQUIREMENTS.get(member.value)
+        status_description = _STATUS_ICONS.get(status, status)
+        if _has_apple_unified_memory(hw) and status != "cloud_only":
+            status_description += "; heuristic unified-memory budget, backend/model support not verified"
         models.append(
             {
                 "id": member.value,
                 "display_name": member.display_name,
                 "status": status,
-                "status_description": _STATUS_ICONS.get(status, status),
+                "status_description": status_description,
                 "local_only": member.is_local_only,
                 "requirements": {
                     "min_ram_gb": req.min_ram_gb if req else 0,
@@ -425,6 +435,7 @@ def sqlseed_list_gemma_models() -> dict[str, Any]:
             "ram": hw["ram"],
             "gpus": hw["gpus"],
             "max_vram_gb": hw["max_vram_gb"],
+            "unified_memory_budget_gb": hw.get("unified_memory_budget_gb", 0.0),
         },
     }
 

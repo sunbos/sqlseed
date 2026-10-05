@@ -18,6 +18,7 @@ runs:
         cache-dependency-path: |
           .github/requirements-ci.txt
           .github/requirements-bootstrap.txt
+          .github/requirements-macos-build.txt
 
     - uses: ./.github/actions/install-ci-deps
 

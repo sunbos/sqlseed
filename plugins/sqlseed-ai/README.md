@@ -166,6 +166,19 @@ separate from AutoHeal's full schema fingerprint. Malformed cache metadata
 or configuration containers are treated as cache misses. Review model output before
 writing data.
 
+## Hardware estimates on macOS
+
+The AI MCP model list distinguishes Apple unified memory, Intel shared graphics
+memory, and dedicated GPU memory. Apple unified RAM is not reported as dedicated
+VRAM or added to system RAM. `unified_memory_budget_gb` is a static heuristic:
+`max(0, min(total_ram_gb * 0.75, total_ram_gb - 4))`, reserving at least 4 GiB or
+25% for the system. It is not measured free memory or a Metal allocation limit.
+
+For an identified Apple GPU on macOS, model screening compares that budget with
+both existing minimum RAM and VRAM estimates and reports at most `capable`.
+This does not verify Metal acceleration, backend/model support, or successful
+inference; loaded applications and context size can require more memory.
+
 ## Requirements
 
 These metadata requirements apply to version 0.2.5 and its source candidates.

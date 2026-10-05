@@ -12,6 +12,8 @@ These tools require the ``mcp`` SDK (install with ``pip install
 
 from __future__ import annotations
 
+from importlib import import_module
+from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import pytest
@@ -20,14 +22,19 @@ import yaml
 # Only absent optional top-level packages may skip collection. A missing
 # internal module or required SDK means the installed environment is broken.
 try:
+    import_module("sqlseed_ai")
+    if find_spec("mcp") is None:
+        pytest.skip("sqlseed-ai[mcp] not installed", allow_module_level=True)
+
     from sqlseed_ai.mcp import (
+        _build_models,
         sqlseed_ai_generate_yaml,
         sqlseed_gemma4_agent_fill,
         sqlseed_gemma4_analyze,
         sqlseed_list_gemma_models,
     )
 except ModuleNotFoundError as exc:
-    if exc.name not in {"sqlseed_ai", "mcp"}:
+    if exc.name != "sqlseed_ai":
         raise
     pytest.skip("sqlseed-ai[mcp] not installed", allow_module_level=True)
 
@@ -39,6 +46,38 @@ from tests.sqlite_helpers import sqlite_connection
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
+
+
+def test_unified_memory_model_status_is_explicitly_an_estimate() -> None:
+    """Hardware screening must not imply a verified Metal/backend model run."""
+    hardware = {
+        "platform": {"system": "Darwin"},
+        "ram": {"total_gb": 8.0},
+        "max_vram_gb": 0.0,
+        "unified_memory_budget_gb": 4.0,
+        "gpus": [{"vendor": "apple", "memory_type": "unified"}],
+    }
+    model = next(model for model in _build_models(hardware) if model["id"] == "gemma-4-e2b-it")
+    assert model["status"] == "capable"
+    assert "heuristic unified-memory budget" in model["status_description"]
+    assert "not verified" in model["status_description"]
+
+
+def test_model_list_includes_the_separate_unified_memory_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The MCP response exposes the heuristic separately from reported VRAM."""
+    hardware = {
+        "platform": {"system": "Darwin"},
+        "ram": {"total_gb": 8.0},
+        "max_vram_gb": 0.0,
+        "unified_memory_budget_gb": 4.0,
+        "gpus": [{"vendor": "apple", "memory_type": "unified"}],
+    }
+    monkeypatch.setattr("sqlseed_ai.mcp.detect_hardware", lambda: hardware)
+    monkeypatch.setattr("sqlseed_ai.mcp._build_backends", lambda config: [])
+
+    result = sqlseed_list_gemma_models()
+    assert result["hardware"]["unified_memory_budget_gb"] == 4.0
+    assert result["hardware"]["max_vram_gb"] == 0.0
 
 
 @pytest.fixture(name="no_ai_requests")

@@ -141,18 +141,31 @@ jobs:
         with:
           file: coverage.xml
 
-  # ── Platform compat: macOS + Windows on 3.12 ────────────────
+  # ── Platform compat: native Apple Silicon, Intel Mac and Windows ──
   test-compat:
+    name: test-compat (${{ matrix.display-name }})
     needs: lint
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     permissions:
       contents: read
       id-token: write
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest]
+        include:
+          - os: macos-15
+            python-version: "3.12"
+            display-name: macos-15, 3.12
+          - os: macos-15-intel
+            python-version: "3.12"
+            display-name: macos-15-intel, 3.12
+          - os: macos-15
+            python-version: "3.13"
+            display-name: macos-15, 3.13
+          - os: windows-latest
+            python-version: "3.12"
+            display-name: windows-latest
 
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -161,11 +174,40 @@ jobs:
 
       - uses: ./.github/actions/setup-env
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
 
-      - name: Test (macOS)
-        if: matrix.os == 'macos-latest'
-        run: pytest --tb=short -q -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+      - name: Test with coverage (macOS)
+        if: runner.os == 'macOS'
+        run: >-
+          pytest
+          --cov=sqlseed --cov=sqlseed_ai --cov=sqlseed_cli --cov=mcp_server_sqlseed --cov=sqlseed_web
+          --cov-report=xml:coverage-macos.xml --cov-report=term-missing
+          -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning
+          --tb=short -q
+
+      - name: Upload native macOS coverage (3.12 only)
+        if: runner.os == 'macOS' && matrix.python-version == '3.12'
+        uses: ./.github/actions/upload-coverage
+        with:
+          file: coverage-macos.xml
+          name: ${{ matrix.os }}-python-${{ matrix.python-version }}
+
+      - name: Web and Pages regressions (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0, Node 24
+        with:
+          retries: 0
+          debug: false
+          script: |
+            const {execFileSync} = require('node:child_process');
+            const {readdirSync} = require('node:fs');
+            const directory = 'plugins/sqlseed-web/tests';
+            const tests = readdirSync(directory)
+              .filter(name => name.startsWith('test_') && name.endsWith('.cjs'))
+              .sort().map(name => `${directory}/${name}`);
+            execFileSync(process.execPath, ['--test', ...tests, 'tests/test_deploy_pages.cjs'], {
+              stdio: 'inherit'
+            });
 
       - name: Test with coverage (Windows)
         if: matrix.os == 'windows-latest'
@@ -182,6 +224,21 @@ jobs:
         with:
           file: coverage-windows.xml
           name: windows-python-3.12
+
+  # Preserve the required check name while covering both native Mac architectures.
+  # A skipped or cancelled matrix must fail this gate, not bypass protection.
+  macos-compat-gate:
+    name: test-compat (macos-latest)
+    needs: test-compat
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require the complete compatibility matrix
+        shell: python
+        run: |
+          import sys
+          sys.exit("${{ needs.test-compat.result }}" != "success")
 
   # ── Integration tests: PostgreSQL 16 (real DB) ──────────────
   integration:
@@ -245,7 +302,7 @@ jobs:
 
   docs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, test, test-compat, integration, property-tests, packages]
+    needs: [lint, test, test-compat, macos-compat-gate, integration, property-tests, packages]
     permissions:
       actions: read
       contents: read

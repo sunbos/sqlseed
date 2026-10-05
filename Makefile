@@ -10,7 +10,8 @@ install: ## Install production dependencies
 	pip install -e .
 
 dev-install: ## Install development dependencies
-	python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+	python -m pip install -e ".[dev,all,docs]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+	python -m pip check
 
 lint: ## Run ruff linter
 	ruff check src/ tests/ plugins/ examples/

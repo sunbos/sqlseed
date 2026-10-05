@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import subprocess
 import sys
 import urllib.request
@@ -46,6 +47,15 @@ def check_ollama() -> bool:
 def sqlseed_cmd(python: str) -> list[str]:
     """Build a sqlseed CLI invocation."""
     return [python, "-c", "from sqlseed_cli.main import cli; cli()", "--"]
+
+
+def shell_command(command: list[str]) -> str:
+    """Quote a command for PowerShell on Windows or a POSIX shell elsewhere."""
+    if os.name != "nt":
+        return shlex.join(command)
+    # PowerShell treats ASCII and smart single quotation marks as delimiters.
+    escapes = str.maketrans({quote: quote * 2 for quote in "'\u2018\u2019\u201a\u201b"})
+    return "& " + " ".join(f"'{argument.translate(escapes)}'" for argument in command)
 
 
 def _fill_data(python: str) -> None:
@@ -95,6 +105,50 @@ def _run_ai_analysis_step(args: argparse.Namespace, python: str) -> None:
         run([*cmd, "ai-suggest", str(DB_PATH), "-t", "projects", "-o", output_yaml, "--timeout", "300"])
 
 
+def _install_environment() -> str:
+    """Prepare the demo virtual environment and install matching local packages."""
+    venv_path = PROJECT_ROOT / ".venv"
+    if not venv_path.exists():
+        print("[1/5] Creating virtual environment...")
+        run([sys.executable, "-m", "venv", str(venv_path)])
+    else:
+        print("[1/5] Virtual environment exists, skipping")
+
+    if sys.platform == "win32":
+        python = str(venv_path / "Scripts" / "python.exe")
+    else:
+        python = str(venv_path / "bin" / "python")
+
+    if not Path(python).is_file() or not (venv_path / "pyvenv.cfg").is_file():
+        raise ValueError(
+            f"The virtual environment at {venv_path} cannot be used on this platform. "
+            "Rename it to keep a backup, then recreate the virtual environment with this computer's Python."
+        )
+
+    print("[2/5] Installing dependencies (may take a few minutes on first run)...")
+    run(
+        [
+            python,
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "-e",
+            f"{PROJECT_ROOT}[mimesis,postgres]",
+            "-e",
+            str(PROJECT_ROOT / "plugins" / "sqlseed-cli"),
+            "-e",
+            f"{PROJECT_ROOT / 'plugins' / 'sqlseed-ai'}[mcp]",
+            "-e",
+            str(PROJECT_ROOT / "plugins" / "mcp-server-sqlseed"),
+            "-e",
+            str(PROJECT_ROOT / "plugins" / "sqlseed-web"),
+        ]
+    )
+    run([python, "-m", "pip", "check"])
+    return python
+
+
 def main() -> None:
     """Parse demo options and run the local setup and generation walkthrough."""
     parser = argparse.ArgumentParser(description="GemmaSQLSeed one-click setup")
@@ -128,28 +182,12 @@ def main() -> None:
         print("[1/5] Using current Python environment (skip-install)")
         print("[2/5] Skipping installation (--skip-install)")
     else:
-        # Create venv and install
-        venv_path = PROJECT_ROOT / ".venv"
         try:
-            if not venv_path.exists():
-                print("[1/5] Creating virtual environment...")
-                run([sys.executable, "-m", "venv", str(venv_path)])
-            else:
-                print("[1/5] Virtual environment exists, skipping")
-
-            if sys.platform == "win32":
-                python = str(venv_path / "Scripts" / "python.exe")
-            else:
-                python = str(venv_path / "bin" / "python")
-
-            print("[2/5] Installing dependencies (may take a few minutes on first run)...")
-            run([python, "-m", "pip", "install", "-q", "-e", f"{PROJECT_ROOT}[dev,all]"])
-            run([python, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT / "plugins" / "sqlseed-ai")])
-            run([python, "-m", "pip", "install", "-q", "-e", str(PROJECT_ROOT / "plugins" / "mcp-server-sqlseed")])
+            python = _install_environment()
         except subprocess.CalledProcessError as e:
             print(f"\nERROR: Command failed (exit {e.returncode}): {' '.join(e.cmd)}")
             sys.exit(1)
-        except OSError as e:
+        except (OSError, ValueError) as e:
             print(f"\nERROR: Failed to create venv or run pip: {e}")
             sys.exit(1)
 
@@ -175,11 +213,14 @@ def main() -> None:
     print("=" * 50)
     print()
     print(f"  Database:    {DB_PATH}")
-    cli_call = 'python -c "from sqlseed_cli.main import cli; cli()" --'
-    print(f"  Preview:     {cli_call} preview {DB_PATH} -t users -n 5")
-    print(f"  Inspect:     {cli_call} inspect {DB_PATH} --show-mapping")
-    print(f"  AI Suggest:  {cli_call} ai-suggest {DB_PATH} -t users -o config.yaml")
-    print("  MCP Server:  mcp-server-sqlseed")
+    if os.name == "nt":
+        print("  Commands below use PowerShell syntax.")
+    cli_call = sqlseed_cmd(python)
+    ai_call = [*cli_call, "ai-suggest", str(DB_PATH), "-t", "users", "-o", "config.yaml"]
+    print(f"  Preview:     {shell_command([*cli_call, 'preview', str(DB_PATH), '-t', 'users', '-n', '5'])}")
+    print(f"  Inspect:     {shell_command([*cli_call, 'inspect', str(DB_PATH), '--show-mapping'])}")
+    print(f"  AI Suggest:  {shell_command(ai_call)}")
+    print(f"  MCP Server:  {shell_command([python, '-m', 'mcp_server_sqlseed'])}")
     print()
 
 

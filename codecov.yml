@@ -1,7 +1,7 @@
-# Wait for both measured reports (Linux and Windows) before publishing coverage.
+# Wait for Linux, Windows, native ARM64 macOS and native Intel macOS reports.
 codecov:
   notify:
-    after_n_builds: 2
+    after_n_builds: 4
     wait_for_ci: true
 
 coverage:

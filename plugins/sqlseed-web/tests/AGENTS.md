@@ -40,6 +40,7 @@ node --test plugins/sqlseed-web/tests/test_*.cjs
 - `test_web_request_security.py` 校验业务同源、Host 与防嵌入；组件管理另有独立准入检查，不能用业务检查通过替代。
 - 连接身份、并发与恢复测试须覆盖文件别名、URI 编码、内存库、同目标多连接、任务失败释放和跨数据库拒绝；断言实际目标与数据库内容。
 - `test_workbench_target_identity.py` 联合 core 的 `test_sqlite_connection_targets.py` 验证共享 SQLite 解析器：字面 `%41` 与 `A` 是不同文件，URI 只解码一次，同目标别名共用写入门禁，不同目标仍可并行。SQLAlchemy 2.0/2.1 的兼容复验使用隔离依赖环境，不降级当前环境；本机 symlink 权限不足须明确记录，不能声称相应用例通过。
+- 文件系统大小写/Unicode 别名用真实文件与 `samefile` 核验，按测试卷的实际能力跳过不适用用例；macOS 同时验证父目录别名、URI、既有配置与会话恢复。身份查询前后通过独立进程竞争真实 SQLite 写锁，防止新增文件描述符的关闭意外释放事务锁；不同文件的拼写近似不能成为合并依据。
 - supervisor、runtime lifecycle 与 plugin management 测试使用临时独立 virtualenv、离线测试 wheel 和有界子进程；不得在用户运行服务的环境中安装/卸载组件。Windows 文件锁传递、Job 后代清理和监听 socket 交接使用真实子进程验证；异常无法确认排空时须保持维护门禁。macOS/Linux 原有自动管理回归保留，平台跳过不能表述为跨平台实测通过。
 - `test_plugin_updates.py` 保留固定来源/双哈希/metadata 校验、正反向与 extras 依赖阻断、禁止降级及保护包、执行前后环境变化、失败恢复和临时 venv 的真实 pip/uv 定向升级。网络超时用可控事件验证迟到读取无计划/磁盘/安装副作用且槽位仍占用；不能把版本查询成功当作升级成功。`test_settings_updates.py` 单独保证检查更新只读且仅接受固定组件。
 - 安装后入口验收见根 `scripts/check_wheel_install.py` 和 `scripts/check_public_entrypoints.py`；源码 TestClient 成功不能证明 wheel 静态资源、console scripts 或缺少可选包时可用。

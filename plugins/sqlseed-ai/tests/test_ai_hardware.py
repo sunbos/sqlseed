@@ -18,6 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.assertions import assert_empty
+
 try:
     from sqlseed_ai import _hardware
     from sqlseed_ai._hardware import (
@@ -322,7 +324,8 @@ class TestDetectGpuMacos:
         profiler_data = {
             "SPDisplaysDataType": [
                 {
-                    "sppci_model": "Apple M2 Pro",
+                    "sppci_model": "AMD Radeon Pro W6800X",
+                    "spdisplays_vendor": "sppci_vendor_amd",
                     "spdisplays_vram": "16 GB",
                 }
             ]
@@ -332,11 +335,11 @@ class TestDetectGpuMacos:
         gpus = _detect_gpu_macos()
         assert len(gpus) == 1
         gpu = gpus[0]
-        assert gpu["name"] == "Apple M2 Pro"
+        assert gpu["name"] == "AMD Radeon Pro W6800X"
         assert gpu["vram_total_mb"] == 16384  # 16 GB -> 16 * 1024
         assert gpu["vram_total_gb"] == 16.0
-        assert gpu["vendor"] == "apple"
-        assert gpu["vram_free_mb"] == 0  # Apple Silicon unified memory
+        assert gpu["vendor"] == "amd"
+        assert gpu["vram_free_mb"] == 0  # system_profiler does not report free VRAM
 
     def test_parses_vram_in_mb(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_macos treats MB units as megabytes without multiplication."""
@@ -354,6 +357,91 @@ class TestDetectGpuMacos:
         assert len(gpus) == 1
         assert gpus[0]["vram_total_mb"] == 1536
         assert gpus[0]["vram_total_gb"] == 1.5
+
+    def test_intel_shared_memory_from_real_profiler_fields(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Intel Macs report shared memory and identify Intel as the GPU vendor."""
+        self._stub_macos_profile(
+            monkeypatch,
+            {
+                "SPDisplaysDataType": [
+                    {
+                        "sppci_model": "Intel UHD Graphics 630",
+                        "spdisplays_vendor": "Intel",
+                        "spdisplays_vram_shared": "1536 MB",
+                        "_spdisplays_vram": "1536 MB",
+                    }
+                ]
+            },
+        )
+
+        gpu = _detect_gpu_macos()[0]
+        assert gpu["vendor"] == "intel"
+        assert gpu["memory_type"] == "shared"
+        assert gpu["vram_total_gb"] == 1.5
+
+    def test_amd_dedicated_memory_preserves_vendor(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An Intel Mac's AMD GPU is not an Apple unified-memory GPU."""
+        self._stub_macos_profile(
+            monkeypatch,
+            {
+                "SPDisplaysDataType": [
+                    {
+                        "sppci_model": "AMD Radeon Pro 5500M",
+                        "spdisplays_vendor": "sppci_vendor_amd",
+                        "spdisplays_vram": "4 GB",
+                    }
+                ]
+            },
+        )
+
+        gpu = _detect_gpu_macos()[0]
+        assert gpu["vendor"] == "amd"
+        assert gpu["memory_type"] == "dedicated"
+        assert gpu["vram_total_gb"] == 4.0
+
+    def test_apple_gpu_marks_unified_memory_without_inventing_vram(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Apple GPUs are identifiable under both native Python and Rosetta."""
+        self._stub_macos_profile(
+            monkeypatch,
+            {"SPDisplaysDataType": [{"sppci_model": "Apple M2", "spdisplays_vendor": "sppci_vendor_Apple"}]},
+        )
+        monkeypatch.setattr(_hardware.platform, "machine", lambda: "x86_64")
+
+        gpu = _detect_gpu_macos()[0]
+        assert gpu["vendor"] == "apple"
+        assert gpu["memory_type"] == "unified"
+        assert gpu["vram_total_gb"] == 0.0
+
+    @pytest.mark.parametrize("profiler_data", [[], None, {"SPDisplaysDataType": None}, {"SPDisplaysDataType": {}}])
+    def test_malformed_profiler_containers_do_not_crash(
+        self, profiler_data: object, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = subprocess.CompletedProcess([], 0, stdout=json.dumps(profiler_data))
+        monkeypatch.setattr(_hardware.subprocess, "run", lambda *args, **kwargs: result)
+        assert_empty(_detect_gpu_macos(), list)
+
+    @pytest.mark.parametrize("bad_memory", ["invalid GB", None, ["4", "GB"], "9" * 400 + " GB"])
+    def test_bad_gpu_entry_preserves_remaining_cards(self, monkeypatch: pytest.MonkeyPatch, bad_memory: object) -> None:
+        self._stub_macos_profile(
+            monkeypatch,
+            {
+                "SPDisplaysDataType": [
+                    None,
+                    {"sppci_model": "Intel Iris", "spdisplays_vram_shared": bad_memory},
+                    {
+                        "sppci_model": "AMD Radeon Pro",
+                        "spdisplays_vendor": "sppci_vendor_amd",
+                        "spdisplays_vram": "4 GB",
+                    },
+                ]
+            },
+        )
+
+        gpus = _detect_gpu_macos()
+        assert [(gpu["name"], gpu["vram_total_gb"]) for gpu in gpus] == [
+            ("Intel Iris", 0.0),
+            ("AMD Radeon Pro", 4.0),
+        ]
 
     def test_defaults_vram_to_zero_when_missing(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_macos defaults vram_total_mb to 0 when spdisplays_vram absent."""
@@ -379,6 +467,31 @@ class TestDetectGpuMacos:
         gpus = _detect_gpu_macos()
         assert len(gpus) == 1
         assert gpus[0]["name"] == "Unknown GPU"
+
+    @pytest.mark.parametrize("bad_name", [None, 123, ["Apple M2"], {"name": "Apple M2"}])
+    def test_non_string_name_falls_back_without_losing_other_devices(
+        self, monkeypatch: pytest.MonkeyPatch, bad_name: object
+    ) -> None:
+        """Malformed names cannot identify an Apple GPU or discard another valid card."""
+        self._stub_macos_profile(
+            monkeypatch,
+            {
+                "SPDisplaysDataType": [
+                    {"sppci_model": bad_name, "spdisplays_vram_shared": "1536 MB"},
+                    {
+                        "sppci_model": "AMD Radeon Pro",
+                        "spdisplays_vendor": "sppci_vendor_amd",
+                        "spdisplays_vram": "4 GB",
+                    },
+                ]
+            },
+        )
+
+        gpus = _detect_gpu_macos()
+        assert [(gpu["name"], gpu["vendor"], gpu["memory_type"], gpu["vram_total_gb"]) for gpu in gpus] == [
+            ("Unknown GPU", "unknown", "shared", 1.5),
+            ("AMD Radeon Pro", "amd", "dedicated", 4.0),
+        ]
 
     def test_returns_empty_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_macos returns [] when system_profiler exits non-zero."""
@@ -527,6 +640,43 @@ class TestDetectHardware:
 
 
 class TestEvaluateModelStatus:
+    @pytest.mark.parametrize(
+        ("total_ram", "model_id", "expected", "budget"),
+        [
+            (8.0, "gemma-4-e2b-it", "capable", 4.0),
+            (16.0, "gemma-4-26b-a4b-it", "insufficient", 12.0),
+            (3.0, "gemma-4-e2b-it", "insufficient", 0.0),
+            (32.0, "gemma-4-31b-it", "capable", 24.0),
+        ],
+    )
+    def test_unified_memory_reserves_system_ram(
+        self, total_ram: float, model_id: str, expected: str, budget: float, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Unified memory shares RAM; total RAM cannot be counted as dedicated VRAM."""
+        monkeypatch.setattr(_hardware.platform, "system", lambda: "Darwin")
+        monkeypatch.setattr(_hardware, "_detect_system_ram", lambda: {"total_gb": total_ram, "available_gb": 0.0})
+        monkeypatch.setattr(
+            _hardware,
+            "_detect_gpus",
+            lambda: [{"name": "Apple M2", "vendor": "apple", "memory_type": "unified", "vram_total_gb": 0.0}],
+        )
+
+        hardware = detect_hardware()
+        assert evaluate_model_status(model_id, hardware) == expected
+        assert hardware["max_vram_gb"] == 0.0
+        assert hardware["unified_memory_budget_gb"] == budget
+
+    @pytest.mark.parametrize(("system", "vendor"), [("Linux", "apple"), ("Darwin", "intel")])
+    def test_unified_budget_requires_apple_gpu_on_macos(self, system: str, vendor: str) -> None:
+        hardware = {
+            "platform": {"system": system},
+            "ram": {"total_gb": 16.0},
+            "max_vram_gb": 0.0,
+            "unified_memory_budget_gb": 12.0,
+            "gpus": [{"vendor": vendor, "memory_type": "unified"}],
+        }
+        assert evaluate_model_status("gemma-4-e2b-it", hardware) == "cpu_only"
+
     def test_recommended_when_vram_meets_recommended(self) -> None:
         """Status is 'recommended' when VRAM meets the recommended threshold."""
         hw = {"max_vram_gb": 4.0, "ram": {"total_gb": 8.0}}
