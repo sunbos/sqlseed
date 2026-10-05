@@ -151,8 +151,7 @@ def test_windows_output_identifies_powershell(
 def test_windows_displayed_command_preserves_real_native_arguments(
     quickstart: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shell_name: str
 ) -> None:
-    shell = shutil.which(shell_name)
-    if shell is None:
+    if (shell := shutil.which(shell_name)) is None:
         if os.name == "nt" and shell_name == "powershell":
             pytest.fail(f"Windows compatibility tests require {shell_name} on PATH")
         pytest.skip(f"{shell_name} is not installed on this platform")
