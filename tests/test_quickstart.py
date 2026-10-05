@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import base64
 import importlib.util
+import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import venv
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -106,3 +110,71 @@ def test_printed_commands_use_selected_python_and_quote_paths(
     ]
     mcp = next(line.split(":", 1)[1].strip() for line in output.splitlines() if "MCP Server:" in line)
     assert shlex.split(mcp) == [selected_python, "-m", "mcp_server_sqlseed"]
+
+
+@pytest.mark.parametrize(
+    ("argument", "literal"),
+    [
+        (r"C:\a&b\demo.db", r"'C:\a&b\demo.db'"),
+        (r"C:\with spaces\demo.db", r"'C:\with spaces\demo.db'"),
+        (r"C:\user's\demo.db", r"'C:\user''s\demo.db'"),
+        (r"C:\$env:USERPROFILE\demo.db", r"'C:\$env:USERPROFILE\demo.db'"),
+        (r"C:\%USERPROFILE%\demo.db", r"'C:\%USERPROFILE%\demo.db'"),
+        (r"C:\!USERNAME!\demo.db", r"'C:\!USERNAME!\demo.db'"),
+        (
+            "C:\\quote\u2018\u2019\u201a\u201b\\demo.db",
+            "'C:\\quote\u2018\u2018\u2019\u2019\u201a\u201a\u201b\u201b\\demo.db'",
+        ),
+    ],
+    ids=["ampersand", "space", "apostrophe", "dollar", "percent", "exclamation", "smart-quotes"],
+)
+def test_windows_command_uses_powershell_literals(
+    quickstart: ModuleType, monkeypatch: pytest.MonkeyPatch, argument: str, literal: str
+) -> None:
+    monkeypatch.setattr(quickstart, "os", SimpleNamespace(name="nt"))
+    assert quickstart.shell_command([r"C:\a&b\python.exe", argument]) == f"& 'C:\\a&b\\python.exe' {literal}"
+
+
+def test_windows_output_identifies_powershell(
+    quickstart: ModuleType, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(quickstart, "os", SimpleNamespace(name="nt", environ=os.environ))
+    monkeypatch.setattr(sys, "argv", ["quickstart.py", "--skip-install", "--backend", "google"])
+    monkeypatch.setattr(quickstart, "run", lambda command: subprocess.CompletedProcess(command, 0))
+
+    quickstart.main()
+
+    assert "Commands below use PowerShell syntax." in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("shell_name", ["powershell", "pwsh"])
+def test_windows_displayed_command_preserves_real_native_arguments(
+    quickstart: ModuleType, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, shell_name: str
+) -> None:
+    shell = shutil.which(shell_name)
+    if shell is None:
+        if os.name == "nt" and shell_name == "powershell":
+            pytest.fail(f"Windows compatibility tests require {shell_name} on PATH")
+        pytest.skip(f"{shell_name} is not installed on this platform")
+    monkeypatch.setattr(quickstart, "os", SimpleNamespace(name="nt"))
+    echo = tmp_path / "echo & ' $ % ! \u2018\u2019\u201a\u201b argv.py"
+    echo.write_text("import json, sys\nprint(json.dumps(sys.argv[1:]))\n", encoding="utf-8")
+    arguments = [
+        r"C:\a&b\demo.db",
+        r"C:\with spaces\demo.db",
+        r"C:\user's\demo.db",
+        r"C:\$env:USERPROFILE\demo.db",
+        r"C:\%USERPROFILE%\demo.db",
+        r"C:\!USERNAME!\demo.db",
+        "C:\\quote\u2018\u2019\u201a\u201b\\demo.db",
+    ]
+    command = quickstart.shell_command([sys.executable, str(echo), *arguments])
+    encoded = base64.b64encode(command.encode("utf-16-le")).decode("ascii")
+    result = subprocess.run(
+        [shell, "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+        capture_output=True,
+        timeout=30,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr.decode("utf-8", errors="replace")
+    assert json.loads(result.stdout) == arguments

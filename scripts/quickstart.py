@@ -50,8 +50,12 @@ def sqlseed_cmd(python: str) -> list[str]:
 
 
 def shell_command(command: list[str]) -> str:
-    """Quote a command for cmd.exe on Windows or a POSIX shell elsewhere."""
-    return subprocess.list2cmdline(command) if os.name == "nt" else shlex.join(command)
+    """Quote a command for PowerShell on Windows or a POSIX shell elsewhere."""
+    if os.name != "nt":
+        return shlex.join(command)
+    # PowerShell treats ASCII and smart single quotation marks as delimiters.
+    escapes = str.maketrans({quote: quote * 2 for quote in "'\u2018\u2019\u201a\u201b"})
+    return "& " + " ".join(f"'{argument.translate(escapes)}'" for argument in command)
 
 
 def _fill_data(python: str) -> None:
@@ -210,7 +214,7 @@ def main() -> None:
     print()
     print(f"  Database:    {DB_PATH}")
     if os.name == "nt":
-        print("  Commands below use cmd.exe syntax.")
+        print("  Commands below use PowerShell syntax.")
     cli_call = sqlseed_cmd(python)
     ai_call = [*cli_call, "ai-suggest", str(DB_PATH), "-t", "users", "-o", "config.yaml"]
     print(f"  Preview:     {shell_command([*cli_call, 'preview', str(DB_PATH), '-t', 'users', '-n', '5'])}")
