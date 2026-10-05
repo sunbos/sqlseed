@@ -5,15 +5,19 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import httpx
 import pytest
 
-pytest.importorskip("sqlseed_ai")
-
-from openai import OpenAI
-from sqlseed_ai._json_utils import JSONResponseError
-from sqlseed_ai.analyzer import SchemaAnalyzer
-from sqlseed_ai.config import AIBackend, AIConfig
+try:
+    from sqlseed_ai._json_utils import JSONResponseError
+    from sqlseed_ai.analyzer import SchemaAnalyzer
+    from sqlseed_ai.config import AIBackend, AIConfig
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
+else:
+    import httpx
+    from openai import OpenAI
 
 
 @pytest.mark.parametrize("streaming", [False, True])

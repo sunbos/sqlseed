@@ -17,8 +17,8 @@ if TYPE_CHECKING:
     from types import ModuleType
 
 
-@pytest.fixture
-def quickstart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
+@pytest.fixture(name="quickstart")
+def fixture_quickstart(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> ModuleType:
     script = Path(__file__).resolve().parents[1] / "scripts" / "quickstart.py"
     spec = importlib.util.spec_from_file_location("quickstart", script)
     if spec is None or spec.loader is None:

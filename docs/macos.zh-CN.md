@@ -121,7 +121,8 @@ make mutmut
 
 外部 PostgreSQL 与真实 LLM 用例在服务不可用时可能跳过，跳过不代表已验证这些服务。
 CI 范围与架构矩阵以 [ci.yml](https://github.com/sunbos/sqlseed/blob/main/.github/workflows/ci.yml)
-为准；完整审查门禁见[贡献指南](https://github.com/sunbos/sqlseed/blob/main/CONTRIBUTING.md)。
+为准。Codecov 汇总 Linux、Windows、原生 Apple Silicon 和 Intel macOS 的 Python 3.12
+覆盖率报告，让平台专属分支进入同一覆盖率门禁。完整审查门禁见[贡献指南](https://github.com/sunbos/sqlseed/blob/main/CONTRIBUTING.md)。
 
 ## PostgreSQL 测试 {#postgresql-tests}
 

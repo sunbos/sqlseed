@@ -206,11 +206,26 @@ def _video_memory_mb(value: object) -> int:
     """Parse a profiler memory quantity without trusting malformed card fields."""
     if not isinstance(value, str):
         return 0
-    match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*(MB|GB)", value.strip(), re.IGNORECASE)
-    if match is None:
+    if (match := re.fullmatch(r"(\d+(?:\.\d+)?)\s*(MB|GB)", value.strip(), re.IGNORECASE)) is None:
         return 0
     size_mb = float(match[1]) * (1024 if match[2].upper() == "GB" else 1)
     return int(size_mb) if isfinite(size_mb) else 0
+
+
+def _macos_gpu_memory(gpu_info: dict[str, object], vendor: str) -> tuple[str, int]:
+    """Separate shared and dedicated video memory from Apple unified RAM."""
+    if vendor == "apple":
+        return "unified", 0
+    memory_type = "shared" if "spdisplays_vram_shared" in gpu_info else "dedicated"
+    vram_mb = next(
+        (
+            size
+            for key in ("spdisplays_vram", "spdisplays_vram_shared", "_spdisplays_vram")
+            if (size := _video_memory_mb(gpu_info.get(key))) > 0
+        ),
+        0,
+    )
+    return memory_type, vram_mb
 
 
 def _detect_gpu_macos() -> list[dict[str, Any]]:
@@ -241,19 +256,7 @@ def _detect_gpu_macos() -> list[dict[str, Any]]:
                 name = "Unknown GPU"
             vendor_label = str(gpu_info.get("spdisplays_vendor") or name).lower()
             vendor = next((v for v in ("apple", "intel", "amd", "nvidia") if v in vendor_label), "unknown")
-            if vendor == "apple":
-                memory_type = "unified"
-                vram_mb = 0
-            else:
-                memory_type = "shared" if "spdisplays_vram_shared" in gpu_info else "dedicated"
-                vram_mb = next(
-                    (
-                        size
-                        for key in ("spdisplays_vram", "spdisplays_vram_shared", "_spdisplays_vram")
-                        if (size := _video_memory_mb(gpu_info.get(key))) > 0
-                    ),
-                    0,
-                )
+            memory_type, vram_mb = _macos_gpu_memory(gpu_info, vendor)
 
             gpus.append(
                 {

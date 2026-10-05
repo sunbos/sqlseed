@@ -51,3 +51,16 @@ Implementation commit `71816f92b8efa65723bebf7d1b5bfcddb726548f` passed [CI run 
 All lint, package build/install and documentation jobs passed. The Intel runner built the locked cryptography release from source. The macOS skips comprise PostgreSQL without Docker (64), unavailable real LLM backends/models (18), Win32-only behavior (24), optional uv (2), Pillow (1), and distinct filesystem spelling cases (2). Windows/Linux likewise retain explicit external-service and platform skips; the dedicated PostgreSQL job and local service-backed run provide complementary coverage.
 
 The latest pull-request checks are the source of current branch status. No release, deployment or merge was performed.
+
+
+## Closure follow-up (2026-10-06)
+
+The documentation-only head `eaf7d5e2f78299c4e5adab33cf8eed3b35030e00` also passed all GitHub Actions jobs, but its separate Codecov patch check reported 85% against an inherited 89.8% target. Eleven missing lines were Darwin-only SQLite identity code: macOS tests had executed successfully, while only Linux and Windows coverage was uploaded. One additional missing line handled malformed GPU names.
+
+The follow-up collects coverage during native macOS tests and uploads the ARM64 and Intel Python 3.12 reports through the existing verified uploader. Codecov waits for all four platform reports; target inheritance, zero threshold, required report handling and upload failure gates remain unchanged. Hardware regression coverage now includes non-string names and preservation of other valid devices.
+
+Branch protection still required the earlier macOS and Windows check names. Windows retains its protected name; a macOS compatibility gate retains the other name and requires the entire expanded matrix to succeed. Its actual script is tested against success, failure, cancellation and skip outcomes. Pages continues to depend on every CI job.
+
+Three Sonar complexity findings prompted behavior-preserving extraction of GPU memory parsing and quickstart environment installation, plus an ExitStack for stream/client cleanup. Optional AI test imports now skip only when the top-level plugin is absent; missing internal modules or required SDKs still fail. Other CodeFlow style findings are addressed without weakening collection assertions or disabling rules.
+
+Local follow-up evidence includes 1290 passing AI/identity/architecture/documentation tests with 8 explicit external-service/filesystem skips, strict resource warnings, all 175 source files passing mypy, ruff/format, import boundaries, documentation sync and strict MkDocs build. The final targeted run separately covers the small style/import adjustments: 118 passed with 2 filesystem skips, 100% hardware line coverage and 95% SQLite identity line coverage; all previously missed Darwin lines were executed. Final platform, Codecov, Sonar and review outcomes are available in [PR #33 checks](https://github.com/sunbos/sqlseed/pull/33/checks), which remain authoritative for the latest commit.

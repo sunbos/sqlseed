@@ -134,6 +134,8 @@ make mutmut
 External PostgreSQL and real LLM tests can skip when services are unavailable;
 those skips do not verify the services. CI coverage and its architecture matrix
 are defined in [ci.yml](https://github.com/sunbos/sqlseed/blob/main/.github/workflows/ci.yml).
+Codecov combines the Python 3.12 reports from Linux, Windows, native Apple Silicon
+and Intel macOS so platform-specific branches count toward the same coverage gate.
 See [contribution instructions](https://github.com/sunbos/sqlseed/blob/main/CONTRIBUTING.md)
 for the full review gates.
 

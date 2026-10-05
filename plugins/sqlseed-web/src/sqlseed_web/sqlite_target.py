@@ -42,8 +42,7 @@ def _canonical_file_path(filename: str) -> str:
     buffer = ctypes.create_string_buffer(1024)
     if _macos_libc().realpath(os.fsencode(path), buffer):
         return os.fsdecode(buffer.value)
-    error = ctypes.get_errno()
-    if error in {errno.ENOENT, errno.ENOTDIR}:
+    if (error := ctypes.get_errno()) in {errno.ENOENT, errno.ENOTDIR}:
         # Identity lookup must not create a missing database; existing callers
         # retain their own create/no-create policy when opening it later.
         return str(path)

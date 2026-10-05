@@ -101,6 +101,50 @@ def _run_ai_analysis_step(args: argparse.Namespace, python: str) -> None:
         run([*cmd, "ai-suggest", str(DB_PATH), "-t", "projects", "-o", output_yaml, "--timeout", "300"])
 
 
+def _install_environment() -> str:
+    """Prepare the demo virtual environment and install matching local packages."""
+    venv_path = PROJECT_ROOT / ".venv"
+    if not venv_path.exists():
+        print("[1/5] Creating virtual environment...")
+        run([sys.executable, "-m", "venv", str(venv_path)])
+    else:
+        print("[1/5] Virtual environment exists, skipping")
+
+    if sys.platform == "win32":
+        python = str(venv_path / "Scripts" / "python.exe")
+    else:
+        python = str(venv_path / "bin" / "python")
+
+    if not Path(python).is_file() or not (venv_path / "pyvenv.cfg").is_file():
+        raise ValueError(
+            f"The virtual environment at {venv_path} cannot be used on this platform. "
+            "Rename it to keep a backup, then recreate the virtual environment with this computer's Python."
+        )
+
+    print("[2/5] Installing dependencies (may take a few minutes on first run)...")
+    run(
+        [
+            python,
+            "-m",
+            "pip",
+            "install",
+            "-q",
+            "-e",
+            f"{PROJECT_ROOT}[mimesis,postgres]",
+            "-e",
+            str(PROJECT_ROOT / "plugins" / "sqlseed-cli"),
+            "-e",
+            f"{PROJECT_ROOT / 'plugins' / 'sqlseed-ai'}[mcp]",
+            "-e",
+            str(PROJECT_ROOT / "plugins" / "mcp-server-sqlseed"),
+            "-e",
+            str(PROJECT_ROOT / "plugins" / "sqlseed-web"),
+        ]
+    )
+    run([python, "-m", "pip", "check"])
+    return python
+
+
 def main() -> None:
     """Parse demo options and run the local setup and generation walkthrough."""
     parser = argparse.ArgumentParser(description="GemmaSQLSeed one-click setup")
@@ -134,47 +178,8 @@ def main() -> None:
         print("[1/5] Using current Python environment (skip-install)")
         print("[2/5] Skipping installation (--skip-install)")
     else:
-        # Create venv and install
-        venv_path = PROJECT_ROOT / ".venv"
         try:
-            if not venv_path.exists():
-                print("[1/5] Creating virtual environment...")
-                run([sys.executable, "-m", "venv", str(venv_path)])
-            else:
-                print("[1/5] Virtual environment exists, skipping")
-
-            if sys.platform == "win32":
-                python = str(venv_path / "Scripts" / "python.exe")
-            else:
-                python = str(venv_path / "bin" / "python")
-
-            if not Path(python).is_file() or not (venv_path / "pyvenv.cfg").is_file():
-                raise ValueError(
-                    f"The virtual environment at {venv_path} cannot be used on this platform. "
-                    "Rename it to keep a backup, then recreate the virtual environment with this computer's Python."
-                )
-
-            print("[2/5] Installing dependencies (may take a few minutes on first run)...")
-            run(
-                [
-                    python,
-                    "-m",
-                    "pip",
-                    "install",
-                    "-q",
-                    "-e",
-                    f"{PROJECT_ROOT}[mimesis,postgres]",
-                    "-e",
-                    str(PROJECT_ROOT / "plugins" / "sqlseed-cli"),
-                    "-e",
-                    f"{PROJECT_ROOT / 'plugins' / 'sqlseed-ai'}[mcp]",
-                    "-e",
-                    str(PROJECT_ROOT / "plugins" / "mcp-server-sqlseed"),
-                    "-e",
-                    str(PROJECT_ROOT / "plugins" / "sqlseed-web"),
-                ]
-            )
-            run([python, "-m", "pip", "check"])
+            python = _install_environment()
         except subprocess.CalledProcessError as e:
             print(f"\nERROR: Command failed (exit {e.returncode}): {' '.join(e.cmd)}")
             sys.exit(1)

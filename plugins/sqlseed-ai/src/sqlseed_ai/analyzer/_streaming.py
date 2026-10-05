@@ -8,6 +8,7 @@ request strategy (tool calling vs JSON mode vs text mode).
 from __future__ import annotations
 
 import time
+from contextlib import ExitStack
 from typing import TYPE_CHECKING, Any, NoReturn
 
 from sqlseed_ai._client import APIConnectionError, APIError, APITimeoutError, get_openai_client
@@ -217,7 +218,8 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             raise RuntimeError("AIConfig must be initialized before calling LLM")
         client = get_openai_client(self._config)
         start_time = time.time()
-        stream = None
+        resources = ExitStack()
+        resources.callback(client.close)
 
         try:
             if on_progress:
@@ -226,6 +228,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             kwargs["messages"] = messages
 
             stream = self._create_streaming_response(client, kwargs, strict_json=strict_json)
+            resources.callback(stream.close)
 
             content, token_count = self._collect_stream_chunks(stream, on_progress, strict_json=strict_json)
 
@@ -286,11 +289,7 @@ class StreamingHandlerMixin(_InteractionLoggingMixin):
             )
             self._handle_llm_api_exception(e, model, streaming=True)
         finally:
-            try:
-                if stream is not None:
-                    stream.close()
-            finally:
-                client.close()
+            resources.close()
 
     def _create_streaming_response(self, client: Any, kwargs: dict[str, Any], *, strict_json: bool) -> Any:
         """Apply local JSON sampling without changing cloud streaming dispatch."""

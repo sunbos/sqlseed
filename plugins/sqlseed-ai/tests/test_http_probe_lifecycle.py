@@ -9,11 +9,14 @@ from threading import Thread
 
 import pytest
 
-pytest.importorskip("sqlseed_ai")
-
-from sqlseed_ai.config import AIBackend, AIConfig
-
 from .http_helpers import quiet_http_log
+
+try:
+    from sqlseed_ai.config import AIBackend, AIConfig
+except ModuleNotFoundError as exc:
+    if exc.name != "sqlseed_ai":
+        raise
+    pytest.skip("sqlseed-ai plugin not installed", allow_module_level=True)
 
 
 class _UnavailableHandler(BaseHTTPRequestHandler):

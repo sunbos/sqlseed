@@ -18,6 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.assertions import assert_empty
+
 try:
     from sqlseed_ai import _hardware
     from sqlseed_ai._hardware import (
@@ -416,7 +418,7 @@ class TestDetectGpuMacos:
     ) -> None:
         result = subprocess.CompletedProcess([], 0, stdout=json.dumps(profiler_data))
         monkeypatch.setattr(_hardware.subprocess, "run", lambda *args, **kwargs: result)
-        assert _detect_gpu_macos() == []
+        assert_empty(_detect_gpu_macos(), list)
 
     @pytest.mark.parametrize("bad_memory", ["invalid GB", None, ["4", "GB"], "9" * 400 + " GB"])
     def test_bad_gpu_entry_preserves_remaining_cards(self, monkeypatch: pytest.MonkeyPatch, bad_memory: object) -> None:
@@ -465,6 +467,31 @@ class TestDetectGpuMacos:
         gpus = _detect_gpu_macos()
         assert len(gpus) == 1
         assert gpus[0]["name"] == "Unknown GPU"
+
+    @pytest.mark.parametrize("bad_name", [None, 123, ["Apple M2"], {"name": "Apple M2"}])
+    def test_non_string_name_falls_back_without_losing_other_devices(
+        self, monkeypatch: pytest.MonkeyPatch, bad_name: object
+    ) -> None:
+        """Malformed names cannot identify an Apple GPU or discard another valid card."""
+        self._stub_macos_profile(
+            monkeypatch,
+            {
+                "SPDisplaysDataType": [
+                    {"sppci_model": bad_name, "spdisplays_vram_shared": "1536 MB"},
+                    {
+                        "sppci_model": "AMD Radeon Pro",
+                        "spdisplays_vendor": "sppci_vendor_amd",
+                        "spdisplays_vram": "4 GB",
+                    },
+                ]
+            },
+        )
+
+        gpus = _detect_gpu_macos()
+        assert [(gpu["name"], gpu["vendor"], gpu["memory_type"], gpu["vram_total_gb"]) for gpu in gpus] == [
+            ("Unknown GPU", "unknown", "shared", 1.5),
+            ("AMD Radeon Pro", "amd", "dedicated", 4.0),
+        ]
 
     def test_returns_empty_on_failure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """_detect_gpu_macos returns [] when system_profiler exits non-zero."""
