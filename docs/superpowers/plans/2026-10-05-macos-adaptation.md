@@ -27,7 +27,7 @@
 - [x] Run Node frontend/Pages regressions, ruff, format, mypy, import-linter, architecture/doc-sync checks, strict bilingual docs build and mutation gate.
 - [x] Review final diff independently; record exact results and remaining external validation limitations before claiming completion.
 
-Local acceptance and independent review are complete. Remote Intel/Apple Silicon/Windows CI remains pending; see [the acceptance record](../../code-review/2026-10-05-macos-adaptation.md).
+Local acceptance, independent review and remote Intel/Apple Silicon/Windows/Linux CI are complete for implementation commit `71816f9`; see [the acceptance record](../../code-review/2026-10-05-macos-adaptation.md).
 
 ## Verification commands
 

@@ -36,4 +36,18 @@ Raw local evidence is retained at `/tmp/sqlseed-macos-{pytest-final,quality-fina
 
 ## Cross-platform CI
 
-Pending on the pull request. The new matrix explicitly covers macos-15 ARM64 on Python 3.12 and 3.13, macos-15-intel on Python 3.12, and retains Windows and Linux validation. Local Intel results and structured Apple GPU fixtures do not substitute for execution on ARM64 or Windows. No release, deployment or merge is part of this acceptance.
+Implementation commit `71816f92b8efa65723bebf7d1b5bfcddb726548f` passed [CI run 37332914031](https://github.com/sunbos/sqlseed/actions/runs/37332914031) and [doc-sync run 37332913266](https://github.com/sunbos/sqlseed/actions/runs/37332913266) on [draft PR #33](https://github.com/sunbos/sqlseed/pull/33). This follow-up changes only acceptance documentation.
+
+| Remote environment | pytest | Node regressions |
+| --- | --- | --- |
+| macos-15 ARM64 / Python 3.12 | 4381 passed, 111 skipped | 1069 passed |
+| macos-15 ARM64 / Python 3.13 | 4381 passed, 111 skipped | 1069 passed |
+| macos-15-intel / Python 3.12 | 4381 passed, 111 skipped | 1069 passed |
+| Windows / Python 3.12 | 4390 passed, 102 skipped | Not part of this job |
+| Linux / Python 3.10, 3.12, 3.13 | Each 4437 passed, 55 skipped | Validated by lint job |
+| Dedicated PostgreSQL 16 job | 59 passed | Not applicable |
+| Property-test job | 3 passed | Not applicable |
+
+All lint, package build/install and documentation jobs passed. The Intel runner built the locked cryptography release from source. The macOS skips comprise PostgreSQL without Docker (64), unavailable real LLM backends/models (18), Win32-only behavior (24), optional uv (2), Pillow (1), and distinct filesystem spelling cases (2). Windows/Linux likewise retain explicit external-service and platform skips; the dedicated PostgreSQL job and local service-backed run provide complementary coverage.
+
+The latest pull-request checks are the source of current branch status. No release, deployment or merge was performed.
