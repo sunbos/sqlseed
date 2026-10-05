@@ -12,6 +12,7 @@ These tools require the ``mcp`` SDK (install with ``pip install
 
 from __future__ import annotations
 
+from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
 import pytest
@@ -19,6 +20,9 @@ import yaml
 
 # Only absent optional top-level packages may skip collection. A missing
 # internal module or required SDK means the installed environment is broken.
+if find_spec("mcp") is None:
+    pytest.skip("sqlseed-ai[mcp] not installed", allow_module_level=True)
+
 try:
     from sqlseed_ai.mcp import (
         _build_models,
@@ -28,7 +32,7 @@ try:
         sqlseed_list_gemma_models,
     )
 except ModuleNotFoundError as exc:
-    if exc.name not in {"sqlseed_ai", "mcp"}:
+    if exc.name != "sqlseed_ai":
         raise
     pytest.skip("sqlseed-ai[mcp] not installed", allow_module_level=True)
 
