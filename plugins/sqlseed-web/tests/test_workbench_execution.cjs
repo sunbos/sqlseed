@@ -75,6 +75,84 @@ const saveRevisions=ui=>ui.routes.set('/api/workbench/drafts/saved',options=>({
  ...JSON.parse(options.body),id:'saved',revision:2,target_key:'target-A'
 }));
 
+function blurWhenDisabled(ui, opener) {
+ let disabled=opener.disabled;
+ // Browsers blur a focused button when disabled; the general DOM fixture does not.
+ Object.defineProperty(opener,'disabled',{configurable:true,get:()=>disabled,set:value=>{
+  disabled=value;
+  if(value && ui.document.activeElement===opener)ui.document.activeElement=ui.document.body;
+ }});
+}
+
+for (const close of ['返回调整', 'Escape']) {
+ test(`confirmation restores its opener after the native busy blur on ${close}`, async () => {
+  const ui=harness();await ui.mount();ui.modelState().toggleTable('users',true);
+  const opener=ui.button('查看生成计划');blurWhenDisabled(ui,opener);
+  opener.focus();await opener.click();
+  assert.equal(opener.disabled,false);
+  assert.equal(ui.document.querySelector('.wb-execution-feedback').dataset.state,'ready');
+  if(close==='Escape')await dismiss(ui);else await ui.button(close,ui.document).click();
+  assert.equal(ui.document.querySelector('.modal'),null);
+  assert.equal(ui.document.activeElement===opener,true,'closing must return to the plan entry, not BODY');
+  assert.equal(written(ui).length,0);
+ });
+}
+
+test('confirmation restores the guide stage or its recreated next-action entry', async () => {
+ const ui=harness();await ui.mount();ui.modelState().toggleTable('users',true);
+ const stage=ui.root().querySelector('[data-guide-action="stage-3"]');blurWhenDisabled(ui,stage);
+ stage.focus();await stage.click();await dismiss(ui);
+ assert.equal(ui.document.activeElement===stage,true);
+ const opener=ui.root().querySelector('[data-guide-action="next"]');blurWhenDisabled(ui,opener);
+ opener.focus();await opener.click();await dismiss(ui);
+ const replacement=ui.root().querySelector('[data-guide-action="next"]');
+ assert.notEqual(replacement,opener,'the next action is redrawn when check status updates');
+ assert.equal(ui.document.activeElement===replacement,true);
+ assert.equal(replacement.disabled,false);assert.equal(written(ui).length,0);
+});
+
+test('confirmation restores the capability reason when its first check hides the plan entry',async()=>{
+ const ui=harness();await ui.mount();
+ ui.modelState().toggleTable('users',true);ui.modelState().toggleTable('orders',true);
+ const opener=ui.button('查看生成计划');blurWhenDisabled(ui,opener);
+ assert.equal(ui.root().querySelector('.wb-generation-unsupported'),null);
+ ui.routes.set('/api/workbench/check',()=>({ok:false,config_hash:'blocked',order:[],issues:[{
+  severity:'error',code:'cross_table_cycle',tables:['users','orders'],edge_ids:[],message:'cycle blocked'
+ }]}));
+ opener.focus();await opener.click();assert.equal(opener.hidden,true);
+ assert.equal(ui.button('当前范围无法生成',ui.document.querySelector('.modal')).disabled,true);
+ ui.document.activeElement=ui.document.body; // Native removal of a focused overlay clears focus.
+ await dismiss(ui);
+ const reason=ui.button('查看无法生成的原因',ui.root().querySelector('.wb-generation-unsupported'));
+ assert.equal(ui.document.activeElement===reason,true,'the replacement capability entry must receive focus');
+ assert.equal(reason.disabled,false);assert.equal(ui.document.querySelector('.modal'),null);
+ assert.deepEqual(plain(ui.modelState().document.tables.map(table=>table.name)),['users','orders']);
+ assert.equal(written(ui).length,0);
+});
+
+for(const destination of ['body','another control','another page']) {
+ test(`closing pending confirmation restores focus without overriding ${destination}`,async()=>{
+  const ui=await ready();ui.routes.set('/api/workbench/execution-plan',()=>plan);
+  await setMode(ui);await dismiss(ui);
+  const gate=deferred();ui.routes.set('/api/workbench/execution-plan',()=>gate.promise);
+  const opener=ui.root().querySelector('.wb-clear-recovery-actions').querySelector('button');
+  blurWhenDisabled(ui,opener);opener.focus();
+  const pending=opener.click();await nextTurn();
+  assert.equal(ui.document.querySelector('.wb-execution-feedback').dataset.state,'checking');
+  ui.document.activeElement=ui.document.body; // Native removal of a focused overlay clears focus.
+  await dismiss(ui);
+  let expected=ui.document.body;
+  if(destination==='another page')ui.leave();
+  else if(destination==='another control'){
+   expected=ui.root().querySelector('.count-setting input');expected.focus();
+  }
+  gate.resolve(plan);await pending;
+  if(destination==='body')expected=ui.root().querySelector('.wb-clear-recovery-actions').querySelector('button');
+  assert.equal(ui.document.activeElement===expected,true,'late completion must respect the current focus and page');
+  assert.equal(ui.document.querySelector('.modal'),null);assert.equal(written(ui).length,0);
+ });
+}
+
 test('confirmation footer reports checking and blocked state without moving focus, and details are user activated',async()=>{
  const ui=await ready(),gate=deferred();
  const footer=ui.document.querySelector('.modal-footer');

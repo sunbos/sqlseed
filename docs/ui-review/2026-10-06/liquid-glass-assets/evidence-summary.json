@@ -1082,6 +1082,437 @@
       "previous_disabled": true,
       "next_disabled": true,
       "multipage_not_tested": true
+    },
+    "desktop-1144-acceptance-20261007.json": {
+      "keyboardBefore": {
+        "focus": "wb-table-tab-fields",
+        "selected": "wb-table-tab-preview"
+      },
+      "keyboardAfter": {
+        "checked": [
+          "生成 children",
+          "生成 parents"
+        ],
+        "documentWidth": 1133,
+        "focus": "wb-table-tab-fields",
+        "height": 816,
+        "scrollY": 96.5,
+        "selected": "wb-table-tab-fields",
+        "width": 1144
+      },
+      "scroll": {
+        "before": {
+          "height": 1006,
+          "y": 68.5
+        },
+        "after": {
+          "height": 1006,
+          "selection": [
+            "生成 children",
+            "生成 parents"
+          ],
+          "y": 134
+        }
+      },
+      "confirmation": {
+        "end": {
+          "inside": true,
+          "tag": "BUTTON",
+          "text": "写入数据库"
+        },
+        "start": {
+          "inside": true,
+          "label": "追加数据",
+          "tag": "INPUT",
+          "type": "radio"
+        },
+        "restored": {
+          "dialogs": 0,
+          "scrollY": 0
+        },
+        "settled": {
+          "activeId": "",
+          "activeLabel": null,
+          "activeTag": "BODY",
+          "dialogs": 0,
+          "planButtons": [
+            {
+              "connected": true,
+              "disabled": false,
+              "hidden": false
+            }
+          ]
+        },
+        "note": "Historical failing observation before the follow-up fix; final result is in confirmation-focus-fixed-20261007.json."
+      },
+      "glyph": {
+        "bounds": {
+          "height": 19.1953125,
+          "width": 112,
+          "x": 936,
+          "y": 426.4765625
+        },
+        "documentWidth": 1133,
+        "font": "12px / 19.2px \"Sqlseed Rounded\", \"Segoe UI Variable Text\", \"Segoe UI\", \"PingFang SC\", \"Microsoft YaHei UI\", \"Microsoft YaHei\", \"Noto Sans CJK SC\", \"Noto Sans SC\", sans-serif",
+        "lineHeight": "19.2px",
+        "padding": "0px",
+        "scrollY": 68.5,
+        "value": "gjpqy éü 中文",
+        "viewportHeight": 872,
+        "viewportWidth": 1144
+      }
+    },
+    "confirmation-focus-fixed-20261007.json": {
+      "date": "2026-10-06T22:51:17.623Z",
+      "viewport": {
+        "height": 872,
+        "width": 1144
+      },
+      "ready": {
+        "active": "H2",
+        "inside": true,
+        "readyText": "确认生成数据\n\n追加生成的依赖与规则检查已通过。向现有数据追加，不清空表；自动主键由数据库继续分配。按此顺序逐表写入。若中途失败，后续表停止；已经提交的数据保留，实际数量可在运行记录中查看。\n\n写入目标\nSQLite\n\n<validation-root>/validation/candidate/parents-children.sqlite3\n\n当前连接的数据库位置；由运行 Web 的设备访问。\n\nData generation configuration · v1\n\n已有数据处理\n追加数据\n保留已有记录，由数据库继续分配 ID。\n清空所选表后生成\n删除下列所选表的现有记录，再生成新数据。\n重置自增计数\n追加会保留现有记录及自增计数，不能重置。仅在可执行的清空计划中使用此选项。\n7行本次生成 / 2 张表\nparents\n3 行\nchildren\n4 行\n已核对，确认后将写入数据库。\n返回调整\n写入数据库",
+        "writeButton": [
+          {
+            "disabled": false
+          }
+        ]
+      },
+      "wrapLast": {
+        "inside": true,
+        "text": "写入数据库"
+      },
+      "wrapFirst": {
+        "inside": true,
+        "label": "追加数据",
+        "type": "radio"
+      },
+      "escape": {
+        "dialogs": 0,
+        "disabled": false,
+        "label": null,
+        "scrollY": 0,
+        "tag": "BUTTON",
+        "text": "查看生成计划"
+      },
+      "cancel": {
+        "dialogs": 0,
+        "disabled": false,
+        "tag": "BUTTON",
+        "text": "查看生成计划"
+      },
+      "guideEscape": {
+        "dialogs": 0,
+        "disabled": false,
+        "label": "确认写入",
+        "selection": [
+          {
+            "checked": true,
+            "label": "生成 children"
+          },
+          {
+            "checked": true,
+            "label": "生成 parents"
+          }
+        ],
+        "tag": "BUTTON",
+        "text": "3确认核对生成计划"
+      },
+      "guideActionEscape": {
+        "dialogs": 0,
+        "disabled": false,
+        "insideGuide": true,
+        "tag": "BUTTON",
+        "text": "查看生成计划",
+        "ancestors": [
+          {
+            "cls": "btn wb-button primary wb-primary small wb-small",
+            "label": null,
+            "tag": "BUTTON"
+          },
+          {
+            "cls": "wb-next-step-actions",
+            "label": null,
+            "tag": "DIV"
+          },
+          {
+            "cls": "wb-next-step-summary",
+            "label": null,
+            "tag": "DIV"
+          },
+          {
+            "cls": "wb-next-step",
+            "label": "使用引导",
+            "tag": "SECTION"
+          },
+          {
+            "cls": "page wb-page",
+            "label": null,
+            "tag": "DIV"
+          },
+          {
+            "cls": "",
+            "label": null,
+            "tag": "MAIN"
+          }
+        ]
+      }
+    },
+    "graph-pointer-drag-20261007.json": {
+      "startedAt": "2026-10-06T22:46:44.067Z",
+      "scope": "Actual browser pointer/keyboard input. Graph zoom is not native browser page zoom.",
+      "crossing_samples": 15,
+      "crossing_duration_ms": 784.3,
+      "all_path_rectangles_identical": true,
+      "path_rectangle": {
+        "bottom": 498.9786376953125,
+        "height": 0,
+        "left": 533.623291015625,
+        "right": 579.0418701171875,
+        "top": 498.9786376953125,
+        "width": 45.4185791015625,
+        "x": 533.623291015625,
+        "y": 498.9786376953125
+      },
+      "hit_stroke_widths": [
+        "12px"
+      ],
+      "crossing": [
+        {
+          "dy": -24,
+          "hit": "schema-graph",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": -16,
+          "hit": "schema-graph",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": -10,
+          "hit": "schema-graph",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": -8,
+          "hit": "schema-graph",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": -6,
+          "hit": "schema-graph",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": -4,
+          "hit": "edge-hit sg-hit",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": -2,
+          "hit": "edge-hit sg-hit",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": 0,
+          "hit": "edge-hit sg-hit",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": 2,
+          "hit": "edge-hit sg-hit",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": 4,
+          "hit": "edge-hit sg-hit",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": 6,
+          "hit": "edge-hit sg-hit",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": 8,
+          "hit": "schema-graph",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": 10,
+          "hit": "schema-graph",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": 16,
+          "hit": "schema-graph",
+          "cursor": "default",
+          "selected": "false"
+        },
+        {
+          "dy": 24,
+          "hit": "schema-graph",
+          "cursor": "default",
+          "selected": "false"
+        }
+      ],
+      "pointer": [
+        {
+          "name": "blank",
+          "x": 740,
+          "y": 390,
+          "cursor": "default",
+          "hit": "graph-stage sg-stage",
+          "nodes": [
+            {
+              "name": "children",
+              "pressed": "false"
+            },
+            {
+              "name": "parents",
+              "pressed": "true"
+            }
+          ]
+        },
+        {
+          "name": "node text",
+          "x": 440,
+          "y": 490,
+          "cursor": "default",
+          "hit": "graph-node-body",
+          "nodes": [
+            {
+              "name": "children",
+              "pressed": "false"
+            },
+            {
+              "name": "parents",
+              "pressed": "true"
+            }
+          ]
+        },
+        {
+          "name": "node body",
+          "x": 455,
+          "y": 480,
+          "cursor": "default",
+          "hit": "graph-node-body",
+          "nodes": [
+            {
+              "name": "children",
+              "pressed": "false"
+            },
+            {
+              "name": "parents",
+              "pressed": "true"
+            }
+          ]
+        },
+        {
+          "name": "edge",
+          "x": 556.3325639204545,
+          "y": 498.9786487926136,
+          "cursor": "default",
+          "hit": "edge-hit sg-hit",
+          "nodes": [
+            {
+              "name": "children",
+              "pressed": "false"
+            },
+            {
+              "name": "parents",
+              "pressed": "true"
+            }
+          ]
+        }
+      ],
+      "edgeSelected": {
+        "generation": [
+          {
+            "checked": true,
+            "label": "生成 children",
+            "pressed": null
+          },
+          {
+            "checked": true,
+            "label": "生成 parents",
+            "pressed": null
+          }
+        ],
+        "selected": "true",
+        "svgRect": {
+          "bottom": 546.34375,
+          "height": 114.1953125,
+          "left": 374,
+          "right": 775,
+          "top": 432.1484375,
+          "width": 401,
+          "x": 374,
+          "y": 432.1484375
+        }
+      },
+      "panBefore": {
+        "left": 200.5,
+        "rect": {
+          "bottom": 684.25,
+          "height": 390,
+          "left": 361,
+          "right": 788,
+          "top": 294.25,
+          "width": 427,
+          "x": 361,
+          "y": 294.25
+        },
+        "top": 0
+      },
+      "panDuring": {
+        "cursor": "grabbing",
+        "left": 260.5,
+        "top": 0
+      },
+      "panAfter": {
+        "cursor": "default",
+        "generation": [
+          {
+            "checked": true,
+            "label": "生成 children"
+          },
+          {
+            "checked": true,
+            "label": "生成 parents"
+          }
+        ],
+        "left": 260.5,
+        "rect": {
+          "bottom": 659.75,
+          "height": 352,
+          "left": 113.5,
+          "right": 1349.5,
+          "top": 307.75,
+          "width": 1236,
+          "x": 113.5,
+          "y": 307.75
+        },
+        "selected": "true",
+        "top": 0
+      },
+      "panKeyboard": {
+        "activeLabel": "数据库关系画布，可用方向键平移",
+        "left": 320.5
+      }
     }
   },
   "ai_interceptions_excerpt": [
@@ -1669,5 +2100,22 @@
     "browser_evidence": "review-fix-confirmation-20261007.txt",
     "browser_result": "Reopened original saved configuration; append explanation, 7-row plan, ready footer and explicit submit preserved; canceled without another write",
     "scope": "This is a later JS readability change; the earlier Python and mutation target inputs remain unchanged."
+  },
+  "focus_followup": {
+    "change": "Preserve opener before busy disable; resolve redrawn guide entry; protect late restoration against focus/page changes",
+    "new_behavior_tests": 7,
+    "targeted_passed": 116,
+    "full_web_node_passed": 1064,
+    "failed": 0,
+    "skipped": 0,
+    "browser_evidence": "confirmation-focus-fixed-20261007.json",
+    "prior_ci_commit": "6345838fe55c898fac8769e61b8d4e179b817f7c",
+    "prior_ci_run": 37541310697,
+    "prior_ci_result": "success; not a substitute for the follow-up commit checks",
+    "coderabbit": "Draft review skipped",
+    "duration_seconds": 12.296,
+    "final_source_sha256": "35dbc4ed1bc59f44eb3005aabfa9b138a8996fe3623b536c17e42fa7e4634fd0",
+    "additional_case": "Unknown capability becomes blocked: Node verifies focus returns to the current reason button; not one of the four browser cases",
+    "final_independent_review": "No remaining P0/P1/P2 findings"
   }
 }

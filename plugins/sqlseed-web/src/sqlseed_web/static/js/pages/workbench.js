@@ -157,7 +157,9 @@ function action(fn, label = databaseActions.get(fn), {feedback = 'page', restore
       return;
     }
     const focusTarget = restoreFocusTo?.();
-    pending.set(key, {label: label || tr("workbench.action.process"), feedback});
+    const pendingAction = {label: label || tr("workbench.action.process"), feedback,
+      opener: args[0]?.currentTarget || document.activeElement};
+    pending.set(key, pendingAction);
     syncBusy();
     try {
       return await fn(...args);
@@ -172,9 +174,10 @@ function action(fn, label = databaseActions.get(fn), {feedback = 'page', restore
       }
       // Closing while a request disables its opener cannot restore focus yet.
       // Retry after releasing the gate only if the user has not focused elsewhere.
-      if (version === active && owner === session && focusTarget?.isConnected && !focusTarget.disabled &&
+      const returnTarget = pendingAction.returnFocus?.() || focusTarget;
+      if (version === active && owner === session && returnTarget?.isConnected && !returnTarget.disabled &&
           (!document.activeElement || document.activeElement === document.body)) {
-        focusTarget.focus({preventScroll: true});
+        returnTarget.focus({preventScroll: true});
       }
     }
   };
@@ -3466,6 +3469,10 @@ async function reviewClearScope() {
 }
 async function summary() {
   const stillCurrent = modalTicket();
+  // Busy controls lose native focus before the async checks open the dialog.
+  const pendingAction = pendingActions.get(session)?.get('database');
+  const opener = pendingAction?.opener || document.activeElement;
+  const guideAction = opener?.dataset.guideAction;
   if (!model().document.tables.length) {
     throw new UserFacingError(tr("workbench.scope.required"));
   }
@@ -3495,9 +3502,20 @@ async function summary() {
       mode: executionChecks.has(m) && m.schema.dialect === 'sqlite' ? 'replace_selected' : 'append',
       reset_identity: false
     };
+  const returnFocus = () => {
+    if (version !== active || current !== session || m !== model()) return null;
+    const target = guideAction ? root.querySelector(`[data-guide-action="${guideAction}"]`) : opener;
+    if (target?.isConnected && !target.hidden) return target;
+    return [root.querySelector('[data-plan-entry]'), root.querySelector('[data-guide-action="next"]'),
+      root.querySelector('.wb-clear-recovery-actions')?.querySelector('button'),
+      root.querySelector('.wb-generation-unsupported')?.querySelector('button')]
+      .find(control => control && !control.hidden && !control.disabled);
+  };
+  if (pendingAction) pendingAction.returnFocus = returnFocus;
   const dialog = openedModal = modal(tr("workbench.execution.title"), {
     dismiss: 'footer',
     wide: true,
+    returnFocus,
     onClose: () => {
       sequence++;
       plan = null;

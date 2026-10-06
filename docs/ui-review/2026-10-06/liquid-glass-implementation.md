@@ -36,6 +36,7 @@ Apple 建议把 Liquid Glass 主要用于位于内容上方的导航，避免把
 - 窄屏或 `pointer:coarse` 下，表选择标签、路径按钮及数量增减按钮提供至少 44×44 CSS 像素命中区。数量增减横排，不改变原生输入校验；非法草稿不能被步进按钮静默修正。
 - 长字段标识在本列内换行，保留完整名称和查看结构入口，避免窄屏内容越过规则列；实现只给 `.wb-field-name` 增加 `overflow-wrap:anywhere`。
 - 写入确认 footer 显示核对中、提交中、阻断、失败或就绪；提交按钮关联状态说明。“查看原因”只有在用户选择后才滚动并聚焦正文诊断。既有会话、epoch、修订、计划 hash、busy 和 `canRun` 门禁继续决定能否写入。
+- 生成计划入口在禁用前保存原焦点；确认框关闭后返回对应入口，引导重绘后解析当前按钮。若关闭时预检仍在途，只在同一会话且用户没有移焦时延后恢复，不改变写入确认语义。
 
 入口见 [工作台源码](../../../plugins/sqlseed-web/src/sqlseed_web/static/js/pages/workbench.js)、[工作台样式](../../../plugins/sqlseed-web/src/sqlseed_web/static/workbench.css)及[正式指南](../../web-workbench.md)。
 
@@ -54,13 +55,13 @@ tab 选择同步生效。横向反馈使用 160ms 指示线，快速反转从当
 | 范围 | 结果与限制 |
 | --- | --- |
 | ruff check / format、mypy、lint-imports | 均 exit 0 |
-| Web Node 测试 | 长字段修复后于 10 月 6 日及 10 月 7 日均重跑完整套件，1057 / 1057 通过，无失败或跳过；最新墙钟用时 12.603 秒 |
+| Web Node 测试 | 焦点修复后于 10 月 7 日重跑完整套件，1064 / 1064 通过，无失败或跳过；此前 1057 项加本次 7 项焦点行为回归 |
 | 页面 Node 测试 | 47 / 47 通过，无失败或跳过 |
 | 离线 Python 首轮 | 4367 passed、29 skipped、82 deselected、33 setup errors |
 | 文档修复后定向复验 | 51 passed；覆盖并解决首轮全部 33 个 setup errors |
 | Python 去重合并 | 4400 passed、29 skipped、82 deselected，未解决失败 0；不是第二次完整运行 |
 | 架构与包边界 | 14 + 10 项通过，已包含在 Python 结果中 |
-| 文档同步与 MkDocs strict | 10 月 7 日最终复验均 exit 0，strict 构建 6.403 秒 |
+| 文档同步与 MkDocs strict | 10 月 7 日最终复验均 exit 0，最新 strict 构建 2.772 秒 |
 | 本地 mutation gate | 246 / 246 killed；survived、timeout、suspicious、skipped 均为 0 |
 | 独立提交前源码审查 | 10 月 7 日未发现 P0 / P1 / P2；六组定向 Node 回归 115 / 115，diff check 通过 |
 
@@ -89,7 +90,9 @@ mutmut results
 
 随后根据 Sonar 的可维护性提示，将追加说明文案的嵌套三元表达式拆为等价 `if / else if` 分支，保持失败优先、循环来源其次及普通追加默认的顺序。独立复审确认分支等价，完整 Web Node 再次 1057 / 1057（`validation/logs/gates-20261007/node-web-review-fix.log`，06:31:04 完成，12.603 秒），实际浏览器重新加载后核对确认说明、7 行计划及就绪 footer 并取消，未再次写入（`review-fix-confirmation-20261007.txt`）。该 JS 重构发生在前述输入一致性审计之后；Python 与 mutation 目标未改。
 
-独立审查记录为 `validation/final-diff-review-20261007.md`；10 月 7 日文档复验记录为 `validation/logs/gates-20261007/docs-result.json`。本轮 `.sonarcloud.properties` 仅精确列入上述 7 张已核验 PNG 的二进制排除项，没有扩大到目录或排除产品代码。
+生成确认焦点补修增加 7 项行为回归：原生禁用失焦后 Esc / 返回调整恢复、引导重绘入口、预检迟到时恢复 BODY 以及不覆盖其他控件 / 其他页面的焦点，以及首次检查阻断时返回原因入口。前两条在修复前确实失败；修复后最终定向 116 / 116、完整 Web Node 1064 / 1064，无失败或跳过（`validation/logs/gates-20261007/confirmation-focus-final-node.log`，墙钟 12.296 秒）。真实浏览器的对应入口复验见下文；首次阻断返回原因入口由新增 Node 行为回归覆盖，未将它列为这次四入口浏览器实测。最终独立复审未发现剩余 P0 / P1 / P2。前一提交 `6345838` 的 CI、doc-sync、Sonar 与 CodeFlow 已通过，包含真实 PostgreSQL integration 及 macOS / Windows jobs；这些是前一提交的结果，新增焦点修复以 PR 当前 head 的检查为准。CodeRabbit 因 Draft 跳过，不计为完成代码审查。
+
+独立审查记录为 `validation/final-diff-review-20261007.md`；10 月 7 日文档复验记录为 `validation/logs/gates-20261007/docs-focus-result.json`。本轮 `.sonarcloud.properties` 仅精确列入上述 7 张已核验 PNG 的二进制排除项，没有扩大到目录或排除产品代码。
 
 ## 功能保留与验证矩阵
 
@@ -108,7 +111,7 @@ mutmut results
 | 生成确认、追加、清空 | 短屏就绪和阻断 footer 可达；查看原因聚焦诊断；两次追加及一次清空重建直接核验行数 / FK；第四次追加库结果正确 | execution、clear-recovery、runtime、acceptance 通过；10 月 7 日再次写入后无手动刷新即显示成功 |
 | 运行记录、版本与在途保护 | 清空运行显示计划 / 实插 7 行；10 月 7 日显式追加后无需刷新、重选或导航即显示成功及两表实插 3 / 4，与数据库一致 | runs、recovery、epoch / revision / hash / concurrency / late-response 回归通过；没有逐帧捕获所有中间状态 |
 | 查看当前数据 | 第五次写入前，children 只读数据表显示 8 行、amount 7 / doubled 14，按主键 id 排序；仅一页，前后翻页均禁用 | table-data、workbench-data 通过；这次浏览器检查未覆盖多页翻页 |
-| 焦点、选区、滚动和动效 | YAML 焦点陷阱 / Escape、日期浮层分层 Escape、快速 tab 反向与 reduced-motion 清理；五宽度和长名布局 | compact、tab-motion、segment/navigation、modal-scroll 等通过；真实 200% 缩放待补 |
+| 焦点、选区、滚动和动效 | YAML 焦点陷阱 / Escape、日期浮层分层 Escape、生成确认四条关闭入口恢复、快速 tab 反向与 reduced-motion 清理；五宽度及两种 1144px 桌面高度、长名和输入字形 | compact、execution、tab-motion、segment/navigation、modal-scroll 等通过；真实 200% 缩放待补 |
 
 10 月 7 日设置页补充原始记录为 `settings-defaults-20261007.txt`、`plugins-status-20261007.txt` 和 `theme-options-20261007.txt`；该次仅查看入口及状态，未修改偏好、检查远程更新或管理组件。
 
@@ -171,6 +174,8 @@ mutmut results
 - YAML 对话框打开时聚焦标题，Shift+Tab 回绕至“应用配置”、Tab 回绕至“读取文件”，均留在对话框内；Esc 关闭后焦点回到“编辑 YAML”。语言下拉 Esc 关闭，焦点回到“界面语言”，已选简体中文保留（`keyboard-focus-trap-escape.json`）。
 - 手机日期选择器的 AX 记录显示 2000 年 1 月及已选日期；第一次 Esc 只关闭日期浮层，保留字段对话框并回到开始日期按钮；第二次 Esc 关闭字段对话框并回到日期时间规则入口（`date-picker-phone.txt`、`date-picker-escape.json`）。此处依据 AX / 焦点记录，不以 `date-picker-phone.png` 证明整个日历已进入视口，也不覆盖每一种日期键盘指令或日期边界。
 - 10 月 7 日对当前 CSS 的浅 / 深色不透明 token 组合计算相对亮度，30 项正文、辅助文字、强调、错误、焦点和主按钮端点检查全部达到各自阈值，文字组合最低为 4.76:1（`source-token-contrast.json`）。方法依据 [W3C 文本对比度](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html)及[非文本对比度](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html)；这是源码颜色计算，不含透明背景合成采样，不是整站 WCAG 符合性或屏幕阅读器验收。
+- 另补验 1144×816 / 1144×872：两者文档宽度均为 1133px，无页面横向溢出。方向键只移动 tab 焦点，Space 才切换字段视图；滚轮使页面从 68.5px 滚至 134px，两张生成表的勾选保持。搜索框实际输入 `gjpqy éü 中文`，在 12px 字体 / 19.2px 行高中目视检查下伸部、重音符号与中文字形完整，并在检查后清空输入。证据：`desktop-1144-acceptance-20261007.json`、两尺寸截图及 `glyph-input-1144-20261007.png`。同一记录暴露的生成确认关闭焦点问题单独追踪，不以布局通过代替焦点通过。
+- 补验发现生成确认 Esc 关闭后焦点落到 BODY。根因是 busy 禁用原按钮后，弹窗才读取 activeElement；该顺序在基线也存在。保存禁用前入口并复用弹窗的显式 returnFocus 后，1144×872 实测顶部入口的 Esc / 返回调整、引导“确认写入”阶段按钮及重绘后的引导“查看生成计划”按钮，均回到对应的可用按钮；Shift+Tab / Tab 仍在确认框内回绕，两表勾选保持，未执行写入。修复证据：`confirmation-focus-fixed-20261007.json` / `.png`；原失败记录保留。
 
 ### SQLite 写入、字段编辑与不写入边界
 
@@ -212,6 +217,8 @@ mutmut results
 
 整份计划的真实依赖检查显示 1 项阻断、10 项提醒：departments / employees 循环且无可用来源，不能从空表重建；“查看生成计划”保持 disabled。此例验收的是结构呈现、范围独立和阻断说明，不是成功生成 26 张表（`complex26-dependency-check.txt`）。
 
+10 月 7 日在两表图中补验真实指针输入：用 15 个位置缓慢跨过连线，连线几何与 12px 命中描边保持，空白、连线和节点文字区域均使用稳定的默认指针。点击连线后显示 `parents.id → children.parent_id`，生成勾选不变。将**图自身**放大到 200% 后，实际拖拽使画布 scrollLeft 从 200.5 到 260.5px，拖动中为 grabbing、松开后恢复 default；方向键再平移到 320.5px，连线选择与两表生成勾选保持。证据：`graph-pointer-drag-20261007.json`、`graph-drag-20261007.png`。适应画布时内容已完全容纳，拖拽被滚动边界限制；图内缩放不代表浏览器原生 200% 缩放。
+
 ## 性能原始样本与解释边界
 
 基线和候选在独立 IAB 页面、本地服务上取样；加载各 3 轮，宽度 1440px、浅色、无生成表勾选。记录没有足够的重复次数、缓存控制与设备覆盖，不能证明统计显著更快。下表直接使用 Navigation Timing 的事件结束时间和 Paint Timing 的 FCP，单位均为 ms；轮次对应原始 `round=0/1/2`。
@@ -240,4 +247,4 @@ mutmut results
 - 实际浏览器 200% zoom：已尝试清除设备模拟后使用原生 Cmd+=，但前后 viewport 的 zoom / scale 均为 1，故没有取得有效 200% 结果；目前等待用户协助，不以 CSS zoom 或 page scale 替代（`browser-zoom-capability-probe.json`）。
 - forced-colors / coarse 已有浏览器模拟证据，无 filter 已有现有声明分支的强制激活证据；真实高对比系统、真正不支持 filter 的引擎和触控设备仍未验证。
 - 默认态前后截图、长字段和所列键盘 / 弹层流程已随本报告记录；其他业务状态组合仍不能由这些单次观察概括。便携摘要保留关键数值，完整原始日志和浏览器 trace 未全部纳入仓库。
-- 实现已提交并推送，Draft PR #35 已关联本任务；尚未合并或发布。候选 CI 尚在运行，不能以 main 的绿灯替代。真实 LLM / PostgreSQL、Safari / Firefox、真实手机与 GPU、屏幕阅读器、发行包和 XR 均不在上述已验证结论内。
+- 实现已提交并推送，Draft PR #35 已关联本任务；尚未合并或发布。当前候选 CI 需核对最新 head，不能以 main 或前一提交的绿灯替代。前一提交已有 CI PostgreSQL 验证，本地本轮数据库浏览器流程仍只覆盖 SQLite。真实 LLM、Safari / Firefox、真实手机与 GPU、屏幕阅读器、发行包和 XR 均不在上述已验证结论内。
