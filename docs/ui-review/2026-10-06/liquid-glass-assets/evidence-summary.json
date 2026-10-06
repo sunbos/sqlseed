@@ -1648,5 +1648,14 @@
     "actual_200_percent_verified": false,
     "followup_no_refresh_result_verified": true,
     "followup_run_id": "56981906-f60a-4cbe-bda8-cddf2f5e1bde"
+  },
+  "delivery": {
+    "implementation_commit": "87c2a046b0a2c5493c98b6e5c950761df7fcdfb8",
+    "pr": "https://github.com/sunbos/sqlseed/pull/35",
+    "draft": true,
+    "merged": false,
+    "released": false,
+    "candidate_ci": "running at this evidence snapshot; inspect current PR head checks",
+    "required_browser_gap": "native browser 200% zoom"
   }
 }

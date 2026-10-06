@@ -58,7 +58,8 @@ Files: `static/style.css`, `navigation.css`, `motion.css` if required, `design-s
 - [x] Exercise configurations/filter/bulk operations, graph/view-selection independence, AI unavailable and labeled candidate review fixture, plugin status and existing protected-operation tests.
 - [x] Capture before/after screenshots and comparable load/scroll/interaction metrics. Fix regressions without weakening assertions.
 - [x] Independent specification and quality review, then verify fixes. October 7 final diff review found no P0/P1/P2 issues; 115 targeted tests passed. Earlier review fixes retained compact stage navigation and wide/coarse touch targets.
-- [ ] Commit only task source/docs/tests, push branch, create and attach a reviewable PR. No merge or release.
+- [x] Commit only task source/docs/tests, push branch, create and attach [Draft PR #35](https://github.com/sunbos/sqlseed/pull/35). Implementation commit: `87c2a046b0a2c5493c98b6e5c950761df7fcdfb8`. No merge or release.
+- [ ] Inspect the candidate PR head CI; baseline CI is not candidate evidence.
 - [ ] Deliver candidate URL, functional checklist, evidence index, validation results and explicit unverified boundaries. Audit every goal requirement before marking complete.
 
 ## Evidence status — 2026-10-07

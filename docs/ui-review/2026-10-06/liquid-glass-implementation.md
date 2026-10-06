@@ -1,6 +1,6 @@
 # Liquid Glass 工作台实施与验收记录
 
-实施日期：2026-10-06，最后复核：2026-10-07。状态：**实施与验收进行中**。实现基线：`b7a5ba507cd8192779debf56d32502ba38e8e6af`，分支 `codex/liquid-glass-ui`。本文记录当前工作树的设计取舍及已经取得的证据；实际 200% 浏览器缩放仍待补验，提交和 PR 尚未完成；无手动刷新到运行成功的流程已于 10 月 7 日补验。辅助功能及 coarse 的浏览器模拟结果与真实设备边界分别记录在下文。历史评审结果不改写。
+实施日期：2026-10-06，最后复核：2026-10-07。状态：**实施与验收进行中**。实现基线：`b7a5ba507cd8192779debf56d32502ba38e8e6af`，分支 `codex/liquid-glass-ui`。本文记录当前工作树的设计取舍及已经取得的证据；实际 200% 浏览器缩放仍待补验；实现已提交为 `87c2a046b0a2c5493c98b6e5c950761df7fcdfb8`，可审阅 [Draft PR #35](https://github.com/sunbos/sqlseed/pull/35)，候选 CI 正在运行；无手动刷新到运行成功的流程已于 10 月 7 日补验。辅助功能及 coarse 的浏览器模拟结果与真实设备边界分别记录在下文。历史评审结果不改写。
 
 本报告随附 7 张原始截图和[便携证据摘要](liquid-glass-assets/evidence-summary.json)，包含布局、辅助功能、数据库、合成 AI 和性能的关键原始数值及截图 SHA256。摘要是原始记录的摘录，不是完整网络或浏览器 trace。正文中的其他文件名标识本轮证据来源，不依赖维护者的本机路径；自动结果摘自 `validation/automated-results.md`。
 
@@ -238,4 +238,4 @@ mutmut results
 - 实际浏览器 200% zoom：已尝试清除设备模拟后使用原生 Cmd+=，但前后 viewport 的 zoom / scale 均为 1，故没有取得有效 200% 结果；目前等待用户协助，不以 CSS zoom 或 page scale 替代（`browser-zoom-capability-probe.json`）。
 - forced-colors / coarse 已有浏览器模拟证据，无 filter 已有现有声明分支的强制激活证据；真实高对比系统、真正不支持 filter 的引擎和触控设备仍未验证。
 - 默认态前后截图、长字段和所列键盘 / 弹层流程已随本报告记录；其他业务状态组合仍不能由这些单次观察概括。便携摘要保留关键数值，完整原始日志和浏览器 trace 未全部纳入仓库。
-- 本轮未完成提交和 PR。真实 LLM / PostgreSQL、Safari / Firefox、真实手机与 GPU、屏幕阅读器、发行包和 XR 均不在上述已验证结论内。
+- 实现已提交并推送，Draft PR #35 已关联本任务；尚未合并或发布。候选 CI 尚在运行，不能以 main 的绿灯替代。真实 LLM / PostgreSQL、Safari / Firefox、真实手机与 GPU、屏幕阅读器、发行包和 XR 均不在上述已验证结论内。
