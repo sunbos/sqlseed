@@ -54,7 +54,7 @@ tab 选择同步生效。横向反馈使用 160ms 指示线，快速反转从当
 | 范围 | 结果与限制 |
 | --- | --- |
 | ruff check / format、mypy、lint-imports | 均 exit 0 |
-| Web Node 测试 | 长字段修复后于 10 月 6 日及 10 月 7 日均重跑完整套件，1057 / 1057 通过，无失败或跳过；最新墙钟用时 26.235 秒 |
+| Web Node 测试 | 长字段修复后于 10 月 6 日及 10 月 7 日均重跑完整套件，1057 / 1057 通过，无失败或跳过；最新墙钟用时 12.603 秒 |
 | 页面 Node 测试 | 47 / 47 通过，无失败或跳过 |
 | 离线 Python 首轮 | 4367 passed、29 skipped、82 deselected、33 setup errors |
 | 文档修复后定向复验 | 51 passed；覆盖并解决首轮全部 33 个 setup errors |
@@ -66,7 +66,7 @@ tab 选择同步生效。横向反馈使用 160ms 指示线，快速反转从当
 
 首轮 33 个错误均来自文档严格构建 fixture：非发布的 UI 评审材料断链。按既有发布范围将 `/ui-review/` 排除，并同步正式双语指南后定向复验通过；没有关闭 strict 或全局忽略 warning。29 个跳过包括 24 个 Windows 专有行为、2 个 PowerShell 不可用、2 个文件系统别名差异及 1 个可选 Pillow 缺失。82 个排除包括真实 PostgreSQL / LLM 等 79 个 integration 用例及 3 个 PG fixture 用例。
 
-Python、静态门禁和 mutation 早于最后的长字段换行修复；679 项门禁源码 / 测试输入复核仅 `workbench.css` 变化，Python / JS 与测试未变，因此沿用对应结果，并非重新跑过全套。CSS 修复已在 320 / 390 / 1440px 浏览器复验，随后两次完整 Web Node 均为 1057 / 1057；最新日志为 `validation/logs/gates-20261007/node-web.log`，结果记录完成于 2026-10-07 06:11:31（本地时间）。原始门禁及去重分析位于 `validation/logs/gates-20261006/`，mutation 位于 `validation/mutation-20261006T031341187246Z/`。这些结果不代替真实浏览器、真实模型、PostgreSQL、跨平台安装或发行包验收。
+Python、静态门禁和 mutation 早于最后的长字段换行修复；679 项门禁源码 / 测试输入复核仅 `workbench.css` 变化，Python / JS 与测试未变，因此沿用对应结果，并非重新跑过全套。CSS 修复已在 320 / 390 / 1440px 浏览器复验，随后两次完整 Web Node 均为 1057 / 1057；提交前日志为 `validation/logs/gates-20261007/node-web.log`，结果记录完成于 2026-10-07 06:11:31（本地时间）。原始门禁及去重分析位于 `validation/logs/gates-20261006/`，mutation 位于 `validation/mutation-20261006T031341187246Z/`。这些结果不代替真实浏览器、真实模型、PostgreSQL、跨平台安装或发行包验收。
 
 实际检查命令如下；Python 工具在五个本地 editable 包的独立环境运行，缓存及构建输出位于隔离目录。
 
@@ -86,6 +86,8 @@ mutmut results
 ```
 
 `offline_scope` 为验收环境的收集插件，仅排除依赖 `pg_url` / `available_llm_backend` 的外部服务用例，不替换 fixture、响应或断言。mutation 在源码和输入哈希匹配的隔离副本中执行仓库规定的目标。上述带隔离输出 / 插件的命令是执行记录，不把这些临时验收文件作为产品依赖。
+
+随后根据 Sonar 的可维护性提示，将追加说明文案的嵌套三元表达式拆为等价 `if / else if` 分支，保持失败优先、循环来源其次及普通追加默认的顺序。独立复审确认分支等价，完整 Web Node 再次 1057 / 1057（`validation/logs/gates-20261007/node-web-review-fix.log`，06:31:04 完成，12.603 秒），实际浏览器重新加载后核对确认说明、7 行计划及就绪 footer 并取消，未再次写入（`review-fix-confirmation-20261007.txt`）。该 JS 重构发生在前述输入一致性审计之后；Python 与 mutation 目标未改。
 
 独立审查记录为 `validation/final-diff-review-20261007.md`；10 月 7 日文档复验记录为 `validation/logs/gates-20261007/docs-result.json`。本轮 `.sonarcloud.properties` 仅精确列入上述 7 张已核验 PNG 的二进制排除项，没有扩大到目录或排除产品代码。
 

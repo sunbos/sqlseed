@@ -1657,5 +1657,17 @@
     "released": false,
     "candidate_ci": "running at this evidence snapshot; inspect current PR head checks",
     "required_browser_gap": "native browser 200% zoom"
+  },
+  "review_followup": {
+    "change": "Extract append confirmation message selection from a nested conditional without changing priority or guards",
+    "node_tests": 1057,
+    "passed": 1057,
+    "failed": 0,
+    "skipped": 0,
+    "duration_seconds": 12.603,
+    "completed_at_local": "2026-10-07T06:31:04.752854",
+    "browser_evidence": "review-fix-confirmation-20261007.txt",
+    "browser_result": "Reopened original saved configuration; append explanation, 7-row plan, ready footer and explicit submit preserved; canceled without another write",
+    "scope": "This is a later JS readability change; the earlier Python and mutation target inputs remain unchanged."
   }
 }

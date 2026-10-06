@@ -3663,10 +3663,12 @@ async function summary() {
     executionChecks.delete(m);
     notify(m.check?.ok ? tr("workbench.dependency.appendValid") : tr("workbench.execution.appendUnchecked"), !m.check?.ok);
     updateStatus();
+    let helpKey = 'workbench.execution.appendPlanHelp';
+    if (!result.ok) helpKey = 'workbench.execution.appendUnchecked';
+    else if (result.existing_cycle_sources?.length) helpKey = 'workbench.execution.existingCycle';
     replaceContent(planInfo, h('p', {
       class: 'wb-muted'
-    }, !result.ok ? tr('workbench.execution.appendUnchecked') : result.existing_cycle_sources?.length
-      ? tr('workbench.execution.existingCycle') : tr('workbench.execution.appendPlanHelp')), ...generationDiagnostics());
+    }, tr(helpKey)), ...generationDiagnostics());
   }
   function generationDiagnostics() {
     return (result.issues || []).filter(issue => !unsupported || issue.code !== 'cross_table_cycle').map(issue => h('p', {
