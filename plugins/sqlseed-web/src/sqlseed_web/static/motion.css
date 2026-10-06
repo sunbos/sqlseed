@@ -1,4 +1,12 @@
 /* Only decorative layers move; labels, controls and hit areas stay in place. */
+[role=tab].tab-motion-surface-active { position:relative; }
+.tab-motion-surface {
+  position:absolute; inset:0; border-radius:inherit;
+  box-shadow:inset 0 0 0 1px var(--teal); pointer-events:none;
+}
+@media(prefers-reduced-motion:reduce), (forced-colors:active) {
+  .tab-motion-surface { display:none; }
+}
 .segment-motion { position:relative; isolation:isolate; }
 .segment-motion > button,.segment-motion > li { position:relative; z-index:1; }
 .segment-motion > .segment-indicator {

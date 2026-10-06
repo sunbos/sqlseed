@@ -21,7 +21,7 @@ test('guidance retains step controls through selection, status updates and langu
   assert.equal(guide(ui).querySelector('.wb-guide-stages'), group);
   ui.context.setLanguage('en');
   assert.equal(guide(ui).querySelector('.wb-guide-stages'), group);
-  assert.match(steps[1].textContent, /Preview samples/);
+  assert.equal(steps[1].getAttribute('aria-label'), 'Preview samples');
   await steps[0].click();
   assert.equal(steps[0].getAttribute('aria-current'), 'step');
   assert.equal(ui.requests.some(request => request.url.endsWith('/runs')), false);
@@ -170,7 +170,7 @@ test('first-use guidance teaches selection and never starts AI or a database wri
   const ui=harness();await ui.mount();await tick();
   assert.ok(guide(ui));assert.match(guide(ui).textContent,/先选择要生成的表/);
   assert.ok(ui.button('选择生成表',guide(ui)));
-  assert.match(guide(ui).querySelector('[aria-current="step"]').textContent, /设定规则/);
+  assert.equal(guide(ui).querySelector('[aria-current="step"]').getAttribute('aria-label'), '设定规则');
   assert.equal(ui.requests.some(r=>r.url.endsWith('/suggest')||r.url.endsWith('/runs')),false);
 });
 
@@ -189,10 +189,10 @@ test('direct preview is optional and stale results return guidance to preview af
   await ui.button('直接预览',guide(ui)).click();
   assert.match(guide(ui).textContent,/已预览所选 1 张表/);
   assert.ok(ui.button('查看生成计划',guide(ui)));
-  assert.match(guide(ui).querySelector('[aria-current="step"]').textContent, /确认写入/);
+  assert.equal(guide(ui).querySelector('[aria-current="step"]').getAttribute('aria-label'), '确认写入');
   await ui.button('字段规则').click();await ui.openRule('amount');await ui.edit('max_value','15');await ui.applyRule();
   assert.match(guide(ui).textContent,/配置已变化，请重新预览/);
-  assert.match(guide(ui).querySelector('[aria-current="step"]').textContent, /预览样例/);
+  assert.equal(guide(ui).querySelector('[aria-current="step"]').getAttribute('aria-label'), '预览样例');
   assert.equal(ui.button('查看生成计划',guide(ui)),undefined);
   assert.equal(ui.requests.some(r=>r.url.endsWith('/suggest')||r.url.endsWith('/runs')),false);
 });
@@ -227,6 +227,7 @@ test('input errors take priority and collapsed guide keeps its preference throug
   const input=ui.root().querySelector('input[aria-label="users 生成数量"]');input.value='0';await input.dispatchEvent('input');
   assert.match(guide(ui).textContent,/先修正无效输入/);
   await ui.button('检查输入',guide(ui)).click();assert.equal(ui.document.activeElement,input);
+  await ui.button('展开引导',guide(ui)).click();
   await ui.button('收起引导',guide(ui)).click();redraw(ui);
   assert.ok(ui.button('展开引导',guide(ui)));assert.notEqual(guide(ui).querySelector('.wb-next-step-body').getAttribute('hidden'),null);
   await ui.button('展开引导',guide(ui)).click();assert.equal(guide(ui).querySelector('.wb-next-step-body').getAttribute('hidden'),null);

@@ -1,0 +1,1652 @@
+{
+  "format": "sqlseed-ui-review-evidence-excerpt-v1",
+  "date": "2026-10-06",
+  "status": "implementation_and_acceptance_in_progress",
+  "baseline_commit": "b7a5ba507cd8192779debf56d32502ba38e8e6af",
+  "scope": "Independent IAB browser observations and temporary SQLite databases; synthetic AI status/suggest only; not real model, real touch device, unsupported-filter engine, GPU, cross-browser or XR acceptance. Real 200% browser zoom pending user assistance.",
+  "source_file_names_are_provenance_not_portable_file_links": true,
+  "screenshots": [
+    {
+      "file": "final-before-390.png",
+      "bytes": 210639,
+      "sha256": "328805f6ff822dabc313e1a3c65e12a18b13c72e0957c44aed4fae50643287d6"
+    },
+    {
+      "file": "final-after-390.png",
+      "bytes": 135646,
+      "sha256": "aef66565375174972b30a58f16fd5c12c3241136edcf29f7f4eff67ac6089c70"
+    },
+    {
+      "file": "final-before-1440.png",
+      "bytes": 493605,
+      "sha256": "b83e805cd458f293d0a6f9fe82306e50e9fc4308ba49ccc70de3e8da7f6ebb21"
+    },
+    {
+      "file": "final-after-1440.png",
+      "bytes": 281358,
+      "sha256": "dc8808185f375723ad1abf42455bdbba426da5e1d8d348be32b2fca0b96cd5e7"
+    },
+    {
+      "file": "after-en-dark-workbench-1440.png",
+      "bytes": 360884,
+      "sha256": "4efa4e2f052387ac32bf5282fa235fb8b0fd228b8367b310f8990865cc8c325e"
+    },
+    {
+      "file": "after-blocked-confirmation-phone.png",
+      "bytes": 64108,
+      "sha256": "9675bdb1dd64698c259879b0dbfd6abe5688100a95e3c99bcf2a642ad32b2766"
+    },
+    {
+      "file": "long-fields-phone-fixed.png",
+      "bytes": 95497,
+      "sha256": "03689e612f46e0102867472d290ae5b504e4d0f69527a5704e5de3ac369ae616"
+    }
+  ],
+  "observations": {
+    "final-visual-pairs.json": {
+      "note": "Each version uses its fresh-user default guide state: baseline expanded, candidate compact; identical retail schema, light/zh, no tables selected. The baseline source is frozen b7a5ba5.",
+      "results": [
+        {
+          "side": "before",
+          "documentWidth": 309,
+          "fieldsDocumentY": 1491.765625,
+          "heading": "数据生成配置",
+          "height": 844,
+          "theme": "light",
+          "width": 320
+        },
+        {
+          "side": "after",
+          "documentWidth": 309,
+          "fieldsDocumentY": 792.109375,
+          "heading": "数据生成配置",
+          "height": 844,
+          "theme": "light",
+          "width": 320
+        },
+        {
+          "side": "before",
+          "documentWidth": 379,
+          "fieldsDocumentY": 1430.7734375,
+          "heading": "数据生成配置",
+          "height": 844,
+          "theme": "light",
+          "width": 390
+        },
+        {
+          "side": "after",
+          "documentWidth": 379,
+          "fieldsDocumentY": 750.9140625,
+          "heading": "数据生成配置",
+          "height": 844,
+          "theme": "light",
+          "width": 390
+        },
+        {
+          "side": "before",
+          "documentWidth": 757,
+          "fieldsDocumentY": 601.1640625,
+          "heading": "数据生成配置",
+          "height": 1024,
+          "theme": "light",
+          "width": 768
+        },
+        {
+          "side": "after",
+          "documentWidth": 757,
+          "fieldsDocumentY": 525.2734375,
+          "heading": "数据生成配置",
+          "height": 1024,
+          "theme": "light",
+          "width": 768
+        },
+        {
+          "side": "before",
+          "documentWidth": 1013,
+          "fieldsDocumentY": 561.96875,
+          "heading": "数据生成配置",
+          "height": 768,
+          "theme": "light",
+          "width": 1024
+        },
+        {
+          "side": "after",
+          "documentWidth": 1013,
+          "fieldsDocumentY": 486.078125,
+          "heading": "数据生成配置",
+          "height": 768,
+          "theme": "light",
+          "width": 1024
+        },
+        {
+          "side": "before",
+          "documentWidth": 1429,
+          "fieldsDocumentY": 536.1171875,
+          "heading": "数据生成配置",
+          "height": 900,
+          "theme": "light",
+          "width": 1440
+        },
+        {
+          "side": "after",
+          "documentWidth": 1429,
+          "fieldsDocumentY": 460.2265625,
+          "heading": "数据生成配置",
+          "height": 900,
+          "theme": "light",
+          "width": 1440
+        }
+      ]
+    },
+    "after-en-dark-layouts-corrected-capture.json": [
+      {
+        "documentWidth": 309,
+        "fieldsY": 1038.21875,
+        "scrollY": 0,
+        "width": 320
+      },
+      {
+        "documentWidth": 379,
+        "fieldsY": 910.75,
+        "scrollY": 0,
+        "width": 390
+      },
+      {
+        "documentWidth": 757,
+        "fieldsY": 570.3203125,
+        "scrollY": 0,
+        "width": 768
+      },
+      {
+        "documentWidth": 1013,
+        "fieldsY": 570.3203125,
+        "scrollY": 0,
+        "width": 1024
+      },
+      {
+        "documentWidth": 1429,
+        "fieldsY": 460.2265625,
+        "scrollY": 0,
+        "width": 1440
+      }
+    ],
+    "long-field-before-fix.json": {
+      "height": 18,
+      "overflowWrap": "normal",
+      "passes": false,
+      "scrollWidth": 293,
+      "text": "recipient_address_line_for_last_mile_delivery_instructions",
+      "width": 86
+    },
+    "long-field-after-fix.json": [
+      {
+        "viewport": 320,
+        "height": 106,
+        "overflowWrap": "anywhere",
+        "passes": true,
+        "scrollWidth": 58,
+        "text": "recipient_address_line_for_last_mile_delivery_instructions",
+        "width": 58
+      },
+      {
+        "viewport": 390,
+        "height": 70,
+        "overflowWrap": "anywhere",
+        "passes": true,
+        "scrollWidth": 82,
+        "text": "recipient_address_line_for_last_mile_delivery_instructions",
+        "width": 82
+      },
+      {
+        "viewport": 1440,
+        "height": 42,
+        "overflowWrap": "anywhere",
+        "passes": true,
+        "scrollWidth": 301,
+        "text": "recipient_address_line_for_last_mile_delivery_instructions",
+        "width": 301
+      }
+    ],
+    "coarse-1024-hit-targets.json": {
+      "checkboxLabels": [
+        {
+          "name": "",
+          "rect": {
+            "bottom": 727.1640625,
+            "height": 58.09375,
+            "left": 68,
+            "right": 112,
+            "top": 669.0703125,
+            "width": 44,
+            "x": 68,
+            "y": 669.0703125
+          }
+        },
+        {
+          "name": "",
+          "rect": {
+            "bottom": 787.2578125,
+            "height": 58.09375,
+            "left": 68,
+            "right": 112,
+            "top": 729.1640625,
+            "width": 44,
+            "x": 68,
+            "y": 729.1640625
+          }
+        },
+        {
+          "name": "",
+          "rect": {
+            "bottom": 847.3515625,
+            "height": 58.09375,
+            "left": 68,
+            "right": 112,
+            "top": 789.2578125,
+            "width": 44,
+            "x": 68,
+            "y": 789.2578125
+          }
+        },
+        {
+          "name": "",
+          "rect": {
+            "bottom": 907.4453125,
+            "height": 58.09375,
+            "left": 68,
+            "right": 112,
+            "top": 849.3515625,
+            "width": 44,
+            "x": 68,
+            "y": 849.3515625
+          }
+        },
+        {
+          "name": "",
+          "rect": {
+            "bottom": 967.5390625,
+            "height": 58.09375,
+            "left": 68,
+            "right": 112,
+            "top": 909.4453125,
+            "width": 44,
+            "x": 68,
+            "y": 909.4453125
+          }
+        },
+        {
+          "name": "",
+          "rect": {
+            "bottom": 1027.6328125,
+            "height": 58.09375,
+            "left": 68,
+            "right": 112,
+            "top": 969.5390625,
+            "width": 44,
+            "x": 68,
+            "y": 969.5390625
+          }
+        }
+      ],
+      "coarse": true,
+      "pathButtons": [
+        {
+          "name": "customers 的依赖路径",
+          "rect": {
+            "bottom": 720.1171875,
+            "height": 44,
+            "left": 247,
+            "right": 291,
+            "top": 676.1171875,
+            "width": 44,
+            "x": 247,
+            "y": 676.1171875
+          }
+        },
+        {
+          "name": "order_items 的依赖路径",
+          "rect": {
+            "bottom": 780.2109375,
+            "height": 44,
+            "left": 247,
+            "right": 291,
+            "top": 736.2109375,
+            "width": 44,
+            "x": 247,
+            "y": 736.2109375
+          }
+        },
+        {
+          "name": "orders 的依赖路径",
+          "rect": {
+            "bottom": 840.3046875,
+            "height": 44,
+            "left": 247,
+            "right": 291,
+            "top": 796.3046875,
+            "width": 44,
+            "x": 247,
+            "y": 796.3046875
+          }
+        },
+        {
+          "name": "payments 的依赖路径",
+          "rect": {
+            "bottom": 900.3984375,
+            "height": 44,
+            "left": 247,
+            "right": 291,
+            "top": 856.3984375,
+            "width": 44,
+            "x": 247,
+            "y": 856.3984375
+          }
+        },
+        {
+          "name": "products 的依赖路径",
+          "rect": {
+            "bottom": 960.4921875,
+            "height": 44,
+            "left": 247,
+            "right": 291,
+            "top": 916.4921875,
+            "width": 44,
+            "x": 247,
+            "y": 916.4921875
+          }
+        },
+        {
+          "name": "shipments 的依赖路径",
+          "rect": {
+            "bottom": 1020.5859375,
+            "height": 44,
+            "left": 247,
+            "right": 291,
+            "top": 976.5859375,
+            "width": 44,
+            "x": 247,
+            "y": 976.5859375
+          }
+        }
+      ],
+      "stepperButtons": [
+        {
+          "name": "customers 增加 1 行",
+          "rect": {
+            "bottom": 505.9765625,
+            "height": 44,
+            "left": 827,
+            "right": 871,
+            "top": 461.9765625,
+            "width": 44,
+            "x": 827,
+            "y": 461.9765625
+          }
+        },
+        {
+          "name": "customers 减少 1 行",
+          "rect": {
+            "bottom": 505.9765625,
+            "height": 44,
+            "left": 873,
+            "right": 917,
+            "top": 461.9765625,
+            "width": 44,
+            "x": 873,
+            "y": 461.9765625
+          }
+        }
+      ],
+      "width": 1024
+    },
+    "forced-colors.json": {
+      "background": "rgb(255, 255, 255)",
+      "checkbox": "auto",
+      "color": "rgb(0, 0, 0)",
+      "forced": true
+    },
+    "no-filter-forced-branch.json": {
+      "result": {
+        "type": "object",
+        "value": {
+          "copiedRules": [
+            ":root { --surface-control: #f2f6f4; --surface-overlay: #f7faf8; --glass: #f2f6f4; --glass-shell: #edf2f0; --glass-dialog: #f7faf8; --glass-picker: #fafcfb; --paper: #fafcfb; --surface-inset: #f2f6f4; --segment-track: #dfe8e3; --segment-selected: #f9fcfa; }",
+            ":root[data-theme=\"dark\"] { --surface-control: #29373c; --surface-overlay: #242e33; --glass: #29373c; --glass-shell: #1e292e; --glass-dialog: #242e33; --glass-picker: #2c3940; --paper: #242e33; --surface-inset: #29373c; --segment-track: #192a30; --segment-selected: #364c53; }"
+          ],
+          "headerFilter": "none",
+          "mode": "synthetic activation of exact existing unsupported-filter declarations; engine still supports filter",
+          "nativeSupport": true,
+          "surface": "#f2f6f4"
+        }
+      }
+    },
+    "keyboard-focus-trap-escape.json": [
+      {
+        "focus": "编辑 YAML",
+        "role": null,
+        "step": "dialog-open"
+      },
+      {
+        "focus": "应用配置",
+        "insideDialog": true,
+        "step": "backward-wrap"
+      },
+      {
+        "focus": "读取文件",
+        "insideDialog": true,
+        "step": "forward-wrap"
+      },
+      {
+        "dialogs": 0,
+        "focus": "编辑 YAML",
+        "step": "escape-restore"
+      },
+      {
+        "expanded": "false",
+        "focus": "界面语言",
+        "step": "dropdown-escape",
+        "value": "简体中文"
+      }
+    ],
+    "date-picker-escape.json": {
+      "first": {
+        "dialogs": 1,
+        "focus": "开始日期：更改日期，2000-01-01"
+      },
+      "second": {
+        "dialogs": 0,
+        "focus": "日期时间使用生成器默认参数"
+      }
+    },
+    "theme-persistence-system-cross-tab.json": [
+      {
+        "bodyBackground": "rgb(23, 32, 37)",
+        "scheme": "dark",
+        "step": "dark-selected",
+        "theme": "dark"
+      },
+      {
+        "scheme": "dark",
+        "step": "dark-reload",
+        "theme": "dark"
+      },
+      {
+        "step": "cross-tab-light",
+        "theme": "light"
+      },
+      {
+        "media": true,
+        "step": "system-dark",
+        "theme": "dark"
+      },
+      {
+        "media": false,
+        "step": "system-light",
+        "theme": "dark"
+      },
+      {
+        "media": false,
+        "step": "system-light-settled-after-media-event",
+        "theme": "light"
+      },
+      {
+        "control": "跟随系统",
+        "step": "system-preference-reload",
+        "theme": "light"
+      }
+    ],
+    "reduced-motion-transparency.json": {
+      "reducedProof": {
+        "result": {
+          "type": "object",
+          "value": {
+            "animations": 0,
+            "glassBlur": "0px",
+            "markers": 0,
+            "motion": true,
+            "surfaceControl": "#29373c",
+            "theme": "dark",
+            "transparency": true
+          }
+        }
+      },
+      "reducedAfter": {
+        "result": {
+          "type": "object",
+          "value": {
+            "animations": 0,
+            "focus": "settings-tab-appearance",
+            "markers": 0,
+            "selected": "settings-tab-appearance"
+          }
+        }
+      }
+    },
+    "database-before-write.json": {
+      "step": "after-YAML-field-cancel-and-preview-before-write",
+      "rows": {
+        "parents": 0,
+        "children": 0
+      },
+      "fk": [],
+      "integrity": "ok"
+    },
+    "database-first-append.json": {
+      "step": "first-append",
+      "rows": {
+        "parents": 3,
+        "children": 4
+      },
+      "parents": [
+        [
+          1,
+          "5c782776-d8aa-4010-bd23-a5b87da1d942"
+        ],
+        [
+          2,
+          "76b7f680-db74-4325-bf48-84c24f1a6d0c"
+        ],
+        [
+          3,
+          "30f8bd0f-7fab-480d-a54c-2232120fcc61"
+        ]
+      ],
+      "children": [
+        [
+          1,
+          2,
+          7,
+          14
+        ],
+        [
+          2,
+          2,
+          7,
+          14
+        ],
+        [
+          3,
+          1,
+          7,
+          14
+        ],
+        [
+          4,
+          2,
+          7,
+          14
+        ]
+      ],
+      "fk": [],
+      "integrity": "ok"
+    },
+    "database-second-append.json": {
+      "step": "second-append",
+      "rows": {
+        "parents": 6,
+        "children": 8
+      },
+      "children": [
+        [
+          1,
+          2,
+          7,
+          14
+        ],
+        [
+          2,
+          2,
+          7,
+          14
+        ],
+        [
+          3,
+          1,
+          7,
+          14
+        ],
+        [
+          4,
+          2,
+          7,
+          14
+        ],
+        [
+          5,
+          4,
+          7,
+          14
+        ],
+        [
+          6,
+          4,
+          7,
+          14
+        ],
+        [
+          7,
+          1,
+          7,
+          14
+        ],
+        [
+          8,
+          3,
+          7,
+          14
+        ]
+      ],
+      "fk": [],
+      "integrity": "ok"
+    },
+    "database-clear-regenerate.json": {
+      "step": "clear-and-regenerate-no-identity-reset",
+      "rows": {
+        "parents": 3,
+        "children": 4
+      },
+      "parents": [
+        [
+          7,
+          "c10d2507-5066-4e1c-ab2e-145992e204a4"
+        ],
+        [
+          8,
+          "6a4d8b6b-5c1b-48ea-b4e2-1db35abce2c8"
+        ],
+        [
+          9,
+          "54231b38-c84f-4181-bf6c-d520cfd3a336"
+        ]
+      ],
+      "children": [
+        [
+          9,
+          8,
+          7,
+          14
+        ],
+        [
+          10,
+          8,
+          7,
+          14
+        ],
+        [
+          11,
+          7,
+          7,
+          14
+        ],
+        [
+          12,
+          8,
+          7,
+          14
+        ]
+      ],
+      "fk": [],
+      "integrity": "ok"
+    },
+    "database-after-AI-preview.json": {
+      "step": "after-field-and-synthetic-AI-preview",
+      "rows": {
+        "parents": 3,
+        "children": 4
+      },
+      "childValues": [
+        [
+          7,
+          14
+        ]
+      ],
+      "fk": [],
+      "runCount": 3
+    },
+    "ai-synthetic-cancel.json": {
+      "rule": "整数\n7—7",
+      "counts": [
+        "children生成 4 行",
+        "parents生成 3 行"
+      ]
+    },
+    "complex26-scope-independence.json": {
+      "focus": "warehouse_binswarehouse_bins3 个字段 · 现有 2 行",
+      "graphSummary": [],
+      "selectedGeneration": [],
+      "viewed": "warehouse_bins"
+    },
+    "database-after-restart.json": {
+      "recorded_at": "20261007T060918",
+      "reason": "Read after service restart; does not prove prior no-refresh browser result",
+      "parents": 6,
+      "children": 8,
+      "values": [
+        [
+          7,
+          14
+        ]
+      ],
+      "foreign_key_check": [],
+      "integrity_check": [
+        [
+          "ok"
+        ]
+      ]
+    },
+    "source-token-contrast.json": {
+      "time": "2026-10-07T06:14:01.256091",
+      "method": "WCAG relative luminance of source CSS opaque token pairs; not browser computed styles or full-page audit",
+      "source": "plugins/sqlseed-web/src/sqlseed_web/static/style.css",
+      "source_sha256": "1c356d3c4ad64551ba9903216d069a4cfd18a6573e088d036d5a82dd278aa249",
+      "reference": "https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html",
+      "limitations": [
+        "No alpha/blur/backdrop composite sampling",
+        "No disabled-text claim",
+        "No claim of site-wide WCAG conformance",
+        "Primary samples use opaque gradient stops; shadows excluded"
+      ],
+      "checks": [
+        {
+          "theme": "light",
+          "foreground": "ink",
+          "background": "surface-data",
+          "ratio": 11.39020509098857,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "ink",
+          "background": "wash",
+          "ratio": 10.671184474424429,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "ink",
+          "background": "table-head",
+          "ratio": 10.671184474424429,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "muted",
+          "background": "surface-data",
+          "ratio": 6.173182555692648,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "muted",
+          "background": "wash",
+          "ratio": 5.783492862495747,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "muted",
+          "background": "table-head",
+          "ratio": 5.783492862495747,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "teal",
+          "background": "surface-data",
+          "ratio": 6.856492107384468,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "teal",
+          "background": "wash",
+          "ratio": 6.4236676636508685,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "teal",
+          "background": "table-head",
+          "ratio": 6.4236676636508685,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "danger",
+          "background": "danger-bg",
+          "ratio": 5.717822224692693,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "focus",
+          "background": "surface-data",
+          "ratio": 4.4972161389412655,
+          "required": 3,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "focus",
+          "background": "wash",
+          "ratio": 4.213323874033584,
+          "required": 3,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "on-primary",
+          "background": "primary-surface gradient stops",
+          "ratio": 5.245442297611817,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "on-primary",
+          "background": "primary-hover gradient stops",
+          "ratio": 4.767353393099495,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "light",
+          "foreground": "on-primary",
+          "background": "primary-pressed gradient stops",
+          "ratio": 6.600427234817219,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "ink",
+          "background": "surface-data",
+          "ratio": 11.698628647798854,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "ink",
+          "background": "wash",
+          "ratio": 10.637379616658665,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "ink",
+          "background": "table-head",
+          "ratio": 10.315417671657858,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "muted",
+          "background": "surface-data",
+          "ratio": 6.99852957742888,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "muted",
+          "background": "wash",
+          "ratio": 6.363653220801403,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "muted",
+          "background": "table-head",
+          "ratio": 6.171044303745247,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "teal",
+          "background": "surface-data",
+          "ratio": 8.300277306621938,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "teal",
+          "background": "wash",
+          "ratio": 7.547312021968269,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "teal",
+          "background": "table-head",
+          "ratio": 7.31887726212239,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "danger",
+          "background": "danger-bg",
+          "ratio": 6.2026867823953244,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "focus",
+          "background": "surface-data",
+          "ratio": 8.488656314631111,
+          "required": 3,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "focus",
+          "background": "wash",
+          "ratio": 7.71860210051779,
+          "required": 3,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "on-primary",
+          "background": "primary-surface gradient stops",
+          "ratio": 4.760580857553038,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "on-primary",
+          "background": "primary-hover gradient stops",
+          "ratio": 5.578342505927662,
+          "required": 4.5,
+          "pass": true
+        },
+        {
+          "theme": "dark",
+          "foreground": "on-primary",
+          "background": "primary-pressed gradient stops",
+          "ratio": 4.760580857553038,
+          "required": 4.5,
+          "pass": true
+        }
+      ],
+      "all_pass": true
+    },
+    "browser-restored-metrics-20261007.json": {
+      "contentSize": {
+        "height": 1332,
+        "width": 1276,
+        "x": 0,
+        "y": 0
+      },
+      "cssContentSize": {
+        "height": 666,
+        "width": 638,
+        "x": 0,
+        "y": 0
+      },
+      "cssLayoutViewport": {
+        "clientHeight": 664,
+        "clientWidth": 638,
+        "pageX": 0,
+        "pageY": 0
+      },
+      "cssVisualViewport": {
+        "clientHeight": 664,
+        "clientWidth": 638,
+        "offsetX": 0,
+        "offsetY": 0,
+        "pageX": 0,
+        "pageY": 0,
+        "scale": 1,
+        "zoom": 1
+      },
+      "layoutViewport": {
+        "clientHeight": 1328,
+        "clientWidth": 1276,
+        "pageX": 0,
+        "pageY": 0
+      },
+      "visualViewport": {
+        "clientHeight": 1328,
+        "clientWidth": 1276,
+        "offsetX": 0,
+        "offsetY": 0,
+        "pageX": 0,
+        "pageY": 0,
+        "scale": 1,
+        "zoom": 1
+      }
+    },
+    "auto-refresh-result-20261007.json": {
+      "committed": "实际已提交7 行已提交",
+      "detailStatus": "生成成功",
+      "documentWidth": 638,
+      "tableResults": [
+        "parents生成成功33生成成功，数据已提交查看当前数据",
+        "children生成成功44生成成功，数据已提交查看当前数据"
+      ],
+      "url": "http://127.0.0.1:8641/#/runs?id=56981906-f60a-4cbe-bda8-cddf2f5e1bde",
+      "width": 649,
+      "method": "Clicked final write once; observed success with no manual refresh, selection, navigation or reload afterward."
+    },
+    "database-auto-refresh-20261007.json": {
+      "timestamp": "2026-10-07T06:21:22.293601",
+      "run_id": "56981906-f60a-4cbe-bda8-cddf2f5e1bde",
+      "parents": 9,
+      "children": 12,
+      "values": [
+        [
+          7,
+          14
+        ]
+      ],
+      "foreign_key_check": [],
+      "integrity_check": [
+        [
+          "ok"
+        ]
+      ]
+    },
+    "current-data-ui-20261007.txt": {
+      "kind": "AX excerpt summary",
+      "observed_before_fifth_write": true,
+      "table": "children",
+      "rows": 8,
+      "amount_values": [
+        7
+      ],
+      "doubled_values": [
+        14
+      ],
+      "sort": "primary key id",
+      "page_size": 50,
+      "previous_disabled": true,
+      "next_disabled": true,
+      "multipage_not_tested": true
+    }
+  },
+  "ai_interceptions_excerpt": [
+    {
+      "method": "GET",
+      "path": "/api/workbench/ai/config",
+      "synthetic": true
+    },
+    {
+      "method": "POST",
+      "path": "/api/workbench/ai/suggest",
+      "synthetic": true,
+      "valid": true,
+      "schema_hash": "e9035a93296415c27a80cd01f883e7840d5a73e9f91a333e408dcfda6501f7b8",
+      "response_schema_hash": "e9035a93296415c27a80cd01f883e7840d5a73e9f91a333e408dcfda6501f7b8",
+      "tables": [
+        "children"
+      ],
+      "allowed_targets": [
+        {
+          "table": "children",
+          "columns": [
+            "amount"
+          ]
+        }
+      ],
+      "counts": {
+        "children": 4,
+        "parents": 3
+      },
+      "suggestions": [
+        {
+          "table": "children",
+          "column": "amount",
+          "before": {
+            "name": "amount",
+            "generator": "integer",
+            "provider": null,
+            "params": {
+              "min_value": 7,
+              "max_value": 7
+            },
+            "constraints": null,
+            "faker_method": null,
+            "mimesis_method": null,
+            "native_params": {}
+          },
+          "after": {
+            "name": "amount",
+            "generator": "integer",
+            "provider": null,
+            "params": {
+              "min_value": 9,
+              "max_value": 9
+            },
+            "constraints": null,
+            "faker_method": null,
+            "mimesis_method": null,
+            "native_params": {}
+          },
+          "reason": "合成验收建议：仅把 children.amount 从固定整数 7 改为 9；保留 doubled 派生表达式、生成范围及行数。Synthetic fixture, not a model result."
+        }
+      ],
+      "rejected": []
+    },
+    {
+      "method": "POST",
+      "path": "/api/workbench/ai/suggest",
+      "synthetic": true,
+      "valid": true,
+      "schema_hash": "e9035a93296415c27a80cd01f883e7840d5a73e9f91a333e408dcfda6501f7b8",
+      "response_schema_hash": "e9035a93296415c27a80cd01f883e7840d5a73e9f91a333e408dcfda6501f7b8",
+      "tables": [
+        "children"
+      ],
+      "allowed_targets": [
+        {
+          "table": "children",
+          "columns": [
+            "amount"
+          ]
+        }
+      ],
+      "counts": {
+        "children": 4,
+        "parents": 3
+      },
+      "suggestions": [
+        {
+          "table": "children",
+          "column": "amount",
+          "before": {
+            "name": "amount",
+            "generator": "integer",
+            "provider": null,
+            "params": {
+              "min_value": 7,
+              "max_value": 7
+            },
+            "constraints": null,
+            "faker_method": null,
+            "mimesis_method": null,
+            "native_params": {}
+          },
+          "after": {
+            "name": "amount",
+            "generator": "integer",
+            "provider": null,
+            "params": {
+              "min_value": 9,
+              "max_value": 9
+            },
+            "constraints": null,
+            "faker_method": null,
+            "mimesis_method": null,
+            "native_params": {}
+          },
+          "reason": "合成验收建议：仅把 children.amount 从固定整数 7 改为 9；保留 doubled 派生表达式、生成范围及行数。Synthetic fixture, not a model result."
+        }
+      ],
+      "rejected": []
+    }
+  ],
+  "performance": {
+    "load_raw_navigation_samples": [
+      {
+        "side": "baseline",
+        "round": 0,
+        "width": 1440,
+        "theme": "light",
+        "selected": [],
+        "domContentLoadedEventEnd_ms": 278.6000000089407,
+        "loadEventEnd_ms": 566.9000000059605,
+        "paint": [
+          {
+            "name": "first-paint",
+            "startTime": 276
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTime": 276
+          }
+        ],
+        "nodes": 352
+      },
+      {
+        "side": "candidate",
+        "round": 0,
+        "width": 1440,
+        "theme": "light",
+        "selected": [],
+        "domContentLoadedEventEnd_ms": 292.79999999701977,
+        "loadEventEnd_ms": 736.2000000029802,
+        "paint": [
+          {
+            "name": "first-paint",
+            "startTime": 340
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTime": 340
+          }
+        ],
+        "nodes": 366
+      },
+      {
+        "side": "baseline",
+        "round": 1,
+        "width": 1440,
+        "theme": "light",
+        "selected": [],
+        "domContentLoadedEventEnd_ms": 213.3999999910593,
+        "loadEventEnd_ms": 215.79999999701977,
+        "paint": [
+          {
+            "name": "first-paint",
+            "startTime": 232
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTime": 232
+          }
+        ],
+        "nodes": 352
+      },
+      {
+        "side": "candidate",
+        "round": 1,
+        "width": 1440,
+        "theme": "light",
+        "selected": [],
+        "domContentLoadedEventEnd_ms": 114.90000000596046,
+        "loadEventEnd_ms": 117.09999999403954,
+        "paint": [
+          {
+            "name": "first-paint",
+            "startTime": 136
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTime": 136
+          }
+        ],
+        "nodes": 366
+      },
+      {
+        "side": "baseline",
+        "round": 2,
+        "width": 1440,
+        "theme": "light",
+        "selected": [],
+        "domContentLoadedEventEnd_ms": 189.20000000298023,
+        "loadEventEnd_ms": 191.0999999940395,
+        "paint": [
+          {
+            "name": "first-paint",
+            "startTime": 208
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTime": 208
+          }
+        ],
+        "nodes": 352
+      },
+      {
+        "side": "candidate",
+        "round": 2,
+        "width": 1440,
+        "theme": "light",
+        "selected": [],
+        "domContentLoadedEventEnd_ms": 117.59999999403954,
+        "loadEventEnd_ms": 118.20000000298025,
+        "paint": [
+          {
+            "name": "first-paint",
+            "startTime": 148
+          },
+          {
+            "name": "first-contentful-paint",
+            "startTime": 148
+          }
+        ],
+        "nodes": 366
+      }
+    ],
+    "raf_summary": [
+      {
+        "source": "performance-scroll-comparison.json",
+        "side": "baseline",
+        "duration_ms": 1415.4000000029805,
+        "excluded_first_sample": true,
+        "interval_count": 85,
+        "median_ms": 16.600000000000136,
+        "p95_nearest_rank_ms": 18.100000000000136,
+        "max_ms": 18.5,
+        "scrollY_min": 0,
+        "scrollY_max": 212,
+        "final_scrollY": 0
+      },
+      {
+        "source": "performance-scroll-comparison.json",
+        "side": "candidate",
+        "duration_ms": 1412.4999999970196,
+        "excluded_first_sample": true,
+        "interval_count": 82,
+        "median_ms": 16.699999999999932,
+        "p95_nearest_rank_ms": 18.399999999999864,
+        "max_ms": 33.00199999999995,
+        "scrollY_min": 0,
+        "scrollY_max": 317.5,
+        "final_scrollY": 0
+      },
+      {
+        "source": "performance-interaction-comparison.json",
+        "side": "baseline",
+        "duration_ms": 1402.300000002986,
+        "excluded_first_sample": true,
+        "interval_count": 79,
+        "median_ms": 16.80000000000291,
+        "p95_nearest_rank_ms": 33.09999999999127,
+        "max_ms": 34.5,
+        "selection_transitions": 4,
+        "final_markers": 0
+      },
+      {
+        "source": "performance-interaction-comparison.json",
+        "side": "candidate",
+        "duration_ms": 1409.199999997014,
+        "excluded_first_sample": true,
+        "interval_count": 77,
+        "median_ms": 16.80000000000291,
+        "p95_nearest_rank_ms": 33.19999999999709,
+        "max_ms": 48.5,
+        "selection_transitions": 4,
+        "final_markers": 0
+      }
+    ],
+    "limitations": "Three load rounds and one scroll/interaction round per side. Different scroll distance. Cross-navigation cumulative CPU counters must not be subtracted. rAF intervals are not GPU presentation timing or proof of 60fps."
+  },
+  "automated_result_snapshot": {
+    "node_web_passed": 1057,
+    "node_pages_passed": 47,
+    "python_first_run": {
+      "passed": 4367,
+      "skipped": 29,
+      "deselected": 82,
+      "setup_errors": 33
+    },
+    "python_docs_rerun_passed": 51,
+    "python_deduplicated": {
+      "passed": 4400,
+      "skipped": 29,
+      "deselected": 82,
+      "unresolved": 0,
+      "not_second_full_run": true
+    },
+    "mutation_killed": 246,
+    "mutation_total": 246,
+    "caveat": "Python/static/mutation gates preceded the final one-property long-field CSS repair. Those inputs remain unchanged. Complete Web Node was rerun after the repair on October 6 and October 7, both 1057/1057. Real browser 200% zoom remains pending. A new explicit append on October 7 shows success without manual refresh; the earlier fourth-run intermediate capture is retained only as history.",
+    "latest_full_web_node": {
+      "command": "node --test plugins/sqlseed-web/tests/test_*.cjs",
+      "exit_code": 0,
+      "duration_seconds": 26.235,
+      "completed_at": "2026-10-07T06:11:31.043210",
+      "log": "validation/logs/gates-20261007/node-web.log",
+      "tests": 1057,
+      "passed": 1057,
+      "failed": 0,
+      "skipped": 0,
+      "log_sha256": "463ca672e79cf93e0d2462e7dbce5763a5af960c4bfc536dc26308c692ba27f9"
+    },
+    "latest_docs": {
+      "source": "validation/logs/gates-20261007/docs-result.json",
+      "doc_sync_exit_code": 0,
+      "mkdocs_strict_exit_code": 0,
+      "mkdocs_duration_seconds": 6.403,
+      "diff_check_exit_code": 0
+    },
+    "independent_review": {
+      "source": "validation/final-diff-review-20261007.md",
+      "date": "2026-10-07",
+      "p0_p1_p2_findings": 0,
+      "targeted_node_passed": 115,
+      "targeted_node_failed": 0,
+      "diff_check_passed": true
+    }
+  },
+  "updated_date": "2026-10-07",
+  "remaining_required_checks": [
+    "Real browser 200% zoom",
+    "Commit, reviewable PR, and candidate CI delivery"
+  ],
+  "source_verification_after_restart": {
+    "timestamp_utc": "2026-10-06T22:09:23.208955+00:00",
+    "baseline_commit": "b7a5ba507cd8192779debf56d32502ba38e8e6af",
+    "all_checks_pass": true,
+    "source": "validation/source-verification.json",
+    "variants": {
+      "baseline": {
+        "pid": 12509,
+        "port": 8640,
+        "source_role": "Frozen baseline archive",
+        "project_import_count": 123,
+        "http_resource_count": 17,
+        "all_import_paths_match": true,
+        "all_import_files_unchanged_since_start": true,
+        "all_http_bytes_match_local_source": true,
+        "management_disabled": true,
+        "http_resources": [
+          {
+            "route": "/",
+            "http_sha256": "296a1710fc1748e77c7e295b5b53646804e3f9dcc60dc51251070d4747f5aaa3",
+            "matches_local": true
+          },
+          {
+            "route": "/static/index.html",
+            "http_sha256": "296a1710fc1748e77c7e295b5b53646804e3f9dcc60dc51251070d4747f5aaa3",
+            "matches_local": true
+          },
+          {
+            "route": "/static/style.css",
+            "http_sha256": "09f11418cf0d4a93555989ff0866afb6af823156301dd99f1e901f371bc20860",
+            "matches_local": true
+          },
+          {
+            "route": "/static/workbench.css",
+            "http_sha256": "dd4283152f771534112e12556f073d8aea51431015e2b97a4d1d53ca36790998",
+            "matches_local": true
+          },
+          {
+            "route": "/static/configs.css",
+            "http_sha256": "233299aa0e8e8d5f726d07d7879a5507149bf5bd4d97fed84a63956dfab806c7",
+            "matches_local": true
+          },
+          {
+            "route": "/static/settings.css",
+            "http_sha256": "a8cd2e2ec7f379b627a82f5bb40ddb0ba5fa4bcb985d83bfe02536c8ec9f9743",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/app.js",
+            "http_sha256": "4e112bcfbf64fb17f4b491fd3e4ef1f9c98cf20f43fe6ba0edbc3f14ac1cc655",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/api.js",
+            "http_sha256": "67a63b89c5df1277b074d235389f7743254ec264f52fce4d101bc861258b7a65",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/pages/workbench.js",
+            "http_sha256": "35010248f60a78e221b39b220228b4a22097f45b2aeee552aebfe1a1027ae14d",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/pages/configs.js",
+            "http_sha256": "c2e80e4b1a2a58c1073c357641fdb1afb55ffbe3e338a7a43b38de5fedb5cd97",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/pages/runs.js",
+            "http_sha256": "44fe76c9aeb21ddf06c69c5146fb66407f03a5a88c7bae06b7ac758e55a28701",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/pages/settings.js",
+            "http_sha256": "4ddb74f3e9dd9566c7c095ee3e20f3c829ea0139a3f8618a02f518db1400a428",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/workbench/graph.js",
+            "http_sha256": "c9599529f0c4802db9a3bf8d5270984501a7123f6c17595d07ff266507b0c540",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/workbench/editor.js",
+            "http_sha256": "99b859e1d0cf426a5a83516e11c20dbdada2559dd3be5188030fad61ff689284",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/workbench/model.js",
+            "http_sha256": "9de7a6ca80c6bab3b9ff08da9dd6f96b72e09ab2a7ce700261a83ce7ded603de",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/workbench/session.js",
+            "http_sha256": "aea19803178ac4e7cab597b9617231679e87ba848a2ab9b8ecf1f47d907d5f50",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/i18n/messages/workbench.json",
+            "http_sha256": "e5b0bd6575a03a1fcc1779d67e30342909eb2c93928fe8541070a13b83bcd639",
+            "matches_local": true
+          }
+        ]
+      },
+      "implementation": {
+        "pid": 12582,
+        "port": 8641,
+        "source_role": "Current candidate worktree",
+        "project_import_count": 123,
+        "http_resource_count": 17,
+        "all_import_paths_match": true,
+        "all_import_files_unchanged_since_start": true,
+        "all_http_bytes_match_local_source": true,
+        "management_disabled": true,
+        "http_resources": [
+          {
+            "route": "/",
+            "http_sha256": "296a1710fc1748e77c7e295b5b53646804e3f9dcc60dc51251070d4747f5aaa3",
+            "matches_local": true
+          },
+          {
+            "route": "/static/index.html",
+            "http_sha256": "296a1710fc1748e77c7e295b5b53646804e3f9dcc60dc51251070d4747f5aaa3",
+            "matches_local": true
+          },
+          {
+            "route": "/static/style.css",
+            "http_sha256": "1c356d3c4ad64551ba9903216d069a4cfd18a6573e088d036d5a82dd278aa249",
+            "matches_local": true
+          },
+          {
+            "route": "/static/workbench.css",
+            "http_sha256": "4393912aa46e9b7bd14c9c0c1529601855ead1393ef09b7bcec12babebc95d30",
+            "matches_local": true
+          },
+          {
+            "route": "/static/configs.css",
+            "http_sha256": "233299aa0e8e8d5f726d07d7879a5507149bf5bd4d97fed84a63956dfab806c7",
+            "matches_local": true
+          },
+          {
+            "route": "/static/settings.css",
+            "http_sha256": "a8cd2e2ec7f379b627a82f5bb40ddb0ba5fa4bcb985d83bfe02536c8ec9f9743",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/app.js",
+            "http_sha256": "4e112bcfbf64fb17f4b491fd3e4ef1f9c98cf20f43fe6ba0edbc3f14ac1cc655",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/api.js",
+            "http_sha256": "67a63b89c5df1277b074d235389f7743254ec264f52fce4d101bc861258b7a65",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/pages/workbench.js",
+            "http_sha256": "8f52d6d239929e97393e6093a4b97a2fa30582d38c3d978bdc96965329f83c85",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/pages/configs.js",
+            "http_sha256": "c2e80e4b1a2a58c1073c357641fdb1afb55ffbe3e338a7a43b38de5fedb5cd97",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/pages/runs.js",
+            "http_sha256": "44fe76c9aeb21ddf06c69c5146fb66407f03a5a88c7bae06b7ac758e55a28701",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/pages/settings.js",
+            "http_sha256": "4ddb74f3e9dd9566c7c095ee3e20f3c829ea0139a3f8618a02f518db1400a428",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/workbench/graph.js",
+            "http_sha256": "c9599529f0c4802db9a3bf8d5270984501a7123f6c17595d07ff266507b0c540",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/workbench/editor.js",
+            "http_sha256": "99b859e1d0cf426a5a83516e11c20dbdada2559dd3be5188030fad61ff689284",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/workbench/model.js",
+            "http_sha256": "9de7a6ca80c6bab3b9ff08da9dd6f96b72e09ab2a7ce700261a83ce7ded603de",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/workbench/session.js",
+            "http_sha256": "aea19803178ac4e7cab597b9617231679e87ba848a2ab9b8ecf1f47d907d5f50",
+            "matches_local": true
+          },
+          {
+            "route": "/static/js/i18n/messages/workbench.json",
+            "http_sha256": "994dde8c0ae89d57349d7776eaf322560eb602342ab1160927ad3eb693658711",
+            "matches_local": true
+          }
+        ]
+      }
+    }
+  },
+  "browser_recovery_event": {
+    "date": "2026-10-07",
+    "history": "Browser tool URL safety policy initially rejected the restored error-protocol page. User manually reopened a valid HTTP page; browser control is now restored. No bypass attempted.",
+    "evidence": "browser-restored-metrics-20261007.json",
+    "native_zoom": 1,
+    "scale": 1,
+    "actual_200_percent_verified": false,
+    "followup_no_refresh_result_verified": true,
+    "followup_run_id": "56981906-f60a-4cbe-bda8-cddf2f5e1bde"
+  }
+}

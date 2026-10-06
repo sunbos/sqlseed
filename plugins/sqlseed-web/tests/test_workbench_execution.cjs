@@ -75,6 +75,80 @@ const saveRevisions=ui=>ui.routes.set('/api/workbench/drafts/saved',options=>({
  ...JSON.parse(options.body),id:'saved',revision:2,target_key:'target-A'
 }));
 
+test('confirmation footer reports checking and blocked state without moving focus, and details are user activated',async()=>{
+ const ui=await ready(),gate=deferred();
+ const footer=ui.document.querySelector('.modal-footer');
+ const feedback=footer.querySelector('.wb-execution-feedback');
+ assert.ok(feedback,'write actions need an adjacent state summary');
+ const status=feedback.querySelector('[role="status"]'),details=ui.document.querySelector('.wb-execution-plan');
+ const submit=ui.button('写入数据库',footer);
+ assert.equal(submit.getAttribute('aria-describedby'),status.id);
+ assert.equal(feedback.dataset.state,'ready');
+ ui.routes.set('/api/workbench/execution-plan',()=>gate.promise);
+ const pending=setMode(ui);await nextTurn();
+ assert.equal(feedback.dataset.state,'checking');assert.match(status.textContent,/正在核对/);
+ const back=ui.button('返回调整',footer);back.focus();let scrolled=0;
+ details.scrollIntoView=()=>{scrolled++;};
+ gate.resolve(blockedPlan);await pending;
+ assert.equal(feedback.dataset.state,'blocked');assert.match(status.textContent,/暂不能写入/);
+ assert.equal(submit.disabled,true);assert.equal(ui.document.activeElement,back);assert.equal(scrolled,0);
+ const show=ui.button('查看原因',feedback);assert.ok(show);assert.equal(show.hidden,false);
+ assert.equal(show.getAttribute('aria-controls'),details.id);
+ await show.click();assert.equal(scrolled,1);assert.equal(ui.document.activeElement,details);
+ assert.match(details.textContent,/未选表 orders 引用了 users/);
+ const requests=ui.requests.length;ui.context.setLanguage('en');
+ assert.match(status.textContent,/Writing is blocked/);assert.ok(ui.button('View reasons',feedback));
+ assert.equal(ui.requests.length,requests);assert.equal(written(ui).length,0);
+});
+
+test('footer retains checking while an abandoned clear request finishes and then shows ready append state',async()=>{
+ const ui=await ready(),gate=deferred();ui.routes.set('/api/workbench/execution-plan',()=>gate.promise);
+ const pending=setMode(ui);await nextTurn();
+ const append=ui.document.querySelector('[aria-label="追加数据"]');append.checked=true;await append.dispatchEvent('change');
+ const feedback=ui.document.querySelector('.wb-execution-feedback');assert.ok(feedback);
+ assert.equal(feedback.dataset.state,'checking');assert.equal(ui.button('写入数据库',ui.document).disabled,true);
+ gate.resolve(blockedPlan);await pending;
+ assert.equal(feedback.dataset.state,'ready');assert.equal(ui.button('写入数据库',ui.document).disabled,false);
+ assert.equal(feedback.querySelector('button').hidden,true);assert.equal(written(ui).length,0);
+});
+
+test('footer exposes plan failures and recovers only after a fresh successful plan',async()=>{
+ const ui=await ready();ui.routes.set('/api/workbench/execution-plan',()=>{throw new Error('plan unavailable');});
+ await setMode(ui);
+ const feedback=ui.document.querySelector('.wb-execution-feedback');assert.ok(feedback);
+ assert.equal(feedback.dataset.state,'failure');assert.match(feedback.textContent,/未能完成/);
+ assert.match(ui.document.querySelector('.wb-execution-plan').textContent,/plan unavailable/);
+ assert.equal(ui.button('清空并生成',ui.document).disabled,true);
+ ui.routes.set('/api/workbench/execution-plan',()=>plan);
+ await ui.button('重新检查清空计划',ui.document.querySelector('.wb-execution-plan')).click();
+ assert.equal(feedback.dataset.state,'ready');assert.equal(ui.button('清空并生成',ui.document).disabled,false);
+ assert.equal(written(ui).length,0);
+});
+
+test('footer reports writing and failed submission without a duplicate write or focus jump',async()=>{
+ const ui=await ready(),gate=deferred();ui.routes.set('/api/workbench/runs',async()=>{await gate.promise;throw new Error('write unavailable');});
+ const submit=ui.button('写入数据库',ui.document);submit.focus();
+ const pending=submit.click();await nextTurn();
+ const feedback=ui.document.querySelector('.wb-execution-feedback');assert.ok(feedback);
+ assert.equal(feedback.dataset.state,'busy');assert.match(feedback.textContent,/正在提交/);
+ await submit.click();assert.equal(written(ui).length,1);
+ gate.resolve();await pending;
+ assert.equal(feedback.dataset.state,'failure');assert.equal(ui.document.activeElement,submit);
+ assert.match(ui.document.querySelector('.wb-execution-plan').textContent,/write unavailable/);
+ assert.equal(written(ui).length,1);
+});
+
+test('blocked append status directs the user to complete generation diagnostics',async()=>{
+ const ui=harness();ui.routes.set('/api/workbench/check',()=>({ok:false,config_hash:'invalid',order:['users'],issues:[
+  {severity:'error',table:'users',code:'invalid_rule',message:'Invalid amount range'}]}));
+ await ui.mount();ui.modelState().toggleTable('users',true);await ui.button('查看生成计划').click();
+ const feedback=ui.document.querySelector('.wb-execution-feedback'),details=ui.document.querySelector('.wb-execution-plan');
+ assert.equal(feedback.dataset.state,'blocked');assert.equal(ui.button('写入数据库',ui.document).disabled,true);
+ await ui.button('查看原因',feedback).click();
+ assert.equal(ui.document.activeElement,details);assert.match(details.textContent,/users.*Invalid amount range/);
+ assert.equal(written(ui).length,0);
+});
+
 for(const close of ['返回调整','Escape']) {
  test(`a blocked clear flow survives ${close} and repeats preflight before an explicit write`,async()=>{
   const ui=await ready(),before=plain(ui.modelState().document);let checks=0;

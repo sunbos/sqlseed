@@ -39,7 +39,11 @@
 :root {
   color-scheme: light;
   --canvas: #e5ebec;
-  --paper: rgba(255,255,255,.68);
+  --surface-data: #fafcfb;
+  --surface-control: rgba(249,253,251,.58);
+  --surface-overlay: rgba(251,253,252,.94);
+  --surface-shadow: 0 1px 2px #304b4608,0 8px 24px -18px #304b4626;
+  --paper: var(--surface-data);
   --wash: #f1f5f3;
   --ink: #293b3e;
   --muted: #526267;
@@ -54,18 +58,18 @@
   --font-weight-emphasis: 500;
   --mono: "Cascadia Code","SFMono-Regular",Consolas,"Microsoft YaHei UI","PingFang SC","Noto Sans CJK SC",monospace;
   --glass-shell: rgba(255,255,255,.18);
-  --glass: rgba(255,255,255,.3);
-  --glass-dialog: rgba(251,253,252,.88);
+  --glass: var(--surface-control);
+  --glass-dialog: var(--surface-overlay);
   --glass-picker: rgba(252,254,253,.94);
   --glass-edge: rgba(69,99,88,.14);
-  --glass-shadow: inset 0 1px 0 #ffffff52,0 6px 24px -12px #304b4624;
-  --glass-blur: 14px;
+  --glass-shadow: inset 0 1px 0 #ffffff8c,0 4px 16px -10px #304b462e;
+  --glass-blur: 18px;
   --control-bg: rgba(255,255,255,.4);
   --control-surface: linear-gradient(160deg,#ffffffbf,#ffffff70);
   --control-field-edge: rgba(78,94,99,.16);
   --control-border: rgba(69,99,88,.23);
   --control-hover: rgba(255,255,255,.72);
-  --control-rest-shadow: inset 0 1px 0 #ffffffb3, 0 1px 2px #26383e12, 0 3px 8px -3px #26383e1a;
+  --control-rest-shadow: inset 0 1px 0 #ffffffb3,0 1px 3px #26383e12;
   --control-inset-shadow: inset 0 1px 3px #26383e0c, 0 1px 0 #ffffff8c;
   --control-shape-edge: #7d8b8e;
   --control-hover-shadow: 0 3px 12px -3px #26383e26, 0 1px 3px #26383e0a;
@@ -97,7 +101,7 @@
   --text-caption: 12px;
   --text-meta: 11px;
   --solid-surface: #fafcfb;
-  --canvas-background: radial-gradient(ellipse at 100% 22%,#ffffff80 0,transparent 62%),radial-gradient(ellipse at 7% 8%,#b4c9bf8c 0,transparent 45%),radial-gradient(ellipse at 85% 2%,#faf4e4b3 0,transparent 42%),linear-gradient(135deg,#dce5e3 0%,#edf0ec 40%,#e8edef 72%,#d9e2e8 100%);
+  --canvas-background: linear-gradient(135deg,#dfe8e5,#edf2ef 52%,#e7edef);
   --header-surface: linear-gradient(160deg,#ffffff70,#ffffff24);
   --active-surface: linear-gradient(135deg,#e5f1e9e8,#f2f8f4c9);
   --primary-surface: linear-gradient(165deg,#3c7761 0%,#2d6551 55%,#295b49 100%);
@@ -124,7 +128,11 @@
   color-scheme: dark;
   --canvas: #172025;
   --canvas-background: radial-gradient(ellipse at 7% 8%,#34554b66 0,transparent 50%),radial-gradient(ellipse at 90% 78%,#334f6352 0,transparent 55%),linear-gradient(135deg,#182625,#1b2328 48%,#18212a);
-  --paper: rgba(38,48,54,.74);
+  --surface-data: #242e33;
+  --surface-control: rgba(49,64,70,.74);
+  --surface-overlay: rgba(35,46,51,.97);
+  --surface-shadow: 0 1px 2px #0002,0 8px 24px -18px #0006;
+  --paper: var(--surface-data);
   --wash: #29353a;
   --ink: #e3eeec;
   --muted: #a8bcbd;
@@ -134,8 +142,8 @@
   --soft: #30463e;
   --violet: #b6a5eb;
   --glass-shell: rgba(25,34,39,.28);
-  --glass: rgba(61,77,81,.25);
-  --glass-dialog: rgba(35,46,51,.96);
+  --glass: var(--surface-control);
+  --glass-dialog: var(--surface-overlay);
   --glass-picker: rgba(38,49,55,.98);
   --glass-edge: rgba(198,220,216,.12);
   --glass-shadow: inset 0 1px 6px #d4eeea06,0 8px 26px -14px #0007;
@@ -144,7 +152,7 @@
   --control-field-edge: rgba(185,209,208,.13);
   --control-border: rgba(185,209,208,.24);
   --control-hover: #42535b;
-  --control-rest-shadow: inset 0 1px 0 #d8ede614,0 1px 2px #0003,0 3px 8px -3px #0004;
+  --control-rest-shadow: inset 0 1px 0 #d8ede614,0 1px 3px #0003;
   --control-inset-shadow: inset 0 1px 3px #0004,0 1px 0 #d8ede608;
   --control-shape-edge: #8fa4a7;
   --control-hover-shadow: inset 0 1px 0 #e8f5ef12,0 3px 12px -3px #0006;
@@ -3515,7 +3523,9 @@ body > header.top {
   border: 1px solid var(--glass-edge);
   border-bottom: 1px solid var(--line);
   border-radius: 14px 14px 0 0;
-  background: var(--header-surface);
+  background: var(--surface-control);
+  backdrop-filter: blur(var(--glass-blur)) saturate(115%);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(115%);
 }
 #app {
   min-height: calc(100dvh - 108px);
@@ -3568,12 +3578,11 @@ strong,b { font-weight: var(--font-weight-emphasis); }
 .run-detail,
 .run-empty,
 .run-card {
-  background: var(--paper);
+  background: var(--surface-data);
   border-color: var(--glass-edge);
   border-radius: var(--radius);
-  box-shadow: var(--glass-shadow);
+  box-shadow: var(--surface-shadow);
 }
-.wb-page .wb-content,
 .modal,
 .drawer,
 .dropdown-panel,
@@ -3587,8 +3596,6 @@ strong,b { font-weight: var(--font-weight-emphasis); }
   box-shadow: var(--glass-shadow);
 }
 
-.wb-page .wb-table-entry { grid-template-columns: 17px minmax(0,1fr) 28px; gap: 9px; border-radius: 10px; }
-.wb-page .wb-table-entry > input { align-self: center; margin: 0; width: 17px; height: 17px; }
 .wb-page .wb-table-name .table-name { font: 500 13px/1.5 var(--font-ui); }
 .wb-page .wb-table-name .count { font: 400 11px/1.6 var(--font-ui); }
 .table-title h2,.drawer-head h2,.wb-summary-plan,.summary-table,.execution-tables button,
@@ -3720,11 +3727,10 @@ input[type=checkbox]:disabled { opacity: .45; cursor: not-allowed; }
 
 
 .drawer-help,.wb-generator-guide,.wb-editor-default,.wb-write-target,.wb-execution-plan {
-  background: var(--glass);
-  border: 1px solid #ffffff33;
+  background: var(--wash);
+  border: 1px solid var(--line);
   border-radius: 10px;
-  box-shadow: var(--glass-shadow);
-  border-color: var(--glass-edge);
+  box-shadow: none;
 }
 .modal-footer .btn,.drawer-footer .btn { min-height: 38px; font-size: 13px; }
 .wb-modal-body { line-height: 1.7; }
@@ -4015,8 +4021,19 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
   .drawer { top: 8px; right: 8px; bottom: 8px; width: calc(100% - 16px); }
   .wb-page .wb-config-context { padding: 12px; }
 }
+/* Touch targets grow independently of the small visual glyphs. */
+@media(pointer:coarse), (max-width:540px) {
+  .btn,.dropdown-btn,.dropdown-item { min-height:44px; }
+  .language-control .dropdown-btn { min-height:40px; }
+  .graph-tools button,.path-modes button,.graph-controls [data-graph-action=focus-readable] {
+    min-width:44px; min-height:44px;
+  }
+  .wb-overlay .wb-modal .modal-head .close { width:44px; min-height:44px; }
+  .modal-footer .btn,.drawer-footer .btn { min-height:44px; }
+}
 @media(prefers-reduced-transparency:reduce) {
   :root {
+    --surface-control: #f2f6f4; --surface-overlay: #f7faf8;
     --paper: #fafcfb; --glass-shell: #edf2f0; --glass: #f2f6f4;
     --glass-dialog: #f7faf8; --glass-picker: #fafcfb; --glass-blur: 0px;
     --control-bg: #fafcfb; --control-surface: #fafcfb;
@@ -4025,10 +4042,11 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
   }
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  :root { --glass-dialog: #f7faf8; --glass-picker: #fafcfb; --paper: #fafcfb; --surface-inset: #f2f6f4; --segment-track: #dfe8e3; --segment-selected: #f9fcfa; }
+  :root { --surface-control: #f2f6f4; --surface-overlay: #f7faf8; --glass: #f2f6f4; --glass-shell: #edf2f0; --glass-dialog: #f7faf8; --glass-picker: #fafcfb; --paper: #fafcfb; --surface-inset: #f2f6f4; --segment-track: #dfe8e3; --segment-selected: #f9fcfa; }
 }
 @media(prefers-reduced-transparency:reduce) {
   :root[data-theme=dark] {
+    --surface-control: #29373c; --surface-overlay: #242e33;
     --paper: #242e33; --glass-shell: #1e292e; --glass: #29373c;
     --glass-dialog: #242e33; --glass-picker: #2c3940; --glass-blur: 0px;
     --control-bg: #35434b; --control-surface: #35434b;
@@ -4037,7 +4055,7 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
   }
 }
 @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))) {
-  :root[data-theme=dark] { --glass-dialog: #242e33; --glass-picker: #2c3940; --paper: #242e33; --surface-inset: #29373c; --segment-track: #192a30; --segment-selected: #364c53; }
+  :root[data-theme=dark] { --surface-control: #29373c; --surface-overlay: #242e33; --glass: #29373c; --glass-shell: #1e292e; --glass-dialog: #242e33; --glass-picker: #2c3940; --paper: #242e33; --surface-inset: #29373c; --segment-track: #192a30; --segment-selected: #364c53; }
 }
 /* 主题选择入口复用下拉；不随选择改变控件尺寸。 */
 .theme-control { display: flex; align-items: center; gap: 10px; min-width: 0; }

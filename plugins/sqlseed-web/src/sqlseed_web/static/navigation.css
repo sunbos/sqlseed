@@ -89,8 +89,9 @@ body > header.top #connection-label { min-width:0; }
   body > header.top { padding:0 10px; grid-template-columns:auto minmax(0,1fr); }
   body > header.top .brand { font-size:20px; }
   body > header.top #connection-button { max-width:145px; min-width:0; }
-  #nav { grid-template-columns:repeat(2,minmax(0,1fr)); }
-  #nav button { white-space:nowrap; gap:4px; font-size:12px; }
+  #nav { grid-template-columns:repeat(4,minmax(0,1fr)); gap:2px; padding-inline:0; }
+  #nav button { flex-direction:column; min-height:54px; padding:6px 2px; white-space:normal; gap:3px; font-size:12px; line-height:16px; }
+  #nav button .icon { flex-shrink:0; }
 }
 @media(prefers-reduced-motion:reduce) {
   #nav button,#nav button::after { transition:none; }

@@ -46,12 +46,13 @@ let root,
 let graphOwner = null,
   modalIntent = 0;
 let tablePreview = null;
-let guidanceCollapsed = false;
+let guidanceCollapsed = true;
 let guidanceIndicator = null;
+let directoryMedia = null;
 let providerMetadata = null,
   providerRequest = 0;
 try {
-  guidanceCollapsed = localStorage.getItem('sqlseed.workbench.guide.collapsed') === 'true';
+  guidanceCollapsed = localStorage.getItem('sqlseed.workbench.guide.collapsed') !== 'false';
 } catch {/* Storage may be unavailable. */}
 let fieldQuery = '',
   columnName = '',
@@ -258,13 +259,37 @@ function chooseTable(name, page = 'fields', graphMode = 'paths') {
   fieldQuery = '';
   columnName = '';
   selectedEdge = null;
+  if (compactDirectory()) {
+    const view = sidebarViews.get(model());
+    if (view) view.directoryOpen = false;
+    const directory = sidebar.querySelector('.wb-table-directory');
+    if (directory) directory.open = false;
+  }
   const rendered = drawBody();
-  sidebar.querySelector('.wb-table-entry.active')?.scrollIntoView({
-    block: 'nearest'
-  });
+  if (compactDirectory()) {
+    content.querySelector('.table-heading h2')?.focus({preventScroll:true});
+    content.scrollIntoView({block:'start'});
+  } else {
+    sidebar.querySelector('.wb-table-entry.active')?.scrollIntoView({block:'nearest'});
+  }
   return rendered;
 }
+function compactDirectory() {
+  return directoryMedia?.matches ?? innerWidth <= 760;
+}
+function syncDirectoryLayout() {
+  const directory = sidebar?.querySelector('.wb-table-directory');
+  if (!directory?.isConnected || !session) return;
+  directory.open = !compactDirectory() || Boolean(sidebarViews.get(model())?.directoryOpen);
+}
+function openTableDirectory() {
+  const view = sidebarViews.get(model());
+  if (view) view.directoryOpen = true;
+  const directory = sidebar?.querySelector('.wb-table-directory');
+  if (directory) directory.open = true;
+}
 function locateGenerationSelection() {
+  openTableDirectory();
   const entry = [...sidebar.querySelectorAll('.wb-table-entry')].find(row => !row.hidden);
   const input = entry?.querySelector('input[type="checkbox"]') || sidebar.querySelector('input[type="search"]');
   input?.focus();
@@ -275,6 +300,7 @@ function locateGenerationSelection() {
 function locateInputIssue(issue) {
   const m = model();
   if (issue?.kind !== 'generation-count' || !m.errors.has(issue.key) || !m.schema.tables.some(table=>table.name===issue.table)) return;
+  openTableDirectory();
   // Navigating specifically to repair an invalid quantity must not be vetoed by
   // that same quantity. Keep the raw draft and every other validation error.
   if (m.view.table !== issue.table || !content.querySelector('.count-setting')?.querySelector('input')) {
@@ -404,6 +430,9 @@ function showMountFailure(error, requestedHash) {
   }, errorText(error)), ...(mismatched ? [h('p', {}, tr("workbench.welcome.mismatchHelp"))] : []), h('div', {class:'wb-welcome-actions'}, ...actions)));
 }
 export async function mount() {
+  directoryMedia?.removeEventListener?.('change', syncDirectoryLayout);
+  directoryMedia = window.matchMedia?.('(max-width: 760px)') || null;
+  directoryMedia?.addEventListener?.('change', syncDirectoryLayout);
   const version = ++active,
     mountedRoot = root,
     requestedHash = location.hash;
@@ -559,6 +588,8 @@ function restorePreviewReturn(previewOrigin) {
   }
 }
 export function unmount() {
+  directoryMedia?.removeEventListener?.('change', syncDirectoryLayout);
+  directoryMedia = null;
   guidanceIndicator?.destroy();
   guidanceIndicator = null;
   active++;
@@ -797,7 +828,7 @@ function updateGuidance({animateStage = false} = {}) {
   const {stage, step} = guidanceStep(m, recommended);
   host.hidden = !m.schema.tables.length || Boolean(m.view.imported);
   const globalPlan = root.querySelector('[data-plan-entry]');
-  if (globalPlan) globalPlan.hidden = !host.hidden && !guidanceCollapsed;
+  if (globalPlan) globalPlan.hidden = !host.hidden && (!guidanceCollapsed || step.action === 'generate');
   const focused = host.contains?.(document.activeElement) ? document.activeElement?.dataset.guideAction : null;
   const currentSelected = () => m.selected(m.view.table) ? m.view.table : m.document.tables[0]?.name || m.view.table;
   const edit = () => {
@@ -865,12 +896,12 @@ function updateGuidance({animateStage = false} = {}) {
     updateGuidance();
   };
   const stages = [
-    [tr("workbench.guide.rules"), tr("workbench.guide.rulesDescription"), tr("workbench.guide.rulesLabel")],
-    [tr("workbench.guide.preview"), tr("workbench.guide.previewDescription"), tr("workbench.guide.previewLabel")],
-    [tr("workbench.guide.confirm"), tr("workbench.guide.confirmDescription"), tr("workbench.guide.confirmLabel")]
+    [tr("workbench.guide.rules"), tr("workbench.guide.rulesDescription"), tr("workbench.guide.rulesLabel"), tr('workbench.guide.rulesShort')],
+    [tr("workbench.guide.preview"), tr("workbench.guide.previewDescription"), tr("workbench.guide.previewLabel"), tr('workbench.guide.previewShort')],
+    [tr("workbench.guide.confirm"), tr("workbench.guide.confirmDescription"), tr("workbench.guide.confirmLabel"), tr('workbench.guide.confirmShort')]
   ];
   const previousBody = host.querySelector('#wb-next-step-body');
-  let stageList = previousBody?.querySelector('.wb-guide-stages');
+  let stageList = host.querySelector('.wb-guide-stages');
   if (!stageList) {
     stageList = h('ol', { class: 'wb-guide-stages', 'aria-label': tr("workbench.guide.flow") },
       ...stages.map(([label, description], index) => h('li', {}, h('button', {
@@ -881,15 +912,22 @@ function updateGuidance({animateStage = false} = {}) {
   }
   // Preserve the buttons and their decorative plate across guidance updates.
   // Callbacks use this render's model/handlers; selection itself commits now.
+  stageList.dataset.compact = String(guidanceCollapsed);
   [...stageList.querySelectorAll('button')].forEach((control, index) => {
     control.onclick = () => navigateStage(index + 1);
     setAttr(control, 'title', stages[index][2]);
+    setAttr(control, 'aria-label', stages[index][0]);
+    setText(control.querySelector('strong'), stages[index][guidanceCollapsed ? 3 : 0]);
+    const detail = control.querySelector('small');
+    detail.hidden = guidanceCollapsed;
     if (index + 1 === stage) control.setAttribute('aria-current', 'step');
     else control.removeAttribute('aria-current');
   });
-  const description = h('div', {class:'wb-guide-description', 'aria-live':'polite'}, h('h3', {}, step.title), h('p', {}, step.body));
+  const description = h('div', {class:'wb-guide-description'}, h('p', {}, step.body));
   const heading = h('div', {class:'wb-next-step-heading'},
-    h('span', { class: 'wb-guide-heading' }, h('strong', {}, tr("workbench.guide.flow")), step.scope), toggle);
+    h('div', {class:'wb-guide-heading'},
+      h('strong', {class:'wb-guide-current'}, tr('workbench.guide.currentStage', {stage, title:stages[stage - 1][0]})),
+      h('h3', {'aria-live':'polite'}, step.title), h('span', {}, step.scope)), toggle);
   renderGuidanceBody(host, previousBody, {heading, stageList, description, actions});
   guidanceIndicator?.update({animate: animateStage});
   if (focused) {
@@ -904,7 +942,7 @@ function renderGuidanceBody(host, previousBody, {heading, stageList, description
     else previousBody.removeAttribute('hidden');
     host.querySelector('.wb-next-step-heading').replaceWith(heading);
     previousBody.querySelector('.wb-guide-description').replaceWith(description);
-    previousBody.querySelector('.wb-next-step-actions').replaceWith(actions);
+    host.querySelector('.wb-next-step-actions').replaceWith(actions);
   } else {
     const body = h('div', {
       id: 'wb-next-step-body',
@@ -912,8 +950,9 @@ function renderGuidanceBody(host, previousBody, {heading, stageList, description
       hidden: guidanceCollapsed
     }, h('div', {
       class: 'wb-next-step-main'
-    }, stageList, description, actions));
-    replaceContent(host, heading, body);
+    }, description));
+    body.hidden = guidanceCollapsed;
+    replaceContent(host, h('div', {class:'wb-next-step-summary'}, heading, actions), stageList, body);
     guidanceIndicator?.destroy();
     guidanceIndicator = createSegmentIndicator(stageList);
   }
@@ -1121,6 +1160,7 @@ function drawSidebar() {
     refs = referencedTables();
   const view = sidebarViews.get(m) || {
     structureOpen: false,
+    directoryOpen: false,
     query: ''
   };
   sidebarViews.set(m, view);
@@ -1128,6 +1168,8 @@ function drawSidebar() {
   if (previousMenu) {
     view.structureOpen = previousMenu.open;
   }
+  const previousDirectory = sidebar.querySelector('.wb-table-directory');
+  if (previousDirectory && compactDirectory()) view.directoryOpen = previousDirectory.open;
   const scrollTop = sidebar.querySelector('.wb-table-list')?.scrollTop || 0;
   function tableGenerationLabel(table) {
     if (m.errors.has(`count:${table.name}`)) return tr("workbench.count.invalid");
@@ -1230,7 +1272,7 @@ function drawSidebar() {
   }, ...m.schema.tables.map(table => h('div', {
     class: `table-entry wb-table-entry${m.view.table === table.name ? ' active' : ''}`,
     'data-table': table.name
-  }, h('input', {
+  }, h('label', {class:'wb-table-select', title:tr('workbench.scope.generateTable', {table:table.name})}, h('input', {
     type: 'checkbox',
     checked: m.selected(table.name),
     'aria-label': tr("workbench.scope.generateTable", {table: table.name}),
@@ -1242,7 +1284,7 @@ function drawSidebar() {
       m.toggleTable(table.name, e.target.checked);
       drawBody();
     }
-  }), h('button', {
+  })), h('button', {
     class: 'table-button wb-table-name',
     title: tr("workbench.scope.fieldRules", {table: table.name}),
     onclick: () => chooseTable(table.name)
@@ -1274,6 +1316,18 @@ function drawSidebar() {
   }
   filterTables();
   sidebar.querySelector('.wb-table-list').scrollTop = scrollTop;
+  const directoryContent = h('div', {class:'wb-table-directory-content'});
+  directoryContent.append(...sidebar.childNodes);
+  const directory = h('details', {
+    class:'wb-table-directory',
+    ontoggle: event => {
+      if (event.currentTarget.isConnected && compactDirectory()) view.directoryOpen = event.currentTarget.open;
+    }
+  }, h('summary', {class:'wb-table-directory-summary'}, h('span', {},
+    h('strong', {}, tr('workbench.scope.viewing', {table:m.view.table || tr('workbench.scope.noTable')})),
+    h('small', {}, tr('workbench.scope.selectedCount', {count:m.document.tables.length})))), directoryContent);
+  directory.open = !compactDirectory() || Boolean(view.directoryOpen);
+  replaceContent(sidebar, directory);
 }
 function connectionInfo() {
   modalIntent++;
@@ -1389,7 +1443,7 @@ function drawBody({
     class: 'table-heading'
   }, h('div', {
     class: 'table-title'
-  }, h('h2', {}, table.name), h('span', {
+  }, h('h2', {tabindex:-1}, table.name), h('span', {
     class: 'desc'
   }, tr("workbench.table.summary", {fields: table.columns.length, rows: table.row_count})), button(tr("workbench.table.currentData"), viewCurrentData, {
     plain: true,
@@ -3434,6 +3488,7 @@ async function summary() {
     plan = null,
     busy = false,
     planning = false,
+    failed = false,
     execution = {
       // Only the current model's adjustment flow remembers clear intent. No
       // plan/hash/reset option survives closing this confirmation dialog.
@@ -3459,7 +3514,8 @@ async function summary() {
   const isCurrent = () => version === active && current === session && m === model() && m.epoch === epoch && m.lifecycleVersion === lifecycle && dialog.body.isConnected;
   const planInfo = h('div', {
     class: 'wb-execution-plan',
-    'aria-live': 'polite'
+    id: 'wb-execution-details',
+    tabindex: -1
   });
   const reset = h('input', {
     type: 'checkbox',
@@ -3547,14 +3603,13 @@ async function summary() {
   }, {
     plain: true,
     class: 'mono execution-table'
-  }), h('span', {}, tr("workbench.count.rows", {count: m.table(name).count}))))), ...(result.issues || []).filter(issue => !unsupported || issue.code !== 'cross_table_cycle').map(issue => h('p', {
-    class: issue.severity === 'error' ? 'wb-error' : 'wb-muted'
-  }, joinText([issue.table || '', serverText(issue)], ' '))));
+  }), h('span', {}, tr("workbench.count.rows", {count: m.table(name).count}))))));
   const submit = button(tr("workbench.execution.write"), async () => {
     if (!isCurrent() || busy || planning || !m.canRun() || execution.mode === 'replace_selected' && !plan?.ok) {
       return;
     }
     busy = true;
+    failed = false;
     submit.disabled = true;
     setStrategyBusy(true);
     try {
@@ -3571,6 +3626,7 @@ async function summary() {
           role: 'alert'
         }, errorText(error)));
         busy = false;
+        failed = true;
         setStrategyBusy(false);
         submit.disabled = execution.mode === 'replace_selected';
         if (execution.mode === 'replace_selected') {
@@ -3582,16 +3638,40 @@ async function summary() {
     }
   }, {
     primary: true,
-    disabled: !m.canRun()
+    disabled: !m.canRun(),
+    'aria-describedby': 'wb-execution-status'
   });
-  appendContent(dialog.actions, button(unsupported ? tr('workbench.unsupported.close') : tr("workbench.execution.return"), dialog.close), submit);
+  const executionStatus = h('span', {id:'wb-execution-status', role:'status', 'aria-live':'polite'});
+  const showDetails = button(tr('workbench.execution.viewReasons'), () => {
+    planInfo.focus({preventScroll:true});
+    planInfo.scrollIntoView({block:'start'});
+  }, {plain:true, small:true, 'aria-controls':'wb-execution-details'});
+  const executionFeedback = h('div', {class:'wb-execution-feedback'}, executionStatus, showDetails);
+  dialog.actions.classList.add('wb-execution-actions');
+  appendContent(dialog.actions, executionFeedback, button(unsupported ? tr('workbench.unsupported.close') : tr("workbench.execution.return"), dialog.close), submit);
+  function syncExecutionStatus() {
+    let state = 'ready';
+    if (busy) state = 'busy';
+    else if (planning) state = 'checking';
+    else if (failed) state = 'failure';
+    else if (unsupported || !m.canRun() || execution.mode === 'replace_selected' && (!plan?.ok || !plan?.atomic)) state = 'blocked';
+    executionFeedback.dataset.state = state;
+    setText(executionStatus, tr(`workbench.execution.status.${state}`));
+    showDetails.hidden = !['blocked', 'failure'].includes(state);
+  }
   function appendPlan() {
     executionChecks.delete(m);
     notify(m.check?.ok ? tr("workbench.dependency.appendValid") : tr("workbench.execution.appendUnchecked"), !m.check?.ok);
     updateStatus();
     replaceContent(planInfo, h('p', {
       class: 'wb-muted'
-    }, result.existing_cycle_sources?.length ? tr('workbench.execution.existingCycle') : tr('workbench.execution.appendPlanHelp')));
+    }, !result.ok ? tr('workbench.execution.appendUnchecked') : result.existing_cycle_sources?.length
+      ? tr('workbench.execution.existingCycle') : tr('workbench.execution.appendPlanHelp')), ...generationDiagnostics());
+  }
+  function generationDiagnostics() {
+    return (result.issues || []).filter(issue => !unsupported || issue.code !== 'cross_table_cycle').map(issue => h('p', {
+      class: issue.severity === 'error' ? 'wb-error' : 'wb-muted'
+    }, joinText([issue.table || '', serverText(issue)], ' ')));
   }
   function setStrategyBusy(value) {
     append.disabled = busy || unsupported;
@@ -3610,6 +3690,7 @@ async function summary() {
     else reason = tr('workbench.execution.resetHelp');
     setText(resetReason, reason);
     setAttr(planInfo, 'aria-busy', String(value));
+    syncExecutionStatus();
   }
   function recoveryActions() {
     return {
@@ -3628,6 +3709,10 @@ async function summary() {
       h('ul', {}, ...tables.map(table => h('li', {}, tr("workbench.execution.tableCount", {table: table.name, count: table.row_count})))),
       h('p', {}, plan.atomic ? tr("workbench.execution.atomic") : tr("workbench.execution.nonAtomic")),
       ...(plan.issues || []).filter(issue=>issue.severity!=='error').map(issue=>h('p',{class:'wb-muted'},serverText(issue)))));
+    const errors = (plan.issues || []).filter(issue => issue.severity === 'error');
+    if (errors.length) appendContent(planInfo, h('details', {}, h('summary', {}, tr('workbench.execution.diagnostics')),
+      ...errors.map(issue => h('p', {class:'wb-error'}, serverText(issue)))));
+    appendContent(planInfo, ...generationDiagnostics());
     submit.disabled = !plan.ok || !plan.atomic || !m.canRun();
     reset.disabled = !plan.reset_identity_supported;
   }
@@ -3637,10 +3722,11 @@ async function summary() {
     }
     const request = ++sequence;
     plan = null;
+    failed = false;
     submit.disabled = true;
     if (unsupported) {
       if (execution.mode === 'replace_selected') executionChecks.set(m, {epoch, lifecycle, issues:structuredClone(result.issues), state:'blocked'});
-      replaceContent(planInfo, generationUnsupportedCard(result));
+      replaceContent(planInfo, generationUnsupportedCard(result), ...generationDiagnostics());
       setText(submit, tr('workbench.unsupported.cannotGenerate'));
       setStrategyBusy(false); updateStatus();
       return;
@@ -3667,8 +3753,9 @@ async function summary() {
       acceptExecutionPlan(response);
     } catch (error) {
       if (isCurrent() && request === sequence) {
+        failed = true;
         executionChecks.set(m, {epoch, lifecycle, error:errorText(error), state:'blocked'}); updateStatus();
-        replaceContent(planInfo, clearRecoveryCard(m, {...recoveryActions(), inspect:inspectExecution}));
+        replaceContent(planInfo, clearRecoveryCard(m, {...recoveryActions(), inspect:inspectExecution}), ...generationDiagnostics());
       }
     } finally {
       planning = false;
