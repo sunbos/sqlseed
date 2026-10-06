@@ -1,9 +1,9 @@
 {
   "format": "sqlseed-ui-review-evidence-excerpt-v1",
   "date": "2026-10-06",
-  "status": "implementation_and_acceptance_in_progress",
+  "status": "implementation_and_browser_acceptance_complete_final_delivery_checks_pending",
   "baseline_commit": "b7a5ba507cd8192779debf56d32502ba38e8e6af",
-  "scope": "Independent IAB browser observations and temporary SQLite databases; synthetic AI status/suggest only; not real model, real touch device, unsupported-filter engine, GPU, cross-browser or XR acceptance. Real 200% browser zoom pending user assistance.",
+  "scope": "Independent IAB browser observations and temporary SQLite databases; synthetic AI status/suggest only; not real model, real touch device, unsupported-filter engine, GPU, cross-browser or XR acceptance. Native 200% acceptance is verified, including the Runs table readability repair; the CSS follow-up has 33/33 targeted checks and the final delivery commit still requires its own CI.",
   "source_file_names_are_provenance_not_portable_file_links": true,
   "screenshots": [
     {
@@ -1814,7 +1814,7 @@
     "limitations": "Three load rounds and one scroll/interaction round per side. Different scroll distance. Cross-navigation cumulative CPU counters must not be subtracted. rAF intervals are not GPU presentation timing or proof of 60fps."
   },
   "automated_result_snapshot": {
-    "node_web_passed": 1057,
+    "node_web_passed": 1064,
     "node_pages_passed": 47,
     "python_first_run": {
       "passed": 4367,
@@ -1832,18 +1832,19 @@
     },
     "mutation_killed": 246,
     "mutation_total": 246,
-    "caveat": "Python/static/mutation gates preceded the final one-property long-field CSS repair. Those inputs remain unchanged. Complete Web Node was rerun after the repair on October 6 and October 7, both 1057/1057. Real browser 200% zoom remains pending. A new explicit append on October 7 shows success without manual refresh; the earlier fourth-run intermediate capture is retained only as history.",
+    "caveat": "Python/static/mutation gates preceded the final one-property long-field CSS repair. Those inputs remain unchanged. Complete Web Node was rerun after the repair on October 6 and October 7, both 1057/1057. Native 200% acceptance and the Runs layout repair are now verified in the browser. The final CSS follow-up is later than these full-suite results; its targeted 33/33 pass is recorded separately, and final-head CI remains pending. A new explicit append on October 7 shows success without manual refresh; the earlier fourth-run intermediate capture is retained only as history.",
     "latest_full_web_node": {
       "command": "node --test plugins/sqlseed-web/tests/test_*.cjs",
       "exit_code": 0,
-      "duration_seconds": 26.235,
-      "completed_at": "2026-10-07T06:11:31.043210",
-      "log": "validation/logs/gates-20261007/node-web.log",
-      "tests": 1057,
-      "passed": 1057,
+      "duration_seconds": 12.296,
+      "completed_at": "2026-10-06T22:59:45.244566+00:00",
+      "log": "validation/logs/gates-20261007/confirmation-focus-final-node.log",
+      "tests": 1064,
+      "passed": 1064,
       "failed": 0,
       "skipped": 0,
-      "log_sha256": "463ca672e79cf93e0d2462e7dbce5763a5af960c4bfc536dc26308c692ba27f9"
+      "log_sha256": "afbfc006645483b8981e21ffd25d011dd0e5eaa53e0692696a59fcd850b3eb15",
+      "scope": "After final focus fix, before native-200 runs.css repair; the latter has its separate 33-test targeted result."
     },
     "latest_docs": {
       "source": "validation/logs/gates-20261007/docs-result.json",
@@ -1859,12 +1860,23 @@
       "targeted_node_passed": 115,
       "targeted_node_failed": 0,
       "diff_check_passed": true
+    },
+    "previous_full_web_node": {
+      "command": "node --test plugins/sqlseed-web/tests/test_*.cjs",
+      "exit_code": 0,
+      "duration_seconds": 26.235,
+      "completed_at": "2026-10-07T06:11:31.043210",
+      "log": "validation/logs/gates-20261007/node-web.log",
+      "tests": 1057,
+      "passed": 1057,
+      "failed": 0,
+      "skipped": 0,
+      "log_sha256": "463ca672e79cf93e0d2462e7dbce5763a5af960c4bfc536dc26308c692ba27f9"
     }
   },
   "updated_date": "2026-10-07",
   "remaining_required_checks": [
-    "Real browser 200% zoom",
-    "Commit, reviewable PR, and candidate CI delivery"
+    "Verify final candidate-head CI and complete delivery"
   ],
   "source_verification_after_restart": {
     "timestamp_utc": "2026-10-06T22:09:23.208955+00:00",
@@ -2078,7 +2090,8 @@
     "scale": 1,
     "actual_200_percent_verified": false,
     "followup_no_refresh_result_verified": true,
-    "followup_run_id": "56981906-f60a-4cbe-bda8-cddf2f5e1bde"
+    "followup_run_id": "56981906-f60a-4cbe-bda8-cddf2f5e1bde",
+    "scope": "Historical recovery snapshot at zoom=1; later native zoom=2 is recorded separately and does not rewrite this event."
   },
   "delivery": {
     "implementation_commit": "87c2a046b0a2c5493c98b6e5c950761df7fcdfb8",
@@ -2086,8 +2099,28 @@
     "draft": true,
     "merged": false,
     "released": false,
-    "candidate_ci": "running at this evidence snapshot; inspect current PR head checks",
-    "required_browser_gap": "native browser 200% zoom"
+    "candidate_ci": "Commit 3e347cf7febc4946a4708c439549ccb28575d761 passed all required checks; any later run-table repair requires follow-up verification and final-head CI.",
+    "required_browser_gap": null,
+    "verified_ci": {
+      "head": "3e347cf7febc4946a4708c439549ccb28575d761",
+      "observed_at_utc": "2026-10-06T23:16:36.947546+00:00",
+      "ci_run": 37544159614,
+      "ci_success_jobs": 12,
+      "ci_skipped_jobs": [
+        "docs"
+      ],
+      "docs_skip_reason": "docs job runs only for push to main; maintained documentation build in lint succeeded",
+      "doc_sync": "success",
+      "sonar": "success, zero annotations",
+      "codeflow": "success, PR 35 URL",
+      "coderabbit": "status success but review skipped because Draft PR",
+      "codecov_patch": {
+        "status": "completed",
+        "conclusion": "success",
+        "details_url": "https://app.codecov.io/gh/sunbos/sqlseed/pull/35"
+      },
+      "all_current_head_checks_terminal": true
+    }
   },
   "review_followup": {
     "change": "Extract append confirmation message selection from a nested conditional without changing priority or guards",
@@ -2117,5 +2150,367 @@
     "final_source_sha256": "35dbc4ed1bc59f44eb3005aabfa9b138a8996fe3623b536c17e42fa7e4634fd0",
     "additional_case": "Unknown capability becomes blocked: Node verifies focus returns to the current reason button; not one of the four browser cases",
     "final_independent_review": "No remaining P0/P1/P2 findings"
+  },
+  "native_200_followup": {
+    "source": "native-200-acceptance-20261007.json",
+    "code_commit": "3e347cf7febc4946a4708c439549ccb28575d761",
+    "started_at": "2026-10-06T23:27:01.226Z",
+    "method": "User-set native browser zoom; no device emulation, CSS zoom or page scale substitution.",
+    "native_zoom": 2,
+    "visual_scale": 1,
+    "css_visual_viewport": {
+      "width": 319,
+      "height": 332
+    },
+    "document_width": 319,
+    "setting_verified": true,
+    "overall_acceptance_verified": true,
+    "verified_steps": [
+      "Directory table switch focuses children and preserves two-table seven-row plan",
+      "Confirmation scrolling, keyboard trap and Escape return",
+      "YAML keyboard reachability and Escape return",
+      "Rule drawer cancellation and focus return",
+      "Configuration filtering 2 to 0 to 2 without mutation",
+      "Theme menu keyboard system selection then light restoration",
+      "Run-table readable names and local horizontal scroll without document overflow",
+      "Native Tab reaches child current-data button; Enter reads 12 rows; Escape returns focus and ArrowLeft scrolls locally"
+    ],
+    "confirmation": {
+      "dialog": {
+        "bottom": 313,
+        "height": 294,
+        "left": 18,
+        "right": 301,
+        "top": 19,
+        "width": 283,
+        "x": 18,
+        "y": 19
+      },
+      "body": {
+        "bodyHeight": 111,
+        "bodyScrollHeight": 1072,
+        "bodyTop": 622.5,
+        "footer": {
+          "bottom": 284,
+          "height": 81.3984375,
+          "left": 47,
+          "right": 272,
+          "top": 202.6015625,
+          "width": 225,
+          "x": 47,
+          "y": 202.6015625
+        }
+      },
+      "last_tab": {
+        "inside": true,
+        "text": "写入数据库"
+      },
+      "first_tab": {
+        "inside": true,
+        "label": "追加数据"
+      },
+      "escape": {
+        "dialogs": 0,
+        "rect": {
+          "bottom": 187.94140625,
+          "height": 44,
+          "left": 211.66796875,
+          "right": 296,
+          "top": 143.94140625,
+          "width": 84.33203125,
+          "x": 211.66796875,
+          "y": 143.94140625
+        },
+        "tag": "BUTTON",
+        "text": "查看生成计划"
+      }
+    },
+    "table_switch": {
+      "active": "<h2 tabindex=\"-1\">children</h2>",
+      "details": [
+        {
+          "open": false,
+          "text": "当前查看：children已选 2 张表用于生成"
+        },
+        {
+          "open": false,
+          "text": "数据库结构操作"
+        }
+      ],
+      "documentWidth": 319,
+      "height": 332,
+      "width": 324
+    },
+    "screenshot_review": [
+      "native-200-workbench-viewport-20261007.png",
+      "native-200-confirmation-settled-20261007.png",
+      "native-200-field-rule-20261007.png",
+      "native-200-configs-empty-20261007.png",
+      "native-200-appearance-20261007.png",
+      "native-200-run-table-fixed-left-20261007.png",
+      "native-200-run-table-fixed-right-20261007.png"
+    ],
+    "limits": "Thirty representative native-zoom steps, not all states/devices. Configuration empty-state result comes from AX, not a single full-content screenshot. No database writes/config edits; theme restored to light. The follow-up 33/33 targeted test result and pending final-head CI remain separate from browser acceptance.",
+    "completed_at": "2026-10-06T23:41:12.738Z",
+    "recorded_steps": 30,
+    "final_metrics": {
+      "clientHeight": 332,
+      "clientWidth": 319,
+      "offsetX": 0,
+      "offsetY": 0,
+      "pageX": 0,
+      "pageY": 988.25,
+      "scale": 1,
+      "zoom": 2
+    },
+    "final_source": {
+      "baseCommit": "3e347cf7febc4946a4708c439549ccb28575d761",
+      "changedFile": "plugins/sqlseed-web/src/sqlseed_web/static/runs.css",
+      "sha256": "bd7be50eda6ca2dede057a9d4b61a7e8e5ddb6f71575772381218741d81f8082"
+    },
+    "resolved_finding": {
+      "source": "native-200-run-snapshot-20261007.png",
+      "description": "Run-table children was compressed into per-character lines in a 30px column. The baseline already had this style. A 560px table minimum and 128px name minimum preserve readability within the existing local scroll container.",
+      "before_geometry": {
+        "class": "run-table",
+        "client": 235,
+        "rows": [
+          [
+            {
+              "overflowWrap": "anywhere",
+              "text": "表",
+              "width": 30,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "状态",
+              "width": 80,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "计划行数",
+              "width": 30,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "已提交",
+              "width": 30,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "结果",
+              "width": 124,
+              "wordBreak": "normal"
+            }
+          ],
+          [
+            {
+              "overflowWrap": "anywhere",
+              "text": "parents",
+              "width": 30,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "生成成功",
+              "width": 80,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "3",
+              "width": 30,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "3",
+              "width": 30,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "生成成功，数据已提交查看当前数据",
+              "width": 124,
+              "wordBreak": "normal"
+            }
+          ],
+          [
+            {
+              "overflowWrap": "anywhere",
+              "text": "children",
+              "width": 30,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "生成成功",
+              "width": 80,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "4",
+              "width": 30,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "4",
+              "width": 30,
+              "wordBreak": "normal"
+            },
+            {
+              "overflowWrap": "anywhere",
+              "text": "生成成功，数据已提交查看当前数据",
+              "width": 124,
+              "wordBreak": "normal"
+            }
+          ]
+        ],
+        "scroll": 294,
+        "width": 294
+      },
+      "verified_after": {
+        "class": "run-table",
+        "client": 235,
+        "rows": [
+          [
+            {
+              "height": 41.69921875,
+              "text": "表",
+              "width": 150.5859375
+            },
+            {
+              "height": 41.69921875,
+              "text": "状态",
+              "width": 94.1171875
+            },
+            {
+              "height": 41.69921875,
+              "text": "计划行数",
+              "width": 77.64453125
+            },
+            {
+              "height": 41.69921875,
+              "text": "已提交",
+              "width": 63.52734375
+            },
+            {
+              "height": 41.69921875,
+              "text": "结果",
+              "width": 174.125
+            }
+          ],
+          [
+            {
+              "height": 97.796875,
+              "text": "parents",
+              "width": 150.5859375
+            },
+            {
+              "height": 97.796875,
+              "text": "生成成功",
+              "width": 94.1171875
+            },
+            {
+              "height": 97.796875,
+              "text": "3",
+              "width": 77.64453125
+            },
+            {
+              "height": 97.796875,
+              "text": "3",
+              "width": 63.52734375
+            },
+            {
+              "height": 97.796875,
+              "text": "生成成功，数据已提交查看当前数据",
+              "width": 174.125
+            }
+          ],
+          [
+            {
+              "height": 97.796875,
+              "text": "children",
+              "width": 150.5859375
+            },
+            {
+              "height": 97.796875,
+              "text": "生成成功",
+              "width": 94.1171875
+            },
+            {
+              "height": 97.796875,
+              "text": "4",
+              "width": 77.64453125
+            },
+            {
+              "height": 97.796875,
+              "text": "4",
+              "width": 63.52734375
+            },
+            {
+              "height": 97.796875,
+              "text": "生成成功，数据已提交查看当前数据",
+              "width": 174.125
+            }
+          ]
+        ],
+        "scroll": 560,
+        "width": 560
+      },
+      "horizontal_scroll": {
+        "client": 235,
+        "documentWidth": 319,
+        "left": 325,
+        "scroll": 560,
+        "viewport": 324
+      },
+      "keyboard_button": {
+        "active": "<button type=\"button\" class=\"btn run-view-data\" data-run-focus=\"table:children\" title=\"查看数据库当前记录，包含已有数据\">查看当前数据</button>",
+        "documentWidth": 319,
+        "height": 332,
+        "rect": {
+          "bottom": 285.7109375,
+          "height": 44,
+          "left": 111.875,
+          "right": 217.875,
+          "top": 241.7109375,
+          "width": 106,
+          "x": 111.875,
+          "y": 241.7109375
+        },
+        "width": 324
+      },
+      "escape": {
+        "active": "<button type=\"button\" class=\"btn run-view-data\" data-run-focus=\"table:children\" title=\"查看数据库当前记录，包含已有数据\">查看当前数据</button>",
+        "documentWidth": 319,
+        "tableLeft": 325
+      },
+      "arrow_left": {
+        "active": "<button type=\"button\" class=\"btn run-view-data\" data-run-focus=\"table:children\" title=\"查看数据库当前记录，包含已有数据\">查看当前数据</button>",
+        "documentWidth": 319,
+        "left": 305
+      },
+      "current_data_rows": 12
+    },
+    "raw_evidence_sha256": "c6433033c15ea72517a12581b0c09130bcb367e5335a77d82edcf4ecf502bf3f",
+    "targeted_automation": {
+      "command": "node --test plugins/sqlseed-web/tests/test_runs.cjs",
+      "log": "validation/logs/gates-20261007/native-200-runs-node.log",
+      "log_sha256": "d8384a93348c20826bf164c86957afd6a994a8ef354acabe02ed6bd77cdef711",
+      "tests": 33,
+      "passed": 33,
+      "failed": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "duration_ms": 1344.457147,
+      "scope": "Post-CSS targeted run only. Earlier full Web 1064 result was not rerun by this command; final candidate CI remains authoritative."
+    }
   }
 }
