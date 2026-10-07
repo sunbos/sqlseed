@@ -7,7 +7,7 @@
 | 中文 | English | 范围 |
 | --- | --- | --- |
 | 工作台 | Workbench | 表选择、规则、依赖检查、预览、AI 审阅与写入确认 |
-| 配置管理 | Configurations | 保存、打开、搜索、复制、重命名、导入、导出与删除 |
+| 配置管理 | Configs | 保存、打开、搜索、复制、重命名、导入、导出与删除 |
 | 运行记录 | Runs | 逐表结果、提交数量、固定配置快照与恢复指引 |
 | 设置 | Settings | AI 服务、默认配置、组件管理与外观 |
 | 数据生成引擎 | Data generation engine | Base、Faker、Mimesis 的配置选择 |
