@@ -3626,6 +3626,7 @@ async function summary() {
     if (!isCurrent() || busy || planning || !m.canRun() || execution.mode === 'replace_selected' && !plan?.ok) {
       return;
     }
+    const hadSubmitFocus = document.activeElement === submit;
     busy = true;
     failed = false;
     submit.disabled = true;
@@ -3652,6 +3653,9 @@ async function summary() {
           executionChecks.set(m, {epoch, lifecycle, state:'pending'}); updateStatus();
           appendContent(planInfo, button(tr("workbench.execution.reviewAgain"), inspectExecution));
         }
+        if (hadSubmitFocus && !submit.disabled && (!document.activeElement || document.activeElement === document.body)) {
+          submit.focus({preventScroll:true});
+        }
       }
     }
   }, {
@@ -3661,8 +3665,11 @@ async function summary() {
   });
   const executionStatus = h('span', {id:'wb-execution-status', role:'status', 'aria-live':'polite'});
   const showDetails = button(tr('workbench.execution.viewReasons'), () => {
-    planInfo.focus({preventScroll:true});
-    planInfo.scrollIntoView({block:'start'});
+    const diagnostics = planInfo.querySelector('[data-execution-diagnostics]');
+    if (diagnostics) diagnostics.open = true;
+    const target = diagnostics?.querySelector('summary') || planInfo;
+    target.focus({preventScroll:true});
+    target.scrollIntoView({block:'start'});
   }, {plain:true, small:true, 'aria-controls':'wb-execution-details'});
   const executionFeedback = h('div', {class:'wb-execution-feedback'}, executionStatus, showDetails);
   dialog.actions.classList.add('wb-execution-actions');
@@ -3730,7 +3737,7 @@ async function summary() {
       h('p', {}, plan.atomic ? tr("workbench.execution.atomic") : tr("workbench.execution.nonAtomic")),
       ...(plan.issues || []).filter(issue=>issue.severity!=='error').map(issue=>h('p',{class:'wb-muted'},serverText(issue)))));
     const errors = (plan.issues || []).filter(issue => issue.severity === 'error');
-    if (errors.length) appendContent(planInfo, h('details', {}, h('summary', {}, tr('workbench.execution.diagnostics')),
+    if (errors.length) appendContent(planInfo, h('details', {'data-execution-diagnostics':''}, h('summary', {}, tr('workbench.execution.diagnostics')),
       ...errors.map(issue => h('p', {class:'wb-error'}, serverText(issue)))));
     appendContent(planInfo, ...generationDiagnostics());
     submit.disabled = !plan.ok || !plan.atomic || !m.canRun();

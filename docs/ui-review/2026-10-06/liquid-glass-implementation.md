@@ -1,14 +1,14 @@
 # Liquid Glass 工作台实施与验收记录
 
-实施日期：2026-10-06，最后复核：2026-10-07。状态：**选定 UI 优化、浏览器验收及最终 UI 代码检查完成**。实现基线：`b7a5ba507cd8192779debf56d32502ba38e8e6af`，分支 `codex/liquid-glass-ui`。本文记录当前工作树的设计取舍及已经取得的证据；实际原生 200% 已由用户设置并取得 zoom=2 证据，验收发现的运行表文字压缩已经最小修复并在同一缩放下复验；初始实现提交为 `87c2a046b0a2c5493c98b6e5c950761df7fcdfb8`，最后 UI 代码提交 `42b2442ba5cac6d55789aa560964691e68e45821` 已通过相同提交的全部必要 CI，交付于 [PR #35](https://github.com/sunbos/sqlseed/pull/35)；后续资料收尾提交的检查与审查状态以该 PR 当前 head 为准；无手动刷新到运行成功的流程已于 10 月 7 日补验。辅助功能及 coarse 的浏览器模拟结果与真实设备边界分别记录在下文。历史评审结果不改写。
+实施日期：2026-10-06，最后复核：2026-10-07。状态：**UI 优化与正式审查修复已完成本地及浏览器验证；提交检查以 PR 当前 head 为准**。实现基线：`b7a5ba507cd8192779debf56d32502ba38e8e6af`，分支 `codex/liquid-glass-ui`。本文记录当前工作树的设计取舍及已经取得的证据；实际原生 200% 已由用户设置并取得 zoom=2 证据，验收发现的运行表文字压缩已经最小修复并在同一缩放下复验；初始实现提交为 `87c2a046b0a2c5493c98b6e5c950761df7fcdfb8`，此前 UI 验收检查点 `42b2442ba5cac6d55789aa560964691e68e45821` 已通过相同提交的全部必要 CI，交付于 [PR #35](https://github.com/sunbos/sqlseed/pull/35)；后续源码及资料提交的检查与审查状态以该 PR 当前 head 为准；无手动刷新到运行成功的流程已于 10 月 7 日补验。辅助功能及 coarse 的浏览器模拟结果与真实设备边界分别记录在下文。历史评审结果不改写。
 
 本报告随附 7 张原始截图和[便携证据摘要](liquid-glass-assets/evidence-summary.json)，包含布局、辅助功能、数据库、合成 AI 和性能的关键原始数值及截图 SHA256。摘要是原始记录的摘录，不是完整网络或浏览器 trace。正文中的其他文件名标识本轮证据来源，不依赖维护者的本机路径；自动结果摘自 `validation/automated-results.md`。
 
 ## 基线与可审阅预览
 
-开始实施时复核，GitHub main 与当时本地 HEAD 同为上述基线，main 的 CI / doc-sync 通过；唯一打开的 PR #34 为独立清理草稿，未合并到本轮实现。main 的绿灯不能代替候选改动的检查。最后 UI 验收于 10 月 7 日 08:04:54（UTC+8）再次核对：main 仍为 `b7a5ba5`，PR head 为 `42b2442b`，当时为 OPEN / Draft；这是验收时间点的身份记录，当前 PR 审查状态以 GitHub 为准。
+开始实施时复核，GitHub main 与当时本地 HEAD 同为上述基线，main 的 CI / doc-sync 通过；唯一打开的 PR #34 为独立清理草稿，未合并到本轮实现。main 的绿灯不能代替候选改动的检查。此前 UI 验收于 10 月 7 日 08:04:54（UTC+8）再次核对：main 仍为 `b7a5ba5`，PR head 为 `42b2442b`，当时为 OPEN / Draft；这是验收时间点的身份记录，当前 PR 审查状态以 GitHub 为准。
 
-候选为 [8641 工作台](http://127.0.0.1:8641/#/workbench)，对照为 [8640 工作台](http://127.0.0.1:8640/#/workbench)。10 月 7 日发现验收进程已停止后，通过原隔离 launcher 重启为 baseline PID 12509 / candidate PID 12582。重新核验两端各 123 个项目模块的启动路径及磁盘哈希、首页与静态资源字节；最后 UI 提交后的 07:48 核验为 18 项 HTTP 资源（含 runs.css），全部匹配相应源码；两端均为 management disabled。基线指向冻结的 main，候选指向本工作树；候选 `workbench.css` SHA256 为 `4393912aa46e9b7bd14c9c0c1529601855ead1393ef09b7bcec12babebc95d30`。这些是来源核验，重启后的 HTTP 正常不替代新的浏览器交互验收。用户的 8630 服务未用于本轮写入测试。
+候选为 [8641 工作台](http://127.0.0.1:8641/#/workbench)，对照为 [8640 工作台](http://127.0.0.1:8640/#/workbench)。10 月 7 日发现验收进程已停止后，通过原隔离 launcher 重启为 baseline PID 12509 / candidate PID 12582。重新核验两端各 123 个项目模块的启动路径及磁盘哈希、首页与静态资源字节；此前42b检查点的 07:48 核验为 18 项 HTTP 资源（含 runs.css），全部匹配相应源码；两端均为 management disabled。基线指向冻结的 main，候选指向本工作树；该42b检查点的候选 `workbench.css` SHA256 为 `4393912aa46e9b7bd14c9c0c1529601855ead1393ef09b7bcec12babebc95d30`。这些是来源核验，重启后的 HTTP 正常不替代新的浏览器交互验收。用户的 8630 服务未用于本轮写入测试。
 
 重启后一度因恢复到错误协议页面，工具的 URL 安全策略拒绝重新选取；用户随后手动打开有效 HTTP 页面，浏览器控制已恢复，未绕过限制。恢复时读取的原生 `cssVisualViewport.zoom=1`、`scale=1`，仍是 100%（`browser-restored-metrics-20261007.json`），不能作为 200% 验收。后续无手动刷新到运行成功的流程已补验。用户随后手动设为原生 200%，详见下节；本段 zoom=1 保留为恢复当时的历史状态，不改写成新结果。
 
@@ -35,7 +35,7 @@ Apple 建议把 Liquid Glass 主要用于位于内容上方的导航，避免把
 - ≤760px 的表目录使用原生 `details/summary`。摘要分别显示当前查看表与已选生成表数；表选择复选框、表名与依赖路径按钮继续独立。定位选择或数量错误时先展开，选表后把当前表内容带入视口。
 - 窄屏或 `pointer:coarse` 下，表选择标签、路径按钮及数量增减按钮提供至少 44×44 CSS 像素命中区。数量增减横排，不改变原生输入校验；非法草稿不能被步进按钮静默修正。
 - 长字段标识在本列内换行，保留完整名称和查看结构入口，避免窄屏内容越过规则列；实现只给 `.wb-field-name` 增加 `overflow-wrap:anywhere`。
-- 写入确认 footer 显示核对中、提交中、阻断、失败或就绪；提交按钮关联状态说明。“查看原因”只有在用户选择后才滚动并聚焦正文诊断。既有会话、epoch、修订、计划 hash、busy 和 `canRun` 门禁继续决定能否写入。
+- 写入确认 footer 显示核对中、提交中、阻断、失败或就绪；提交按钮关联状态说明。“查看原因”只有在用户选择后才展开错误诊断 details 并聚焦、滚动其 summary；无该折叠块时聚焦诊断容器。既有会话、epoch、修订、计划 hash、busy 和 `canRun` 门禁继续决定能否写入。
 - 生成计划入口在禁用前保存原焦点；确认框关闭后返回对应入口，引导重绘后解析当前按钮。若关闭时预检仍在途，只在同一会话且用户没有移焦时延后恢复，不改变写入确认语义。
 
 入口见 [工作台源码](../../../plugins/sqlseed-web/src/sqlseed_web/static/js/pages/workbench.js)、[工作台样式](../../../plugins/sqlseed-web/src/sqlseed_web/static/workbench.css)及[正式指南](../../web-workbench.md)。
@@ -55,14 +55,14 @@ tab 选择同步生效。横向反馈使用 160ms 指示线，快速反转从当
 | 范围 | 结果与限制 |
 | --- | --- |
 | ruff check / format、mypy、lint-imports | 均 exit 0 |
-| Web Node 测试 | 焦点修复后于 10 月 7 日重跑完整套件，1064 / 1064 通过，无失败或跳过；此前 1057 项加本次 7 项焦点行为回归 |
+| Web Node 测试 | 正式审查两项 JS 修复后完整 1070 / 1070 通过，0 失败 / 取消 / 跳过，墙钟 21.600 秒；此前 1064 项加 6 项护栏。该次全量早于后续窄屏列表 CSS 补修 |
 | 运行页 CSS 补修后增量 | `node --test plugins/sqlseed-web/tests/test_runs.cjs`：33 / 33 通过，0 失败 / 取消 / 跳过；日志 `validation/logs/gates-20261007/native-200-runs-node.log`。此前完整 1064 项不表述为本次重跑；42b 的 CI Web Node 步骤另已成功 |
 | 页面 Node 测试 | 47 / 47 通过，无失败或跳过 |
 | 离线 Python 首轮 | 4367 passed、29 skipped、82 deselected、33 setup errors |
 | 文档修复后定向复验 | 51 passed；覆盖并解决首轮全部 33 个 setup errors |
 | Python 去重合并 | 4400 passed、29 skipped、82 deselected，未解决失败 0；不是第二次完整运行 |
 | 架构与包边界 | 14 + 10 项通过，已包含在 Python 结果中 |
-| 文档同步与 MkDocs strict | 10 月 7 日 UI 收尾复验均 exit 0，strict 构建 4.351 秒；后续资料提交的检查以 PR 当前 head 为准 |
+| 文档同步与 MkDocs strict | 本轮审查材料更新后均 exit 0，strict 构建墙钟 3.196 秒；文档同步回归17 / 17通过。历史42b检查点构建为4.351秒 |
 | 本地 mutation gate | 246 / 246 killed；survived、timeout、suspicious、skipped 均为 0 |
 | 独立提交前源码审查 | 10 月 7 日未发现 P0 / P1 / P2；六组定向 Node 回归 115 / 115，diff check 通过 |
 
@@ -93,9 +93,23 @@ mutmut results
 
 生成确认焦点补修增加 7 项行为回归：原生禁用失焦后 Esc / 返回调整恢复、引导重绘入口、预检迟到时恢复 BODY 以及不覆盖其他控件 / 其他页面的焦点，以及首次检查阻断时返回原因入口。前两条在修复前确实失败；修复后最终定向 116 / 116、完整 Web Node 1064 / 1064，无失败或跳过（`validation/logs/gates-20261007/confirmation-focus-final-node.log`，墙钟 12.296 秒）。真实浏览器的对应入口复验见下文；首次阻断返回原因入口由新增 Node 行为回归覆盖，未将它列为这次四入口浏览器实测。最终独立复审未发现剩余 P0 / P1 / P2。前一提交 `6345838` 的 CI、doc-sync、Sonar 与 CodeFlow 已通过，包含真实 PostgreSQL integration 及 macOS / Windows jobs；这些是前一提交的结果。含焦点修复的 `3e347cf7febc4946a4708c439549ccb28575d761` 已于 10 月 7 日 07:16:36 核验 CI run 37544159614 全部终态：12 项成功，docs 因仅 main push 执行而跳过，lint 内正式文档构建成功；doc-sync、Sonar（0 annotations）、CodeFlow（PR35）与 codecov/patch 均通过。这些历史绿灯不代替后续运行表布局补修的验证。CodeRabbit 当时因 Draft 跳过，不计为完成代码审查。
 
-最后 UI 代码提交 `42b2442ba5cac6d55789aa560964691e68e45821` 已于 10 月 7 日 08:03:40（UTC+8）核验 [CI run 37548484626](https://github.com/sunbos/sqlseed/actions/runs/37548484626) 及 [doc-sync run 37548484378](https://github.com/sunbos/sqlseed/actions/runs/37548484378) 成功。12 项实际 CI jobs 全部通过，docs 发布 job 按仅 main push 的条件跳过；lint 内 Web Node 和正式文档构建成功。Sonar 为 0 新问题 / 安全热点 / annotations，CodeFlow（PR35）与 codecov/patch 均成功。原始 API 终态为 `validation/pr35-native-200-ci-20261007.json` / `.md`，完整目标审计为 `validation/completion-audit.json`。CodeRabbit 在该快照中仍是 Draft skip；后续资料提交和正式审查结果以 [PR 当前检查](https://github.com/sunbos/sqlseed/pull/35/checks) 为准，不冒用该快照。
+此前 UI 验收检查点 `42b2442ba5cac6d55789aa560964691e68e45821` 已于 10 月 7 日 08:03:40（UTC+8）核验 [CI run 37548484626](https://github.com/sunbos/sqlseed/actions/runs/37548484626) 及 [doc-sync run 37548484378](https://github.com/sunbos/sqlseed/actions/runs/37548484378) 成功。12 项实际 CI jobs 全部通过，docs 发布 job 按仅 main push 的条件跳过；lint 内 Web Node 和正式文档构建成功。Sonar 为 0 新问题 / 安全热点 / annotations，CodeFlow（PR35）与 codecov/patch 均成功。原始 API 终态为 `validation/pr35-native-200-ci-20261007.json` / `.md`，完整目标审计为 `validation/completion-audit.json`。CodeRabbit 在该快照中仍是 Draft skip；后续源码及资料提交和正式审查结果以 [PR 当前检查](https://github.com/sunbos/sqlseed/pull/35/checks) 为准，不冒用该快照。
 
 独立审查记录为 `validation/final-diff-review-20261007.md`；焦点修复时文档复验为 `validation/logs/gates-20261007/docs-focus-result.json`，最后 UI 收尾复验为 `validation/logs/gates-20261007/native-200-docs-result.json`。本轮 `.sonarcloud.properties` 仅精确列入上述 7 张已核验 PNG 的二进制排除项，没有扩大到目录或排除产品代码。
+
+## 正式审查后续修复
+
+PR 转为正式审查后，CodeRabbit 提出的两项问题均在 `85ca7b3` 的真实浏览器复现：点击“查看原因”只聚焦容器而未展开“详细诊断”；追加提交按钮原生 disabled 失焦后，即使失败恢复可用，焦点仍在 BODY。修复前记录为 `review-diagnostics-before-20261007.json` 和 `review-submit-focus-before-20261007.json`，不改写先前有限流程的通过结果。
+
+现在只给实际 error 详情块标记 `data-execution-diagnostics`，明确点击时展开并聚焦其 summary，其他处理方式和清空计数仍闭合。追加失败仅在原按钮此前有焦点、同一 model/session/epoch/lifecycle/dialog 仍有效、按钮重新可用且焦点为空或 BODY 时恢复焦点，使用 `preventScroll`；用户已经移焦则保持。清空失败仍丢弃授权计划、禁用写入并要求重新核对，没有自动重试。
+
+修改后的 `workbench.js` SHA256 为 `71d0f0cca671d42c2f8993d9a5b2f223dbcde4ed1ff696ea882494cb28efb4e3`，execution 测试为 `7f244e4be9782e348d2a1813458a6ff11da550ad4a14ce03acf2e0fb6ebdd794`。两项现有回归强化为真实禁用失焦语义，并增加 6 项护栏；定向 37 / 37、完整 Web Node 1070 / 1070，0 失败 / 取消 / 跳过。独立复审未发现两文件剩余 P0 / P1 / P2。原始全量日志为 `validation/logs/gates-20261007/coderabbit-review-fixes-node.log`，输入哈希与结果为 `validation/coderabbit-review-fixes-node.result.json`；独立复审为 `validation/coderabbit-followup-independent-review-20261007.md`。1070 结果对应本次 JS / 测试，发生在下述 CSS 补修之前，不是更早1064结果的改写。
+
+`review-fixes-browser-after-20261007.json` 记录真实 IAB 在原生 zoom=2 / scale=1 下复验：追加失败后焦点回“写入数据库”，按钮已可用；在等待期间以 ShiftTab 主动移到“返回调整”，失败后仍在那里；查看原因只展开“详细诊断”、焦点为 SUMMARY，清空提交保持禁用。截图 `review-submit-focus-after-200.png` 与 `review-diagnostics-after-200.png` 可见焦点与操作，交互结论来自 AX/状态记录，不仅凭截图。
+
+**失败和受阻计划使用明确标注的网络边界替身。** POST runs 在到达后端前返回合成 HTTP503，execution-plan 返回合成 blocked 结果；它们验证真实 UI 的失败恢复、展开与门禁，不证明真实后端错误或事务回滚。`review-fixes-db-after-20261007.json` 只读核对本轮前后均为 parents 3 / children 4、FK[]、integrity ok，没有新增运行；最近实际 run 为 `a9e44a12-f9d7-49eb-aaf5-16255c399982`（00:25:55Z），早于本轮替身检查。复验时当前已保存草稿为 parents 25 / children 4，本轮未修改生成数量；早先累计9/12为历史阶段，不沿用为当前计数。
+
+同次原生 200% 视觉检查另发现清空恢复列表 UL 的 170px grid 下限超过可用宽度，列表 client152 / scroll192、modal body220 / 226，造成局部横滚；基线同样存在该规则。最小 CSS 将下限约束为 `min(170px,100%)`，桌面仍保留170px下限。修复后 modal body220 / 220、plan210 / 210、recovery176 / 176、列表152 / 152，页面文档宽319、视口324；诊断保持展开且SUMMARY有焦点，清空提交仍禁用。最终截图为 `review-diagnostics-final-200.png`，CSS SHA256 `4d64269cf171463602b2312015a5afc2dc12def8254af0bdfda27e324a1206b8`。CSS 后 compact 定向13 / 13通过（`validation/coderabbit-recovery-grid-node.result.json`）；此前完整1070未被表述为CSS后重跑。当前源码及正式审查检查以PR当前head为准，历史42b绿灯不代替后续改动。 本轮材料的 `sync_docs.py --check`、MkDocs strict 构建及 `pytest tests/test_doc_sync.py` 均通过（17 / 17），结果记录为 `validation/coderabbit-review-docs-result.json`。
 
 ## 功能保留与验证矩阵
 
@@ -194,7 +208,7 @@ mutmut results
 
 重新加载 CSS 后，原生 zoom=2 保持。表宽为 560px、容器 235px，名称列实际宽约 150.59px；`parents` / `children` 在左侧截图完整单行可读。实际横滚至 scrollLeft=325 后，结果及“查看当前数据”按钮完整可见；原生 Tab 到 children 按钮时边界为 106×44px，Enter 打开真实只读的 children 12 行数据，Esc 回原按钮并保持横滚位置，ArrowLeft 继续局部移至 305。页面内容宽仍为 319px，没有把表格横滚扩散到整页。两张修复后视口截图为 `native-200-run-table-fixed-left-20261007.png` / `native-200-run-table-fixed-right-20261007.png`。
 
-本项已由 30 个记录步骤及最终 zoom=2 / scale=1 关闭，修复后 `runs.css` SHA256 为 `bd7be50eda6ca2dede057a9d4b61a7e8e5ddb6f71575772381218741d81f8082`。没有数据库写入、配置编辑或真实手机测试；主题恢复为原浅色。此 CSS 补修晚于 `3e347cf7` 的全量与 CI；随后运行页增量 33 / 33 通过，原有完整 1064 项没有因此被改写为本次重跑。同一最终 UI 代码提交 `42b` 的 CI已另行核对成功，详见自动门禁。
+本项已由 30 个记录步骤及最终 zoom=2 / scale=1 关闭，修复后 `runs.css` SHA256 为 `bd7be50eda6ca2dede057a9d4b61a7e8e5ddb6f71575772381218741d81f8082`。没有数据库写入、配置编辑或真实手机测试；主题恢复为原浅色。此 CSS 补修晚于 `3e347cf7` 的全量与 CI；随后运行页增量 33 / 33 通过，原有完整 1064 项没有因此被改写为本次重跑。同一此前 UI 检查点 `42b` 的 CI 已另行核对成功，详见自动门禁。
 
 ### SQLite 写入、字段编辑与不写入边界
 
@@ -266,4 +280,4 @@ mutmut results
 - 原生 200% 已按本节代表流程完成实际验收，运行表名称压缩已修复复验。先前 `browser-zoom-capability-probe.json` 保留为历史 zoom=1 尝试；新结果依据原生倍率、交互、几何和修复前后截图共同判定，不靠缩放设置成功或截图单独推导。
 - forced-colors / coarse 已有浏览器模拟证据，无 filter 已有现有声明分支的强制激活证据；真实高对比系统、真正不支持 filter 的引擎和触控设备仍未验证。
 - 默认态前后截图、长字段和所列键盘 / 弹层流程已随本报告记录；其他业务状态组合仍不能由这些单次观察概括。便携摘要保留关键数值，完整原始日志和浏览器 trace 未全部纳入仓库。
-- 选定范围的必要实施与验收事项已完成，最后 UI 代码提交 `42b` 及其 CI 通过，包含 PostgreSQL。实现已提交并推送，[PR #35](https://github.com/sunbos/sqlseed/pull/35) 已关联本任务，未合并或发布；后续资料提交与正式审查以 PR 当前状态为准。本地本轮数据库浏览器流程仍只覆盖 SQLite。真实 LLM、Safari / Firefox、真实手机与 GPU、屏幕阅读器、发行包和 XR 均不在上述已验证结论内。
+- 此前 UI 检查点 `42b` 及其 CI 通过，包含 PostgreSQL。正式审查后的两项行为修复已通过本节验证；新增窄屏列表布局补修也已在同倍率复验通过。实现已提交并推送，[PR #35](https://github.com/sunbos/sqlseed/pull/35) 已关联本任务，未合并或发布；后续资料提交与正式审查以 PR 当前状态为准。本地本轮数据库浏览器流程仍只覆盖 SQLite。真实 LLM、Safari / Firefox、真实手机与 GPU、屏幕阅读器、发行包和 XR 均不在上述已验证结论内。

@@ -396,7 +396,7 @@
 .wb-clear-recovery-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .wb-clear-recovery-actions:empty { display:none; }
 .wb-clear-recovery-actions .btn { white-space:normal; text-align:left; }
-.wb-clear-recovery-tables { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:7px; margin:10px 0; padding-left:20px; }
+.wb-clear-recovery-tables { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(170px,100%),1fr)); gap:7px; margin:10px 0; padding-left:20px; }
 .wb-page .count-setting .wb-number-control { width:160px; }
 .wb-clear-recovery-tables li { line-height:1.6; overflow-wrap:anywhere; }
 .wb-clear-scope-review { min-width:0; }

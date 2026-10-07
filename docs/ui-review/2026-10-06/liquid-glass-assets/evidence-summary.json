@@ -1,9 +1,9 @@
 {
   "format": "sqlseed-ui-review-evidence-excerpt-v1",
   "date": "2026-10-06",
-  "status": "selected_ui_scope_implemented_and_verified",
+  "status": "selected_ui_scope_and_review_fixes_locally_verified",
   "baseline_commit": "b7a5ba507cd8192779debf56d32502ba38e8e6af",
-  "scope": "Independent IAB browser observations and temporary SQLite databases; synthetic AI status/suggest only; not real model, real touch device, unsupported-filter engine, GPU, cross-browser or XR acceptance. Native 200% acceptance, the Runs readability repair, 33/33 targeted checks and all required CI for final UI code commit 42b2442b are complete. Subsequent documentation-only commits and reviews use the current PR checks.",
+  "scope": "Independent IAB browser observations and temporary SQLite databases; synthetic AI status/suggest only; not real model, real touch device, unsupported-filter engine, GPU, cross-browser or XR acceptance. Native 200% acceptance, the Runs readability repair, 33/33 targeted checks and all required CI for previously verified UI code checkpoint 42b2442b are complete. Subsequent source/documentation commits and reviews use the current PR checks; new diagnostic/append behavior fixes are verified, and the narrow-grid native 200% follow-up also passes browser geometry and post-CSS compact tests.",
   "source_file_names_are_provenance_not_portable_file_links": true,
   "screenshots": [
     {
@@ -1814,7 +1814,7 @@
     "limitations": "Three load rounds and one scroll/interaction round per side. Different scroll distance. Cross-navigation cumulative CPU counters must not be subtracted. rAF intervals are not GPU presentation timing or proof of 60fps."
   },
   "automated_result_snapshot": {
-    "node_web_passed": 1064,
+    "node_web_passed": 1070,
     "node_pages_passed": 47,
     "python_first_run": {
       "passed": 4367,
@@ -1832,35 +1832,42 @@
     },
     "mutation_killed": 246,
     "mutation_total": 246,
-    "caveat": "Python/static/mutation gates preceded the final one-property long-field CSS repair. Those inputs remain unchanged. Complete Web Node was rerun after the repair on October 6 and October 7, both 1057/1057. Native 200% acceptance and the Runs layout repair are now verified in the browser. The final CSS follow-up is later than these full-suite results; its targeted 33/33 pass is recorded separately, and exact 42b final UI code CI has completed successfully, including the Web Node step. Subsequent documentation-only commits use their own PR checks. A new explicit append on October 7 shows success without manual refresh; the earlier fourth-run intermediate capture is retained only as history.",
+    "caveat": "Python/static/mutation gates preceded the final one-property long-field CSS repair. Those inputs remain unchanged. Complete Web Node was rerun after the repair on October 6 and October 7, both 1057/1057. Native 200% acceptance and the Runs layout repair are now verified in the browser. The final CSS follow-up is later than these full-suite results; its targeted 33/33 pass is recorded separately, and exact 42b UI checkpoint CI has completed successfully, including the Web Node step. The later review behavior fixes have their separate 1070 full run and current PR checks; the narrow-grid CSS follow-up is later than that run. A new explicit append on October 7 shows success without manual refresh; the earlier fourth-run intermediate capture is retained only as history.",
     "latest_full_web_node": {
       "command": "node --test plugins/sqlseed-web/tests/test_*.cjs",
       "exit_code": 0,
-      "duration_seconds": 12.296,
-      "completed_at": "2026-10-06T22:59:45.244566+00:00",
-      "log": "validation/logs/gates-20261007/confirmation-focus-final-node.log",
-      "tests": 1064,
-      "passed": 1064,
+      "duration_seconds": 21.60019268599899,
+      "completed_at": "2026-10-07T00:53:13.666477+00:00",
+      "log": "validation/logs/gates-20261007/coderabbit-review-fixes-node.log",
+      "tests": 1070,
+      "passed": 1070,
       "failed": 0,
+      "cancelled": 0,
       "skipped": 0,
-      "log_sha256": "afbfc006645483b8981e21ffd25d011dd0e5eaa53e0692696a59fcd850b3eb15",
-      "scope": "After final focus fix, before native-200 runs.css repair; the latter has its separate 33-test targeted result."
+      "log_sha256": "037ab837dfed7266d8cae1c4332a7efc9991eef73c7d9781de84843eb6cb087a",
+      "source_hashes": {
+        "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/workbench.js": "71d0f0cca671d42c2f8993d9a5b2f223dbcde4ed1ff696ea882494cb28efb4e3",
+        "plugins/sqlseed-web/tests/test_workbench_execution.cjs": "7f244e4be9782e348d2a1813458a6ff11da550ad4a14ce03acf2e0fb6ebdd794"
+      },
+      "scope": "After the two CodeRabbit behavior fixes, before the subsequent narrow-grid CSS repair; prior 1064 remains historical."
     },
     "latest_docs": {
-      "source": "validation/logs/gates-20261007/native-200-docs-result.json",
-      "scope": "Final UI code acceptance; later documentation-only commits have their own current PR checks",
+      "source": "validation/coderabbit-review-docs-result.json",
+      "scope": "Current review evidence update; published docs inputs were not changed",
       "doc_sync_exit_code": 0,
       "mkdocs_strict_exit_code": 0,
-      "mkdocs_duration_seconds": 4.351,
-      "diff_check_exit_code": 0
+      "mkdocs_wall_seconds": 3.196,
+      "doc_sync_tests": 17,
+      "doc_sync_tests_passed": 17,
+      "doc_sync_tests_failed": 0
     },
     "independent_review": {
-      "source": "validation/final-diff-review-20261007.md",
+      "source": "validation/coderabbit-followup-independent-review-20261007.md",
       "date": "2026-10-07",
       "p0_p1_p2_findings": 0,
-      "targeted_node_passed": 115,
+      "targeted_node_passed": 37,
       "targeted_node_failed": 0,
-      "diff_check_passed": true
+      "scope": "Current two-file behavior diff independently reviewed and 37 execution tests run; later one-line CSS reviewed separately with browser evidence and 13 compact tests."
     },
     "previous_full_web_node": {
       "command": "node --test plugins/sqlseed-web/tests/test_*.cjs",
@@ -1879,6 +1886,35 @@
       "doc_sync_exit_code": 0,
       "mkdocs_strict_exit_code": 0,
       "mkdocs_duration_seconds": 6.403,
+      "diff_check_exit_code": 0
+    },
+    "previous_focus_full_web_node": {
+      "command": "node --test plugins/sqlseed-web/tests/test_*.cjs",
+      "exit_code": 0,
+      "duration_seconds": 12.296,
+      "completed_at": "2026-10-06T22:59:45.244566+00:00",
+      "log": "validation/logs/gates-20261007/confirmation-focus-final-node.log",
+      "tests": 1064,
+      "passed": 1064,
+      "failed": 0,
+      "skipped": 0,
+      "log_sha256": "afbfc006645483b8981e21ffd25d011dd0e5eaa53e0692696a59fcd850b3eb15",
+      "scope": "After final focus fix, before native-200 runs.css repair; the latter has its separate 33-test targeted result."
+    },
+    "historical_independent_review": {
+      "source": "validation/final-diff-review-20261007.md",
+      "date": "2026-10-07",
+      "p0_p1_p2_findings": 0,
+      "targeted_node_passed": 115,
+      "targeted_node_failed": 0,
+      "diff_check_passed": true
+    },
+    "previous_ui_checkpoint_docs": {
+      "source": "validation/logs/gates-20261007/native-200-docs-result.json",
+      "scope": "Final UI code acceptance; later documentation-only commits have their own current PR checks",
+      "doc_sync_exit_code": 0,
+      "mkdocs_strict_exit_code": 0,
+      "mkdocs_duration_seconds": 4.351,
       "diff_check_exit_code": 0
     }
   },
@@ -2087,7 +2123,7 @@
         ]
       }
     },
-    "scope": "Historical restart snapshot; the final UI code source check follows separately."
+    "scope": "Historical restart snapshot; the later 42b checkpoint source check is retained separately."
   },
   "browser_recovery_event": {
     "date": "2026-10-07",
@@ -2105,7 +2141,7 @@
     "pr": "https://github.com/sunbos/sqlseed/pull/35",
     "merged": false,
     "released": false,
-    "candidate_ci": "Final UI code commit 42b2442ba5cac6d55789aa560964691e68e45821 completed all required CI. Later documentation-only commits and review state are tracked by current PR checks; historical CodeRabbit Draft skip is not an actual review.",
+    "candidate_ci": "Previously verified UI checkpoint 42b2442ba5cac6d55789aa560964691e68e45821 completed all required CI. Later source/documentation commits and review state are tracked by current PR checks; historical CodeRabbit Draft skip is not an actual review.",
     "required_browser_gap": null,
     "verified_ci": {
       "head": "42b2442ba5cac6d55789aa560964691e68e45821",
@@ -2129,7 +2165,6 @@
       "raw_evidence": "validation/pr35-native-200-ci-20261007.json",
       "raw_evidence_sha256": "20ea082e0f361a1aeb80af6baf406f8ab95d76fc6893dc7d7a57110de16ae32e"
     },
-    "final_ui_code_commit": "42b2442ba5cac6d55789aa560964691e68e45821",
     "historical_pr_state_at_ui_acceptance": {
       "observed_at_utc": "2026-10-07T00:04:54.980728+00:00",
       "draft": true,
@@ -2159,7 +2194,8 @@
         "all_current_head_checks_terminal": true
       }
     ],
-    "goal_audit": {
+    "verified_ui_checkpoint_commit": "42b2442ba5cac6d55789aa560964691e68e45821",
+    "historical_goal_audit": {
       "source": "validation/completion-audit.json",
       "requirement_groups": 24,
       "required_remaining": [],
@@ -2586,6 +2622,209 @@
         "management_disabled": true
       }
     },
-    "scope": "Startup provenance plus current module-file checks and observed HTTP bytes; not live process-memory module resampling. Later documentation-only commits do not change these product files."
+    "scope": "Historical42b UI-checkpoint source verification. It does not verify the later review-fix source hashes; subsequent candidate source checks use the current working tree."
+  },
+  "formal_review_followup": {
+    "base_commit": "85ca7b38034490f85bde24c5cf866af037008160",
+    "status": "behavior_and_narrow_grid_fixes_verified",
+    "source_hashes": {
+      "plugins/sqlseed-web/src/sqlseed_web/static/js/pages/workbench.js": "71d0f0cca671d42c2f8993d9a5b2f223dbcde4ed1ff696ea882494cb28efb4e3",
+      "plugins/sqlseed-web/tests/test_workbench_execution.cjs": "7f244e4be9782e348d2a1813458a6ff11da550ad4a14ce03acf2e0fb6ebdd794",
+      "plugins/sqlseed-web/src/sqlseed_web/static/workbench.css": "4d64269cf171463602b2312015a5afc2dc12def8254af0bdfda27e324a1206b8"
+    },
+    "before_evidence": [
+      "review-submit-focus-before-20261007.json",
+      "review-diagnostics-before-20261007.json"
+    ],
+    "after_evidence": "review-fixes-browser-after-20261007.json",
+    "after_evidence_sha256": "6b10a118d01d470f81582d3822b84a33ef884fbe8a4219cf0472c493e3b42be4",
+    "native_zoom": 2,
+    "visual_scale": 1,
+    "layout_width": 319,
+    "behavior_results": [
+      {
+        "name": "append-failure-restores-submit",
+        "active": {
+          "tag": "BUTTON",
+          "text": "写入数据库"
+        },
+        "state": "failure",
+        "submitDisabled": false
+      },
+      {
+        "name": "failure-preserves-user-moved-focus",
+        "before": {
+          "tag": "BUTTON",
+          "text": "返回调整"
+        },
+        "after": {
+          "tag": "BUTTON",
+          "text": "返回调整"
+        }
+      },
+      {
+        "name": "reasons-opens-errors-only-and-focuses-summary",
+        "active": {
+          "tag": "SUMMARY",
+          "text": "详细诊断"
+        },
+        "bodyScrollTop": 450,
+        "details": [
+          {
+            "open": false,
+            "summary": "其他处理方式"
+          },
+          {
+            "open": false,
+            "summary": "拟清空 2 张表 · 7 行现有记录"
+          },
+          {
+            "open": true,
+            "summary": "详细诊断"
+          }
+        ],
+        "submitDisabled": true
+      },
+      {
+        "name": "pre-grid-fix-local-overflow"
+      },
+      {
+        "name": "final-grid-and-diagnostics-native-200",
+        "active": {
+          "tag": "SUMMARY",
+          "text": "详细诊断"
+        },
+        "submitDisabled": true
+      }
+    ],
+    "screenshots": [
+      "review-submit-focus-after-200.png",
+      "review-diagnostics-after-200.png",
+      "review-diagnostics-final-200.png"
+    ],
+    "method": "Real native-zoom UI with synthetic HTTP503 at POST runs and a synthetic blocked execution-plan response; no submission forwarded to the server. This does not prove actual backend failure or transaction rollback.",
+    "database_check": {
+      "source": "review-fixes-db-after-20261007.json",
+      "checked_at": "2026-10-07T00:57:43.343623+00:00",
+      "before": {
+        "counts": {
+          "parents": 3,
+          "children": 4
+        },
+        "foreign_key_check": [],
+        "integrity_check": [
+          [
+            "ok"
+          ]
+        ]
+      },
+      "after": {
+        "counts": {
+          "parents": 3,
+          "children": 4
+        },
+        "foreign_key_check": [],
+        "integrity_check": [
+          [
+            "ok"
+          ]
+        ]
+      },
+      "unchanged": true,
+      "latest_actual_run": {
+        "id": "a9e44a12-f9d7-49eb-aaf5-16255c399982",
+        "status": "done",
+        "created_at": "2026-10-07T00:25:55.780557+00:00"
+      }
+    },
+    "current_draft_scope": "At revalidation, the existing saved draft has parents25/children4 generation counts; this acceptance did not change those counts. Stored3/4 row counts are this round, while earlier9/12 is historical.",
+    "independent_review": "validation/coderabbit-followup-independent-review-20261007.md",
+    "targeted_tests": {
+      "tests": 37,
+      "passed": 37,
+      "failed": 0,
+      "cancelled": 0,
+      "skipped": 0
+    },
+    "full_node_result": "validation/coderabbit-review-fixes-node.result.json",
+    "narrow_grid_followup": {
+      "status": "verified",
+      "cause": "The historical 170px grid minimum exceeded the clear-recovery list available width at native 200%",
+      "css_change": "minmax(170px,1fr) to minmax(min(170px,100%),1fr)",
+      "css_sha256": "4d64269cf171463602b2312015a5afc2dc12def8254af0bdfda27e324a1206b8",
+      "before": {
+        "documentWidth": 319,
+        "modalBody": {
+          "client": 220,
+          "scroll": 226
+        },
+        "recoveryList": {
+          "client": 152,
+          "scroll": 192
+        }
+      },
+      "after": {
+        "ax": "Browser tab: 3, Title: \"sqlseed · 工作台\", URL: \"http://127.0.0.1:8641/#/workbench?draft=a22f24c6-8e00-4e99-b9aa-f6b15cb03e80\".\nThe following is a diff from the previous accessibility tree with ~ and + representing changed and added elements, respectively. Removed elements are summarized by ID range.\n~\t\t\t\t51 button (expanded) 详细诊断, Secondary Actions: Collapse\nThe focused UI element is 51 button (expanded) 详细诊断, Secondary Actions: Collapse",
+        "active": {
+          "tag": "SUMMARY",
+          "text": "详细诊断"
+        },
+        "documentWidth": 319,
+        "geometry": [
+          {
+            "client": 241,
+            "cls": "wb-clear-recovery",
+            "scroll": 241
+          },
+          {
+            "client": 217,
+            "cls": "wb-clear-recovery-tables",
+            "scroll": 217
+          },
+          {
+            "client": 220,
+            "cls": "modal-body wb-modal-body",
+            "scroll": 220
+          },
+          {
+            "client": 210,
+            "cls": "wb-execution-plan",
+            "scroll": 210
+          },
+          {
+            "client": 176,
+            "cls": "wb-clear-recovery",
+            "scroll": 176
+          },
+          {
+            "client": 152,
+            "cls": "wb-clear-recovery-tables",
+            "scroll": 152
+          }
+        ],
+        "submitDisabled": true,
+        "viewport": 324
+      },
+      "scope": "Actual browser layout measurements and stable screenshot verify local recovery-list overflow repair; separate from diagnostic error text.",
+      "targeted_tests": {
+        "command": "node --test plugins/sqlseed-web/tests/test_workbench_compact.cjs",
+        "tests": 13,
+        "passed": 13,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "source": "validation/coderabbit-recovery-grid-node.result.json",
+        "log": "validation/logs/gates-20261007/coderabbit-recovery-grid-node.log",
+        "log_sha256": "fe3fdad49afb6178b74998c375ac94423f97d8c6ba9de44e3e785514ca7767a7",
+        "scope": "Executed after CSS repair; earlier full 1070 is not claimed as rerun."
+      }
+    },
+    "docs_verification": {
+      "source": "validation/coderabbit-review-docs-result.json",
+      "doc_sync_exit_code": 0,
+      "mkdocs_strict_exit_code": 0,
+      "doc_sync_tests_passed": 17,
+      "doc_sync_tests_failed": 0
+    }
   }
 }

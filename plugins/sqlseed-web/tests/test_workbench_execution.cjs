@@ -170,12 +170,23 @@ test('confirmation footer reports checking and blocked state without moving focu
  gate.resolve(blockedPlan);await pending;
  assert.equal(feedback.dataset.state,'blocked');assert.match(status.textContent,/暂不能写入/);
  assert.equal(submit.disabled,true);assert.equal(ui.document.activeElement,back);assert.equal(scrolled,0);
+ const diagnostic=[...details.querySelectorAll('details')].find(item=>item.querySelector('summary').textContent==='详细诊断');
+ assert.ok(diagnostic);assert.equal(Boolean(diagnostic.open),false,'diagnostics stay collapsed until requested');
+ const diagnosticSummary=diagnostic.querySelector('summary');let diagnosticScrolls=0;
+ diagnosticSummary.scrollIntoView=()=>{diagnosticScrolls++;};
  const show=ui.button('查看原因',feedback);assert.ok(show);assert.equal(show.hidden,false);
  assert.equal(show.getAttribute('aria-controls'),details.id);
- await show.click();assert.equal(scrolled,1);assert.equal(ui.document.activeElement,details);
- assert.match(details.textContent,/未选表 orders 引用了 users/);
+ await show.click();assert.equal(diagnostic.open,true);assert.equal(diagnosticScrolls,1);
+ assert.equal(ui.document.activeElement,diagnosticSummary);assert.equal(scrolled,0);
+ assert.match(diagnostic.textContent,/未选表 orders 引用了 users/);
+ assert.ok([...details.querySelectorAll('details')].filter(item=>item!==diagnostic).every(item=>!item.open));
  const requests=ui.requests.length;ui.context.setLanguage('en');
  assert.match(status.textContent,/Writing is blocked/);assert.ok(ui.button('View reasons',feedback));
+ assert.equal(diagnosticSummary.textContent,'Detailed diagnostics');assert.equal(diagnostic.open,true);
+ assert.equal(ui.document.activeElement,diagnosticSummary);
+ diagnostic.open=false;await ui.button('View reasons',feedback).click();
+ assert.equal(diagnostic.open,true);assert.equal(diagnosticScrolls,2);
+ assert.equal(ui.document.activeElement,diagnosticSummary);
  assert.equal(ui.requests.length,requests);assert.equal(written(ui).length,0);
 });
 
@@ -205,15 +216,47 @@ test('footer exposes plan failures and recovers only after a fresh successful pl
 
 test('footer reports writing and failed submission without a duplicate write or focus jump',async()=>{
  const ui=await ready(),gate=deferred();ui.routes.set('/api/workbench/runs',async()=>{await gate.promise;throw new Error('write unavailable');});
- const submit=ui.button('写入数据库',ui.document);submit.focus();
+ const submit=ui.button('写入数据库',ui.document);blurWhenDisabled(ui,submit);submit.focus();
  const pending=submit.click();await nextTurn();
  const feedback=ui.document.querySelector('.wb-execution-feedback');assert.ok(feedback);
  assert.equal(feedback.dataset.state,'busy');assert.match(feedback.textContent,/正在提交/);
+ assert.equal(ui.document.activeElement===ui.document.body,true,'native disabling must first lose the submit focus');
  await submit.click();assert.equal(written(ui).length,1);
  gate.resolve();await pending;
- assert.equal(feedback.dataset.state,'failure');assert.equal(ui.document.activeElement,submit);
+ assert.equal(feedback.dataset.state,'failure');assert.equal(submit.disabled,false);
+ assert.equal(ui.document.activeElement===submit,true,'a failed append must restore its lost submit focus');
  assert.match(ui.document.querySelector('.wb-execution-plan').textContent,/write unavailable/);
  assert.equal(written(ui).length,1);
+});
+
+for(const destination of ['another control','closed dialog','another page','changed lifecycle','unfocused submit']) {
+ test(`failed append does not steal focus after ${destination}`,async()=>{
+  const ui=await ready(),gate=deferred();
+  ui.routes.set('/api/workbench/runs',async()=>{await gate.promise;throw new Error('write unavailable');});
+  const submit=ui.button('写入数据库',ui.document),back=ui.button('返回调整',ui.document);
+  blurWhenDisabled(ui,submit);
+  (destination==='unfocused submit'?back:submit).focus();
+  const pending=submit.click();await nextTurn();
+  if(destination==='another control')back.focus();
+  else if(destination==='closed dialog')await dismiss(ui);
+  else if(destination==='another page')ui.leave();
+  else if(destination==='changed lifecycle')await ui.context.window.dispatchEvent({type:'sqlseed:draft-renamed',detail:{id:'saved',revision:2,name:'renamed'}});
+  else ui.document.activeElement=ui.document.body;
+  const expected=ui.document.activeElement;
+  gate.resolve();await pending;
+  assert.equal(ui.document.activeElement===expected,true,'late failure must preserve the current focus');
+  assert.equal(written(ui).length,1);
+ });
+}
+
+test('failed clear submission keeps its write disabled until the plan is checked again',async()=>{
+ const ui=await ready();ui.routes.set('/api/workbench/execution-plan',()=>plan);await setMode(ui);
+ ui.routes.set('/api/workbench/runs',()=>{throw new Error('write unavailable');});
+ const submit=ui.button('清空并生成',ui.document);blurWhenDisabled(ui,submit);submit.focus();
+ await submit.click();
+ assert.equal(submit.disabled,true);assert.equal(ui.document.activeElement===submit,false);
+ assert.ok(ui.button('重新核对计划',ui.document.querySelector('.wb-execution-plan')));
+ await submit.click();assert.equal(written(ui).length,1);
 });
 
 test('blocked append status directs the user to complete generation diagnostics',async()=>{
