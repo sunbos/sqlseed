@@ -477,8 +477,7 @@ table.wb-clear-scope-review { width:100%; table-layout:fixed; }
 .wb-page .wb-table-entry .wb-table-name { display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:9px 0; min-width:0; }
 .wb-page .wb-table-name .table-name { width:100%; white-space:normal; overflow-wrap:anywhere; font-size:12px; line-height:1.4; }
 .wb-page .wb-table-name .count { margin:0; font-size:10px; line-height:1.4; white-space:normal; }
-.wb-page .wb-table-graph { display:flex; width:32px; height:40px; padding:6px; }
-.wb-page .wb-table-graph:focus-visible,.wb-page .wb-table-entry input:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
+.wb-page .wb-table-entry input:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
 .wb-page .wb-table-entry[hidden] { display:none; }
 .wb-page .wb-batch-preview { margin:12px 8px 0; width:calc(100% - 16px); justify-content:flex-start; padding-inline:8px; }
 .wb-page .scope-summary { margin-top:14px; padding:12px 8px 0; }

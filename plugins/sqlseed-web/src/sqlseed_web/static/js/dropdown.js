@@ -372,7 +372,7 @@ export function createDropdown({
   }
   function reposition(event) {
     // 列表内部滚动只更新方向提示，不重新测量定位或改动其滚动位置。
-    if (event?.target && popup.contains(event.target)) {
+    if (event?.type === 'scroll' && event.target && popup.contains(event.target)) {
       return;
     }
     // 属性面板被 render() 整体重绘时（切列 / 切生成器 / AI 回填），旧的 dropdown

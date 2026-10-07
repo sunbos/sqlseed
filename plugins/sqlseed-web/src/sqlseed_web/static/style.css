@@ -2771,20 +2771,35 @@ select:focus-visible {
   margin: 0;
 }
 .table-graph-shortcut {
-  flex: 0 0 28px;
-  width: 26px;
-  padding: 5px;
-  color: var(--muted);
-  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
   height: 32px;
+  padding: 0;
+  color: var(--muted);
+  border-radius: var(--radius-control);
+  transition: background-color .15s ease, color .15s ease, box-shadow .15s ease;
 }
 .table-graph-shortcut .icon {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
 }
-.table-graph-shortcut:hover {
+.table-graph-shortcut:where(:not(:disabled)):hover {
   background: var(--control-hover);
   color: var(--teal);
+}
+.table-graph-shortcut:active:not(:disabled) {
+  background: var(--control-selected);
+  box-shadow: var(--control-inset-shadow);
+}
+.table-graph-shortcut:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+@media(max-width:760px), (pointer:coarse) {
+  .table-graph-shortcut { width: 44px; height: 44px; }
 }
 .inspector-actions {
   padding: 12px 14px;
@@ -2954,9 +2969,6 @@ select:focus-visible {
   .table-entry {
     flex: 0 0 auto;
   }
-  .table-graph-shortcut {
-    display: none;
-  }
   .prototype-scene .demo-choice-group {
     flex-wrap: wrap;
   }
@@ -3058,9 +3070,6 @@ select:focus-visible {
   background: var(--control-surface);
 }
 @media(max-width:760px) {
-  .table-graph-shortcut {
-    display: block;
-  }
   .structure-actions .btn {
     font-size: 10px;
   }
@@ -4071,7 +4080,7 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
   .ds-header .theme-control .dropdown { min-width: 108px; }
 }
 @media(prefers-reduced-motion:reduce) {
-  .btn,.dropdown-btn,.search,.graph-search,.wb-setting-tile,.wb-config-document,.wb-param-presets button,.wb-modal .close,
+  .btn,.dropdown-btn,.search,.graph-search,.wb-setting-tile,.wb-config-document,.wb-param-presets button,.wb-modal .close,.table-graph-shortcut,
   .segmented button,.connection-card,.generator-options button,.wb-draft-card,
   input,textarea,
   .graph-filters button,.graph-tools button,.path-modes button,
@@ -4096,8 +4105,9 @@ input[type=checkbox]:disabled,input[type=radio]:disabled { box-shadow: none; }
   }
   .dropdown-item.active { outline: 1px solid Highlight; }
   .btn:where(:not(:disabled)):hover,.dropdown-btn:where(:not(:disabled)):hover { outline: 1px solid ButtonText; }
-  .btn:focus-visible,.dropdown-btn:focus-visible,.wb-modal .dropdown-btn:focus-visible,
+  .btn:focus-visible,.dropdown-btn:focus-visible,.wb-modal .dropdown-btn:focus-visible,.table-graph-shortcut:focus-visible,
   .wb-ai-scope-choice:has(input:focus-visible) { outline: 2px solid Highlight; }
+  .table-graph-shortcut[aria-pressed=true]:focus-visible { outline-color: HighlightText; }
   :is(.graph-filters button,.graph-tools button,.path-modes button,.graph-controls [data-graph-action=focus-readable],.wb-date-trigger,.wb-date-nav,.wb-date-action,.wb-config-document,.wb-setting-tile,.wb-param-presets button,.wb-modal .close):focus-visible { outline-color: Highlight; }
   #nav button.active { outline: 1px solid ButtonText; }
   #nav button:focus-visible { outline: 2px solid Highlight; outline-offset: 3px; }
