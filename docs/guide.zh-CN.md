@@ -251,6 +251,8 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 | `--no-ai` | 跳过 AI 建议 |
 | `--url` | 数据库 URL（替代位置参数 `db_path`） |
 
+如果 `--config` 指定的文件无法读取、解析或通过配置校验，`fill` 会显示原因，并在生成或清表前以状态码 2 退出。请修正文件路径、UTF-8 YAML/JSON 语法或提示的字段，再重试同一命令。
+
 ### `preview`
 
 预览生成数据，不写入数据库。
@@ -305,6 +307,8 @@ sqlseed init generate.yaml --db app.db
 模板包含发现的表名、默认生成数量和空的 `columns` 列表。按需添加显式字段规则；未提供的规则会在生成时推断。`--url` 接受数据库 URL，与 `--db` 互斥。两个选项都不提供时，默认目标为 `test.db`。
 
 ### `replay`
+
+快照文件不存在、无法读取或格式损坏时，命令会在开始生成前显示诊断信息并以状态码 2 退出。请检查文件路径、读取权限和 UTF-8 YAML 语法。
 
 重放快照中保存的生成配置。比较生成值时，应使用表结构、生成引擎和依赖版本、随机种子、固定时间范围、初始父表数据均一致的新数据库。向已有数据的数据库重放可能遇到 UNIQUE 冲突；配置快照不是数据库备份。详见[复现条件](maintainable-release.md#reproduction-conditions)。
 

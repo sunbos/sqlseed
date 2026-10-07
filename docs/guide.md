@@ -283,6 +283,10 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 | `--no-ai` | Skip AI suggestions |
 | `--url` | Database URL (alternative to positional `db_path`) |
 
+If `--config` cannot be read, parsed, or validated, `fill` prints the reason and
+exits with status 2 before generation or clearing tables. Correct the file path,
+UTF-8 YAML/JSON syntax, or reported fields and retry the same command.
+
 ### `preview`
 
 Preview generated data without writing to the database.
@@ -340,6 +344,10 @@ are inferred during generation. `--url` accepts a database URL and is mutually
 exclusive with `--db`. Without either option, the target defaults to `test.db`.
 
 ### `replay`
+
+Missing, unreadable, or malformed snapshot files produce a diagnostic and exit
+status 2 before generation starts. Check the file path, read permissions, and
+UTF-8 YAML syntax.
 
 Replay the generation configuration saved in a snapshot. To compare generated
 values, use a fresh database with the same schema, provider and dependency

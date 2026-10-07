@@ -15,6 +15,7 @@ from typing import Any
 
 import click
 import pydantic
+import yaml
 from rich.console import Console
 from rich.table import Table as RichTable
 
@@ -53,7 +54,10 @@ def cli() -> None:
 
 
 def _fill_from_config_cmd(config_path: str, *, clear_before: bool = False, **kwargs: Any) -> None:
-    config = load_config(config_path)
+    try:
+        config = load_config(config_path)
+    except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
+        raise click.UsageError(_redact_credentials(f"Cannot load configuration: {exc}")) from None
     table_count = len(config.tables)
     click.echo(f"Loading config: {config_path} ({table_count} table(s))")
 
@@ -561,8 +565,10 @@ def _load_replay_config(snapshot_path: str) -> tuple[dict[str, Any], GeneratorCo
         data = manager.load(snapshot_path)
     except FileNotFoundError as exc:
         raise click.UsageError(f"Snapshot file not found: {snapshot_path}") from exc
-    except (ValueError, KeyError) as exc:
-        raise click.UsageError(_redact_credentials(f"Invalid snapshot file format: {exc}")) from exc
+    except OSError as exc:
+        raise click.UsageError(_redact_credentials(f"Cannot read snapshot file: {exc}")) from None
+    except (ValueError, KeyError, yaml.YAMLError) as exc:
+        raise click.UsageError(_redact_credentials(f"Invalid snapshot file format: {exc}")) from None
 
     try:
         config = GeneratorConfig(**data["config"])
