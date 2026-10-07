@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         ("broken.yaml", b"tables: [\n"),
         ("broken.json", b'{"tables": ['),
         ("invalid.yaml", b"db_path: demo.db\ntables: wrong-type\n"),
+        ("numeric-key.yaml", b"1: value\n"),
         ("encoding.yaml", b"db_path: \xff\n"),
         ("tag.yaml", b"db_path: !unsupported {}\n"),
         ("empty.yaml", b""),

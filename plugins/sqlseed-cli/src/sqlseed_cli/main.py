@@ -56,7 +56,7 @@ def cli() -> None:
 def _fill_from_config_cmd(config_path: str, *, clear_before: bool = False, **kwargs: Any) -> None:
     try:
         config = load_config(config_path)
-    except (OSError, ValueError, yaml.YAMLError) as exc:
+    except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
         raise click.UsageError(_redact_credentials(f"Cannot load configuration: {exc}")) from None
     table_count = len(config.tables)
     click.echo(f"Loading config: {config_path} ({table_count} table(s))")
