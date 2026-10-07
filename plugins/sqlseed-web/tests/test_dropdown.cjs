@@ -115,6 +115,7 @@ test('menu height is measured at the viewport-constrained width before positioni
 
 test('window resize repositions an open menu without treating Window as a DOM Node', async () => {
   const ui = harness();
+  ui.panel.scrollHeight = 320;
   const contains = ui.popup.contains.bind(ui.popup);
   // Native Node.contains rejects a Window; the generic DOM helper is permissive.
   ui.popup.contains = target => {
@@ -127,6 +128,7 @@ test('window resize repositions an open menu without treating Window as a DOM No
     await ui.button.click();
     ui.panel.scrollTop = 40;
     const scrollTop = ui.panel.scrollTop;
+    assert.ok(scrollTop > 0);
     const active = ui.active();
     const options = ui.panel.querySelectorAll('[role="option"]');
     ui.context.innerWidth = 600;
