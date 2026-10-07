@@ -2,7 +2,7 @@
 
 # Maintaining the bilingual Web UI
 
-This page defines the Simplified Chinese and English interface scope, message boundaries and verification approach for the 0.2.5 workbench. For user instructions, see the [workbench guide](../web-workbench.md). This is a maintenance checklist, not a claim that all browser, CI or installed-distribution acceptance checks have passed.
+This page defines the Simplified Chinese and English interface scope, message boundaries and verification approach for the 0.2.6 workbench. For user instructions, see the [workbench guide](../web-workbench.md). This is a maintenance checklist, not a claim that all browser, CI or installed-distribution acceptance checks have passed.
 
 <a id="_1"></a>
 

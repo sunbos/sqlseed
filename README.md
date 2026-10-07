@@ -36,7 +36,7 @@ interface you want; you do not need to install every row below. `sqlseed` is the
 offline Core library. The other four packages provide optional interfaces and
 capabilities, and install Core as a dependency.
 
-This README describes version 0.2.5. Check [Releases](https://github.com/sunbos/sqlseed/releases)
+This README describes version 0.2.6. Check [Releases](https://github.com/sunbos/sqlseed/releases)
 for publication status; the [source installation guide](https://sunbos.github.io/sqlseed/guide/#source-installation)
 covers unpublished candidates.
 
@@ -101,7 +101,7 @@ Names and email addresses are inferred from the columns. The database assigns th
 primary keys. Each run appends another 100 rows; it does not clear the table.
 Check both `result.count` and `result.errors` after generation.
 
-In version 0.2.5, `sqlseed.FillOptions(provider="faker", seed=42)`
+Since version 0.2.5, `sqlseed.FillOptions(provider="faker", seed=42)`
 can share generation settings across `fill(..., options=settings)` calls.
 Existing individual keywords remain supported; see the
 [Python API reference](https://sunbos.github.io/sqlseed/api/#filloptions).
@@ -177,7 +177,7 @@ The actual 0.2.5 interface with the repository's
 or [see the read-only sample preview in the dark theme](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-en-dark.png).
 Previewed samples are generated for inspection and are not inserted into the database.
 
-Version 0.2.5 offers Simplified Chinese and English from the top
+Since version 0.2.5, the workbench offers Simplified Chinese and English from the top
 bar. Changing the interface language keeps your edits and does not change the
 data language and region used for generation. Light and dark themes are also available.
 

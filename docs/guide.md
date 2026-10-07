@@ -10,13 +10,13 @@ see the [Architecture](architecture.md) page.
 
 ## Installation
 
-### Install version 0.2.5
+### Install version 0.2.6 {#install-version-025}
 
 These pages cover the five-package layout introduced in 0.2.4. The older 0.2.3
 release uses different CLI/MCP packaging and lacks interfaces required by the
 new plugins. The [migration guide](migration.md) covers upgrading existing
 installations and installing a matching artifact set. The commands below target
-0.2.5; confirm availability in [Releases](https://github.com/sunbos/sqlseed/releases).
+0.2.6; confirm availability in [Releases](https://github.com/sunbos/sqlseed/releases).
 For an unpublished candidate, use [source installation](#source-installation).
 
 Use a fresh Python 3.10+ virtual environment. Choose one installation set:
@@ -26,13 +26,13 @@ python -m venv .venv
 # Activate .venv using your shell's activation command.
 
 # Offline Python API
-python -m pip install 'sqlseed==0.2.5'
+python -m pip install 'sqlseed==0.2.6'
 
 # Core and CLI
-python -m pip install 'sqlseed==0.2.5' 'sqlseed-cli==0.2.5'
+python -m pip install 'sqlseed==0.2.6' 'sqlseed-cli==0.2.6'
 
 # All five packages, AI MCP support, and PostgreSQL driver
-python -m pip install 'sqlseed[mimesis,postgres]==0.2.5' 'sqlseed-cli==0.2.5' 'sqlseed-ai[mcp]==0.2.5' 'mcp-server-sqlseed==0.2.5' 'sqlseed-web==0.2.5'
+python -m pip install 'sqlseed[mimesis,postgres]==0.2.6' 'sqlseed-cli==0.2.6' 'sqlseed-ai[mcp]==0.2.6' 'mcp-server-sqlseed==0.2.6' 'sqlseed-web==0.2.6'
 python -m pip check
 ```
 
@@ -44,7 +44,7 @@ Faker is a required Core dependency, and the quick start below selects it
 explicitly. Mimesis is optional. The API and CLI default to `mimesis`; Core logs
 a warning and falls back to Base if that provider is unavailable. For later
 examples that omit the provider or select Mimesis, install
-`python -m pip install 'sqlseed[mimesis]==0.2.5'`, or select `faker` in the API,
+`python -m pip install 'sqlseed[mimesis]==0.2.6'`, or select `faker` in the API,
 CLI options, or YAML configuration.
 
 SQLite uses Python's built-in driver. The `postgres` extra installs psycopg 3.

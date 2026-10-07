@@ -74,7 +74,7 @@ AI 插件会安装 CLI，以提供扩展命令；Web 的常规流程无需 AI。
 模型辅助的 MCP 工具由 `sqlseed-ai[mcp]` 提供，是独立入口；
 `mcp-server-sqlseed` 本身不需要模型服务。
 
-本文档介绍 0.2.5，沿用 0.2.4 引入的五包结构。
+本文档介绍 0.2.6，沿用 0.2.4 引入的五包结构。
 发布状态见 [发布记录](https://github.com/sunbos/sqlseed/releases)。
 从旧版迁移请先读[升级说明](migration.md)；源码候选与可选依赖见[安装指南](guide.md#installation)。
 

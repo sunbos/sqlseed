@@ -8,9 +8,9 @@
 
 ## 安装 {#installation}
 
-### 安装 0.2.5 版本 {#install-version-025}
+### 安装 0.2.6 版本 {#install-version-025}
 
-本文介绍 0.2.4 引入的五包布局。旧版 0.2.3 的 CLI/MCP 打包方式不同，且缺少新插件需要的接口。[升级指南](migration.md)介绍已有安装的升级方法，以及如何安装相互匹配的构建产物。以下命令面向 0.2.5，请在 [发布记录](https://github.com/sunbos/sqlseed/releases) 中确认发布状态。尚未发布的候选版本使用[源码安装](#source-installation)。
+本文介绍 0.2.4 引入的五包布局。旧版 0.2.3 的 CLI/MCP 打包方式不同，且缺少新插件需要的接口。[升级指南](migration.md)介绍已有安装的升级方法，以及如何安装相互匹配的构建产物。以下命令面向 0.2.6，请在 [发布记录](https://github.com/sunbos/sqlseed/releases) 中确认发布状态。尚未发布的候选版本使用[源码安装](#source-installation)。
 
 使用新的 Python 3.10+ 虚拟环境，并选择下面的一组安装命令：
 
@@ -19,19 +19,19 @@ python -m venv .venv
 # Activate .venv using your shell's activation command.
 
 # Offline Python API
-python -m pip install 'sqlseed==0.2.5'
+python -m pip install 'sqlseed==0.2.6'
 
 # Core and CLI
-python -m pip install 'sqlseed==0.2.5' 'sqlseed-cli==0.2.5'
+python -m pip install 'sqlseed==0.2.6' 'sqlseed-cli==0.2.6'
 
 # All five packages, AI MCP support, and PostgreSQL driver
-python -m pip install 'sqlseed[mimesis,postgres]==0.2.5' 'sqlseed-cli==0.2.5' 'sqlseed-ai[mcp]==0.2.5' 'mcp-server-sqlseed==0.2.5' 'sqlseed-web==0.2.5'
+python -m pip install 'sqlseed[mimesis,postgres]==0.2.6' 'sqlseed-cli==0.2.6' 'sqlseed-ai[mcp]==0.2.6' 'mcp-server-sqlseed==0.2.6' 'sqlseed-web==0.2.6'
 python -m pip check
 ```
 
 Core 没有控制台命令入口。`sqlseed-cli` 提供 `sqlseed`，`sqlseed-web` 提供 `sqlseed-web`；规则型和 AI MCP 服务器各有独立入口。Core 的 `cli` 选装依赖用于便捷安装 `sqlseed-cli`。
 
-Faker 是 Core 的必需依赖，下面的快速开始会明确选择它。Mimesis 是可选依赖。API 和 CLI 默认使用 `mimesis`；若该引擎不可用，Core 会记录警告并回退到 Base。后续示例中，若省略引擎或选择 Mimesis，请先执行 `python -m pip install 'sqlseed[mimesis]==0.2.5'`，或者在 API、CLI 选项或 YAML 配置中选择 `faker`。
+Faker 是 Core 的必需依赖，下面的快速开始会明确选择它。Mimesis 是可选依赖。API 和 CLI 默认使用 `mimesis`；若该引擎不可用，Core 会记录警告并回退到 Base。后续示例中，若省略引擎或选择 Mimesis，请先执行 `python -m pip install 'sqlseed[mimesis]==0.2.6'`，或者在 API、CLI 选项或 YAML 配置中选择 `faker`。
 
 SQLite 使用 Python 内置驱动。`postgres` 选装依赖会安装 psycopg 3。仅安装 Core/Web 的方式见 [Web 指南](web-workbench.md)。Core 的 `all` 选装依赖包含 Mimesis、psycopg、tqdm、CLI 和 testcontainers，不会安装 AI、MCP 或 Web。
 

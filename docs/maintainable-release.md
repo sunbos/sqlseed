@@ -2,7 +2,7 @@
 
 # Scope and maintenance commitments
 
-This page describes the five-package workbench and support boundaries in 0.2.5. See the [migration guide](migration.md) for installing published releases, source checkouts and artifacts from the same build. The [release guide](releasing.md) and the corresponding release contain the publication and acceptance records.
+This page describes the five-package workbench and support boundaries in 0.2.6. See the [migration guide](migration.md) for installing published releases, source checkouts and artifacts from the same build. The [release guide](releasing.md) and the corresponding release contain the publication and acceptance records.
 
 This version prepares database test data for Python projects and CI: generate data from an existing schema and explicit rules, save those rules, and repeat experiments under the same conditions. The delivery target is a verifiable order workflow; support for every database feature and every AI backend is not a prerequisite.
 

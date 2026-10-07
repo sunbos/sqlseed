@@ -11,10 +11,10 @@
 
 ## 安装
 
-本文安装说明对应 0.2.5 版本；发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准。测试尚未发布的候选版本时，使用下方的源码安装方式。请先创建并激活 Python 3.10+ 虚拟环境：
+本文安装说明对应 0.2.6 版本；发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准。测试尚未发布的候选版本时，使用下方的源码安装方式。请先创建并激活 Python 3.10+ 虚拟环境：
 
 ```bash
-python -m pip install "sqlseed-ai==0.2.5"
+python -m pip install "sqlseed-ai==0.2.6"
 ```
 
 Core 0.2.4 及更早版本缺少本版本使用的共享诊断接口。
@@ -91,7 +91,7 @@ native/custom 方法、实际生成值及依赖数据库状态的约束需另行
 AI MCP 入口要求本包的 `mcp` extra：
 
 ```bash
-python -m pip install "sqlseed-ai[mcp]==0.2.5"
+python -m pip install "sqlseed-ai[mcp]==0.2.6"
 mcp-server-sqlseed-ai
 ```
 
@@ -231,7 +231,7 @@ AI MCP 模型列表区分 Apple 统一内存、Intel 共享显存与独立显存
 
 ## 依赖
 
-以下为 0.2.5 版本及其源码候选的依赖要求。源码开发时请在同一次解析中安装本地 Core 和插件。
+以下为 0.2.6 版本及其源码候选的依赖要求。源码开发时请在同一次解析中安装本地 Core 和插件。
 
 - Python `>=3.10`
 - `sqlseed>=0.2.5.dev0,<0.3`
