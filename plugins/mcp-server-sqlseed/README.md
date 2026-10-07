@@ -9,12 +9,12 @@ schema, then generate test data. Both tools use offline Core rules and require n
 
 ## Installation
 
-These instructions target version 0.2.5. Check [Releases](https://github.com/sunbos/sqlseed/releases)
+These instructions target version 0.2.6. Check [Releases](https://github.com/sunbos/sqlseed/releases)
 for publication status; use the source installation below to test an unpublished candidate.
 Use a Python 3.10+ virtual environment:
 
 ```bash
-python -m pip install "mcp-server-sqlseed==0.2.5"
+python -m pip install "mcp-server-sqlseed==0.2.6"
 ```
 
 Core 0.2.4 and older lack the shared diagnostic interfaces required by this version.
@@ -79,7 +79,7 @@ schema-inspection tool are not provided. For LLM analysis, install the separate
 AI MCP extra:
 
 ```bash
-python -m pip install "sqlseed-ai[mcp]==0.2.5"
+python -m pip install "sqlseed-ai[mcp]==0.2.6"
 mcp-server-sqlseed-ai
 ```
 
@@ -90,7 +90,7 @@ Its YAML tool is
 
 ## Requirements
 
-These metadata requirements apply to version 0.2.5 and its source candidates.
+These metadata requirements apply to version 0.2.6 and its source candidates.
 Use local Core and plugins together when developing from source.
 
 - Python `>=3.10`

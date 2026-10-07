@@ -20,7 +20,7 @@ dependencies, preview samples, then confirm the generation plan.
 | Page | What you can do |
 | --- | --- |
 | Workbench | Edit rules, inspect the relationship graph, preview samples without writing, and confirm generation. |
-| Configurations | Save reusable rules, import or export YAML, and reopen configurations for the matching database. |
+| Configs | Save reusable rules, import or export YAML, and reopen configurations for the matching database. |
 | Runs | Review per-table outcomes, committed row counts, and the configuration snapshot used for a run. |
 | Settings | Choose generation defaults, light/dark appearance, optional AI settings, and available components. |
 
@@ -29,17 +29,17 @@ includes the schema, rules, and instructions for creating your own disposable de
 
 ## Installation
 
-These instructions target version 0.2.5. Check [Releases](https://github.com/sunbos/sqlseed/releases)
+These instructions target version 0.2.6. Check [Releases](https://github.com/sunbos/sqlseed/releases)
 for publication status; use the source installation below to test an unpublished candidate.
 Use a Python 3.10+ virtual environment:
 
 ```bash
-python -m pip install "sqlseed==0.2.5" "sqlseed-web==0.2.5"
+python -m pip install "sqlseed==0.2.6" "sqlseed-web==0.2.6"
 sqlseed-web
 ```
 
 Open `http://127.0.0.1:8630`. The wheel includes the frontend; no Node or npm build
-is needed to use the app. For PostgreSQL, also install `"sqlseed[postgres]==0.2.5"`.
+is needed to use the app. For PostgreSQL, also install `"sqlseed[postgres]==0.2.6"`.
 Core 0.2.4 and older lack the shared connection and diagnostic interfaces required by this version.
 
 For development, install local Core and Web together from the repository root:
@@ -48,13 +48,13 @@ For development, install local Core and Web together from the repository root:
 python -m pip install -e . -e ./plugins/sqlseed-web
 ```
 
-Version 0.2.5 and its source candidates require Core `>=0.2.5.dev0,<0.3` for
+Version 0.2.6 and its source candidates require Core `>=0.2.5.dev0,<0.3` for
 connection-target parsing and diagnostic redaction. Install matching Core and Web
 versions; do not disable dependency checks to keep an older Core.
 
 ## Interface language
 
-Version 0.2.5 offers **简体中文 / English** in the top bar.
+Version 0.2.6 offers **简体中文 / English** in the top bar.
 The browser remembers your choice and synchronizes it with other tabs on the same
 origin. Without a saved choice, the first supported browser language is used,
 falling back to English. If storage is unavailable, switching still works for the
@@ -86,10 +86,10 @@ install local Core, CLI, AI, and Web together in the same resolution:
 python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai -e ./plugins/sqlseed-web
 ```
 
-For version 0.2.5, `python -m pip install "sqlseed-web[ai]==0.2.5"` installs
+For version 0.2.6, `python -m pip install "sqlseed-web[ai]==0.2.6"` installs
 the optional AI component. The page does not fall back to an incompatible older release.
 
-The version 0.2.5 default launcher manages optional packages
+The version 0.2.6 default launcher manages optional packages
 in supported writable Windows, macOS and Linux virtual environments and restores
 the service automatically. Externally hosted apps and read-only/system environments
 can use the workbench but do not offer in-page package changes. Missing components

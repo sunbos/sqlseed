@@ -1,6 +1,6 @@
 # API 参考 {#api-reference}
 
-本页介绍 0.2.5 版本及其源码候选的 Python API。请按[安装指南](guide.md#installation)安装兼容的包集合；0.2.4 及更早版本并不包含这里的全部接口，例如 `FillOptions`。发布状态请查看 [发布记录](https://github.com/sunbos/sqlseed/releases)。主要入口函数和常用模型由 `sqlseed` 导出；其他类型使用下文列出的子包导入路径。
+本页介绍 0.2.6 版本及其源码候选的 Python API。请按[安装指南](guide.md#installation)安装兼容的包集合；0.2.4 及更早版本并不包含这里的全部接口，例如 `FillOptions`。发布状态请查看 [发布记录](https://github.com/sunbos/sqlseed/releases)。主要入口函数和常用模型由 `sqlseed` 导出；其他类型使用下文列出的子包导入路径。
 
 ```python
 import sqlseed

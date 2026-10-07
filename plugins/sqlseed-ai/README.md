@@ -14,12 +14,12 @@ backend test; installing the plugin does not perform one.
 
 ## Installation
 
-These instructions target version 0.2.5. Check [Releases](https://github.com/sunbos/sqlseed/releases)
+These instructions target version 0.2.6. Check [Releases](https://github.com/sunbos/sqlseed/releases)
 for publication status; use the source installation below to test an unpublished candidate.
 Use a Python 3.10+ virtual environment:
 
 ```bash
-python -m pip install "sqlseed-ai==0.2.5"
+python -m pip install "sqlseed-ai==0.2.6"
 ```
 
 Core 0.2.4 and older lack the shared diagnostic interfaces required by this version.
@@ -104,7 +104,7 @@ actual generated values and database constraints.
 The AI MCP entry point requires the `mcp` extra:
 
 ```bash
-python -m pip install "sqlseed-ai[mcp]==0.2.5"
+python -m pip install "sqlseed-ai[mcp]==0.2.6"
 mcp-server-sqlseed-ai
 ```
 
@@ -181,7 +181,7 @@ inference; loaded applications and context size can require more memory.
 
 ## Requirements
 
-These metadata requirements apply to version 0.2.5 and its source candidates.
+These metadata requirements apply to version 0.2.6 and its source candidates.
 Use local Core and plugins together when developing from source.
 
 - Python `>=3.10`

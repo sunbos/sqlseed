@@ -2,7 +2,7 @@
 
 # Maintaining the bilingual Web UI
 
-This page defines the Simplified Chinese and English interface scope, message boundaries and verification approach for the 0.2.5 workbench. For user instructions, see the [workbench guide](../web-workbench.md). This is a maintenance checklist, not a claim that all browser, CI or installed-distribution acceptance checks have passed.
+This page defines the Simplified Chinese and English interface scope, message boundaries and verification approach for the 0.2.6 workbench. For user instructions, see the [workbench guide](../web-workbench.md). This is a maintenance checklist, not a claim that all browser, CI or installed-distribution acceptance checks have passed.
 
 <a id="_1"></a>
 
@@ -11,7 +11,7 @@ This page defines the Simplified Chinese and English interface scope, message bo
 | Chinese | English | Scope |
 | --- | --- | --- |
 | 工作台 | Workbench | Table selection, rules, dependency checks, preview, AI review and write confirmation |
-| 配置管理 | Configurations | Save, open, search, duplicate, rename, import, export and delete |
+| 配置管理 | Configs | Save, open, search, duplicate, rename, import, export and delete |
 | 运行记录 | Runs | Per-table results, committed counts, fixed configuration snapshots and recovery guidance |
 | 设置 | Settings | AI services, configuration defaults, component management and appearance |
 | 数据生成引擎 | Data generation engine | Configuration selection for Base, Faker and Mimesis |

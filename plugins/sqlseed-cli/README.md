@@ -6,12 +6,12 @@ configuration. This package provides the `sqlseed` command.
 
 ## Installation
 
-These instructions target version 0.2.5. Check [Releases](https://github.com/sunbos/sqlseed/releases)
+These instructions target version 0.2.6. Check [Releases](https://github.com/sunbos/sqlseed/releases)
 for publication status; use the source installation below to test an unpublished candidate.
 Use a Python 3.10+ virtual environment:
 
 ```bash
-python -m pip install "sqlseed-cli==0.2.5"
+python -m pip install "sqlseed-cli==0.2.6"
 ```
 
 Core 0.2.4 and older lack the shared diagnostic interfaces required by this version.
@@ -56,7 +56,7 @@ sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_ffffff_users.yaml
 For PostgreSQL, install the Core `postgres` extra and use `--url`:
 
 ```bash
-python -m pip install "sqlseed[postgres]==0.2.5" "sqlseed-cli==0.2.5"
+python -m pip install "sqlseed[postgres]==0.2.6" "sqlseed-cli==0.2.6"
 sqlseed fill --url "postgresql+psycopg://user:pass@host/db" -t users -n 1000 --provider faker --no-ai
 sqlseed inspect --url "postgresql+psycopg://user:pass@host/db"
 ```
@@ -84,7 +84,7 @@ The optional AI plugin registers `ai-suggest`, `ai-analyze`, and `auto-heal` thr
 
 ## Requirements
 
-These metadata requirements apply to version 0.2.5 and its source candidates.
+These metadata requirements apply to version 0.2.6 and its source candidates.
 Use local Core and plugins together when developing from source.
 
 - Python `>=3.10`

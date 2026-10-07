@@ -9,11 +9,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-07
+
+### Changed
+
+- Refine Web surface hierarchy, contrast and selection motion, keeping data panels opaque and applying translucent materials to navigation and overlays. Preserve reduced-motion, reduced-transparency and unsupported-filter fallbacks.
+- Make workbench guidance more compact, collapse the table directory on narrow screens, enlarge touch targets and keep generation status, blocking reasons and keyboard focus easier to follow. Shorten the English navigation label from Configurations to Configs without changing its page or actions.
+- Provide English and Simplified Chinese documentation with localized navigation, refreshed package guidance and macOS setup instructions. Expand native macOS regression coverage across Apple Silicon and Intel.
+- Retire obsolete standalone defect probes in favor of the maintained regression suite, and ignore SQLite runtime journal and shared-memory sidecars in the repository.
+
 ### Fixed
 
+- Align dependency controls and display generation-locale labels without diagnostic prefixes. Prevent open dropdowns from throwing a `Node.contains` error on window resize.
+- Resolve equivalent macOS SQLite path spellings to the same target without folding distinct filenames or opening an extra database descriptor.
+- Distinguish Apple unified memory from Intel/shared or dedicated GPU memory. Report unified-memory model capacity as a heuristic budget rather than measured free VRAM or verified backend compatibility.
+- Close AI clients, response streams and failed HTTP probes on error paths.
+- Install all five local packages together in the quickstart environment, reject unusable virtual environments and print correctly quoted commands for the selected interpreter and shell.
 - Distinguish AI rule-cache column sets containing separator characters. Use a versioned, unambiguous column-name hash; legacy hashes are safely invalidated and refreshed on the next suggestion request.
 - Adapt terminal progress rendering when the output stream or encoding changes, including UTF-8 capture returning to GBK, and safely display non-ASCII descriptions in narrow terminals without replacing the original generation error.
 - Retain ownership of a newly started Web worker if its resume acknowledgement fails, drain it before returning to maintenance, and restore the recovery page after delayed shutdown. Preserve startup diagnostics for service-only recovery without repeating the component installation.
+
+### Compatibility
+
+- Retain the plugin requirement for Core `>=0.2.5.dev0,<0.3`; install matching package versions. Existing Python, CLI and configuration entry points remain unchanged, while AI rule-cache entries with the old column hash are refreshed on demand.
+- SQLite cycle appends still require existing non-NULL single-column parent keys and retain the 100,000-key source-pool limit. Ordinary acyclic appends still commit batch by batch; a later failure can leave earlier batches committed. This release does not change those generation or transaction boundaries.
 
 ## [0.2.5] - 2026-10-02
 

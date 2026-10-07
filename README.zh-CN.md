@@ -34,7 +34,7 @@ sqlseed 向已有数据库表中填充测试数据。它会为姓名、邮箱等
 无需把下表中的包全部安装。`sqlseed` 是离线 Core 库，其余四个包提供可选入口与能力，
 会自动安装所需的 Core。
 
-本文对应 0.2.5 版本，发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准；
+本文对应 0.2.6 版本，发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准；
 尚未发布的候选版本按[源码安装指南](https://sunbos.github.io/sqlseed/zh-CN/guide/#source-installation)体验。
 
 | 包与用途 | 安装命令 | 从这里开始 |
@@ -95,7 +95,7 @@ print(result.count, result.errors)  # 100 []
 姓名和邮箱的生成规则由字段名推断，主键由数据库分配。
 每次运行会继续追加 100 行，不会清空表。生成后应同时检查 `result.count` 和 `result.errors`。
 
-0.2.5 版本可用 `sqlseed.FillOptions(provider="faker", seed=42)` 复用生成设置，
+自 0.2.5 起，可用 `sqlseed.FillOptions(provider="faker", seed=42)` 复用生成设置，
 通过 `fill(..., options=settings)` 传入。原有单独关键字仍可使用，详见
 [Python API 参考](https://sunbos.github.io/sqlseed/zh-CN/api/#filloptions)。
 
@@ -166,7 +166,7 @@ sqlseed-web
 或[查看深色主题下的只读样例预览](https://raw.githubusercontent.com/sunbos/sqlseed/992ba0e733d5b41f73e37b0a9d02d573d6e2bb23/docs/assets/screenshots/web-workbench-zh-CN-dark.png)。
 预览样例仅供检查，不会插入数据库。
 
-0.2.5 版本可从顶栏切换简体中文与 English；切换界面语言保留正在编辑的内容，
+自 0.2.5 起，可从顶栏切换简体中文与 English；切换界面语言保留正在编辑的内容，
 不改变生成配置中的数据语言与地区。界面也提供浅色和深色主题。
 
 未安装 AI 时，手动编辑、预览与生成均可使用。需要可选的配置助手时，在同一环境中安装：

@@ -41,17 +41,17 @@ gh workflow run publish.yml --ref main -f release_tag=v0.2.4
 ```bash
 python -m pip check
 python /path/to/sqlseed/scripts/check_wheel_install.py
-python /path/to/sqlseed/scripts/check_public_entrypoints.py 0.2.5
+python /path/to/sqlseed/scripts/check_public_entrypoints.py 0.2.6
 ```
 
-将 `0.2.5` 替换为实际待测版本。在仅安装 Core 与 Web 的全新环境中重复验收，运行 `check_wheel_install.py --without-optional-components`。再在第三个环境中一起安装五个 sdist，重复完整检查。不得将开发版本或本地版本覆盖值描述为已经正式发布的版本。
+将 `0.2.6` 替换为实际待测版本。在仅安装 Core 与 Web 的全新环境中重复验收，运行 `check_wheel_install.py --without-optional-components`。再在第三个环境中一起安装五个 sdist，重复完整检查。不得将开发版本或本地版本覆盖值描述为已经正式发布的版本。
 
 ## 发布后从正式 PyPI 验证 {#verify-from-public-pypi-after-publication}
 
 五个项目都发布精确版本后，从已审查的仓库目录运行以下命令。使用 Python 3.12 的 Linux runner 可作为参考环境；Bash 脚本也支持 macOS。通过 `PYTHON_BIN` 指定解释器。五个上传任务全部成功后，发布工作流会在 Linux / Python 3.12 环境中运行此检查，并保留 `public-pypi-acceptance` 产物。可用同一命令在本地或其他受支持的平台复验。
 
 ```bash
-PYTHON_BIN=python3.12 bash scripts/verify_pypi_release.sh 0.2.5
+PYTHON_BIN=python3.12 bash scripts/verify_pypi_release.sh 0.2.6
 ```
 
 脚本使用正式 PyPI 索引，创建一次性环境，忽略本地包路径，并保存包元数据和安装报告。它检查精确公开版本及其 wheel/sdist 是否可用，再测试完整 wheel、最小 Core/Web 和完整 sdist 安装。当某平台没有第三方依赖的 wheel 时，可能从源码构建该依赖，因此需要相应构建工具链。

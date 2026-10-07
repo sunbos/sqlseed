@@ -75,7 +75,7 @@ AI installs CLI for its additional commands. Web's ordinary workflow works witho
 AI. Model-assisted MCP tools are a separate entry point provided by `sqlseed-ai[mcp]`;
 `mcp-server-sqlseed` does not require a model service.
 
-These pages describe version 0.2.5, using the five-package layout introduced in
+These pages describe version 0.2.6, using the five-package layout introduced in
 0.2.4. Check [Releases](https://github.com/sunbos/sqlseed/releases) for publication
 status. Upgrading an older installation? Read the [migration guide](migration.md).
 For source candidates or optional dependencies, see [installation](guide.md#installation).
