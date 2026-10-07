@@ -1,9 +1,9 @@
 {
   "format": "sqlseed-ui-review-evidence-excerpt-v1",
   "date": "2026-10-06",
-  "status": "implementation_and_browser_acceptance_complete_final_delivery_checks_pending",
+  "status": "selected_ui_scope_implemented_and_verified",
   "baseline_commit": "b7a5ba507cd8192779debf56d32502ba38e8e6af",
-  "scope": "Independent IAB browser observations and temporary SQLite databases; synthetic AI status/suggest only; not real model, real touch device, unsupported-filter engine, GPU, cross-browser or XR acceptance. Native 200% acceptance is verified, including the Runs table readability repair; the CSS follow-up has 33/33 targeted checks and the final delivery commit still requires its own CI.",
+  "scope": "Independent IAB browser observations and temporary SQLite databases; synthetic AI status/suggest only; not real model, real touch device, unsupported-filter engine, GPU, cross-browser or XR acceptance. Native 200% acceptance, the Runs readability repair, 33/33 targeted checks and all required CI for final UI code commit 42b2442b are complete. Subsequent documentation-only commits and reviews use the current PR checks.",
   "source_file_names_are_provenance_not_portable_file_links": true,
   "screenshots": [
     {
@@ -1832,7 +1832,7 @@
     },
     "mutation_killed": 246,
     "mutation_total": 246,
-    "caveat": "Python/static/mutation gates preceded the final one-property long-field CSS repair. Those inputs remain unchanged. Complete Web Node was rerun after the repair on October 6 and October 7, both 1057/1057. Native 200% acceptance and the Runs layout repair are now verified in the browser. The final CSS follow-up is later than these full-suite results; its targeted 33/33 pass is recorded separately, and final-head CI remains pending. A new explicit append on October 7 shows success without manual refresh; the earlier fourth-run intermediate capture is retained only as history.",
+    "caveat": "Python/static/mutation gates preceded the final one-property long-field CSS repair. Those inputs remain unchanged. Complete Web Node was rerun after the repair on October 6 and October 7, both 1057/1057. Native 200% acceptance and the Runs layout repair are now verified in the browser. The final CSS follow-up is later than these full-suite results; its targeted 33/33 pass is recorded separately, and exact 42b final UI code CI has completed successfully, including the Web Node step. Subsequent documentation-only commits use their own PR checks. A new explicit append on October 7 shows success without manual refresh; the earlier fourth-run intermediate capture is retained only as history.",
     "latest_full_web_node": {
       "command": "node --test plugins/sqlseed-web/tests/test_*.cjs",
       "exit_code": 0,
@@ -1847,10 +1847,11 @@
       "scope": "After final focus fix, before native-200 runs.css repair; the latter has its separate 33-test targeted result."
     },
     "latest_docs": {
-      "source": "validation/logs/gates-20261007/docs-result.json",
+      "source": "validation/logs/gates-20261007/native-200-docs-result.json",
+      "scope": "Final UI code acceptance; later documentation-only commits have their own current PR checks",
       "doc_sync_exit_code": 0,
       "mkdocs_strict_exit_code": 0,
-      "mkdocs_duration_seconds": 6.403,
+      "mkdocs_duration_seconds": 4.351,
       "diff_check_exit_code": 0
     },
     "independent_review": {
@@ -1872,12 +1873,17 @@
       "failed": 0,
       "skipped": 0,
       "log_sha256": "463ca672e79cf93e0d2462e7dbce5763a5af960c4bfc536dc26308c692ba27f9"
+    },
+    "previous_docs": {
+      "source": "validation/logs/gates-20261007/docs-result.json",
+      "doc_sync_exit_code": 0,
+      "mkdocs_strict_exit_code": 0,
+      "mkdocs_duration_seconds": 6.403,
+      "diff_check_exit_code": 0
     }
   },
   "updated_date": "2026-10-07",
-  "remaining_required_checks": [
-    "Verify final candidate-head CI and complete delivery"
-  ],
+  "remaining_required_checks": [],
   "source_verification_after_restart": {
     "timestamp_utc": "2026-10-06T22:09:23.208955+00:00",
     "baseline_commit": "b7a5ba507cd8192779debf56d32502ba38e8e6af",
@@ -2080,7 +2086,8 @@
           }
         ]
       }
-    }
+    },
+    "scope": "Historical restart snapshot; the final UI code source check follows separately."
   },
   "browser_recovery_event": {
     "date": "2026-10-07",
@@ -2096,30 +2103,68 @@
   "delivery": {
     "implementation_commit": "87c2a046b0a2c5493c98b6e5c950761df7fcdfb8",
     "pr": "https://github.com/sunbos/sqlseed/pull/35",
-    "draft": true,
     "merged": false,
     "released": false,
-    "candidate_ci": "Commit 3e347cf7febc4946a4708c439549ccb28575d761 passed all required checks; any later run-table repair requires follow-up verification and final-head CI.",
+    "candidate_ci": "Final UI code commit 42b2442ba5cac6d55789aa560964691e68e45821 completed all required CI. Later documentation-only commits and review state are tracked by current PR checks; historical CodeRabbit Draft skip is not an actual review.",
     "required_browser_gap": null,
     "verified_ci": {
-      "head": "3e347cf7febc4946a4708c439549ccb28575d761",
-      "observed_at_utc": "2026-10-06T23:16:36.947546+00:00",
-      "ci_run": 37544159614,
+      "head": "42b2442ba5cac6d55789aa560964691e68e45821",
+      "observed_at_utc": "2026-10-07T00:03:40.583144+00:00",
+      "ci_run": 37548484626,
+      "ci_url": "https://github.com/sunbos/sqlseed/actions/runs/37548484626",
       "ci_success_jobs": 12,
       "ci_skipped_jobs": [
         "docs"
       ],
-      "docs_skip_reason": "docs job runs only for push to main; maintained documentation build in lint succeeded",
+      "docs_skip_reason": "Docs deployment is main-push-only; maintained documentation build in lint succeeded",
+      "web_node_in_lint": "success",
+      "doc_sync_run": 37548484378,
+      "doc_sync_url": "https://github.com/sunbos/sqlseed/actions/runs/37548484378",
       "doc_sync": "success",
-      "sonar": "success, zero annotations",
-      "codeflow": "success, PR 35 URL",
-      "coderabbit": "status success but review skipped because Draft PR",
-      "codecov_patch": {
-        "status": "completed",
-        "conclusion": "success",
-        "details_url": "https://app.codecov.io/gh/sunbos/sqlseed/pull/35"
-      },
-      "all_current_head_checks_terminal": true
+      "sonar": "success; zero new issues, security hotspots and annotations",
+      "codeflow": "success; PR 35 URL",
+      "codecov_patch": "success",
+      "coderabbit_at_snapshot": "Draft review skipped; not counted as an actual review",
+      "all_verified_head_checks_terminal": true,
+      "raw_evidence": "validation/pr35-native-200-ci-20261007.json",
+      "raw_evidence_sha256": "20ea082e0f361a1aeb80af6baf406f8ab95d76fc6893dc7d7a57110de16ae32e"
+    },
+    "final_ui_code_commit": "42b2442ba5cac6d55789aa560964691e68e45821",
+    "historical_pr_state_at_ui_acceptance": {
+      "observed_at_utc": "2026-10-07T00:04:54.980728+00:00",
+      "draft": true,
+      "state": "OPEN",
+      "head": "42b2442ba5cac6d55789aa560964691e68e45821"
+    },
+    "current_review_and_documentation_checks": "https://github.com/sunbos/sqlseed/pull/35/checks",
+    "historical_verified_ci": [
+      {
+        "head": "3e347cf7febc4946a4708c439549ccb28575d761",
+        "observed_at_utc": "2026-10-06T23:16:36.947546+00:00",
+        "ci_run": 37544159614,
+        "ci_success_jobs": 12,
+        "ci_skipped_jobs": [
+          "docs"
+        ],
+        "docs_skip_reason": "docs job runs only for push to main; maintained documentation build in lint succeeded",
+        "doc_sync": "success",
+        "sonar": "success, zero annotations",
+        "codeflow": "success, PR 35 URL",
+        "coderabbit": "status success but review skipped because Draft PR",
+        "codecov_patch": {
+          "status": "completed",
+          "conclusion": "success",
+          "details_url": "https://app.codecov.io/gh/sunbos/sqlseed/pull/35"
+        },
+        "all_current_head_checks_terminal": true
+      }
+    ],
+    "goal_audit": {
+      "source": "validation/completion-audit.json",
+      "requirement_groups": 24,
+      "required_remaining": [],
+      "objective_satisfied": true,
+      "scope": "Selected UI implementation and acceptance as recorded for 42b; no merge or release"
     }
   },
   "review_followup": {
@@ -2250,7 +2295,7 @@
       "native-200-run-table-fixed-left-20261007.png",
       "native-200-run-table-fixed-right-20261007.png"
     ],
-    "limits": "Thirty representative native-zoom steps, not all states/devices. Configuration empty-state result comes from AX, not a single full-content screenshot. No database writes/config edits; theme restored to light. The follow-up 33/33 targeted test result and pending final-head CI remain separate from browser acceptance.",
+    "limits": "Thirty representative native-zoom steps, not all states/devices. Configuration empty-state result comes from AX, not a single full-content screenshot. No database writes/config edits; theme restored to light. The follow-up 33/33 targeted test result and completed exact 42b CI are recorded separately from browser acceptance; later documentation/review checks use the PR current head.",
     "completed_at": "2026-10-06T23:41:12.738Z",
     "recorded_steps": 30,
     "final_metrics": {
@@ -2512,5 +2557,35 @@
       "duration_ms": 1344.457147,
       "scope": "Post-CSS targeted run only. Earlier full Web 1064 result was not rerun by this command; final candidate CI remains authoritative."
     }
+  },
+  "source_verification_final_ui_code": {
+    "source": "validation/source-verification.json",
+    "timestamp_utc": "2026-10-06T23:48:03.627686+00:00",
+    "head": "42b2442ba5cac6d55789aa560964691e68e45821",
+    "baseline_commit": "b7a5ba507cd8192779debf56d32502ba38e8e6af",
+    "all_checks_pass": true,
+    "variants": {
+      "baseline": {
+        "pid": 12509,
+        "port": 8640,
+        "project_import_count": 123,
+        "http_resource_count": 18,
+        "all_import_paths_match": true,
+        "all_import_files_unchanged_since_start": true,
+        "all_http_bytes_match_local_source": true,
+        "management_disabled": true
+      },
+      "implementation": {
+        "pid": 12582,
+        "port": 8641,
+        "project_import_count": 123,
+        "http_resource_count": 18,
+        "all_import_paths_match": true,
+        "all_import_files_unchanged_since_start": true,
+        "all_http_bytes_match_local_source": true,
+        "management_disabled": true
+      }
+    },
+    "scope": "Startup provenance plus current module-file checks and observed HTTP bytes; not live process-memory module resampling. Later documentation-only commits do not change these product files."
   }
 }

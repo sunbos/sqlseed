@@ -1,14 +1,14 @@
 # Liquid Glass 工作台实施与验收记录
 
-实施日期：2026-10-06，最后复核：2026-10-07。状态：**实施与浏览器验收完成，最终提交检查待完成**。实现基线：`b7a5ba507cd8192779debf56d32502ba38e8e6af`，分支 `codex/liquid-glass-ui`。本文记录当前工作树的设计取舍及已经取得的证据；实际原生 200% 已由用户设置并取得 zoom=2 证据，验收发现的运行表文字压缩已经最小修复并在同一缩放下复验；初始实现提交为 `87c2a046b0a2c5493c98b6e5c950761df7fcdfb8`，当前可审阅 [Draft PR #35](https://github.com/sunbos/sqlseed/pull/35) 的 `3e347cf7` 已通过 CI；后续修复须单独验证；无手动刷新到运行成功的流程已于 10 月 7 日补验。辅助功能及 coarse 的浏览器模拟结果与真实设备边界分别记录在下文。历史评审结果不改写。
+实施日期：2026-10-06，最后复核：2026-10-07。状态：**选定 UI 优化、浏览器验收及最终 UI 代码检查完成**。实现基线：`b7a5ba507cd8192779debf56d32502ba38e8e6af`，分支 `codex/liquid-glass-ui`。本文记录当前工作树的设计取舍及已经取得的证据；实际原生 200% 已由用户设置并取得 zoom=2 证据，验收发现的运行表文字压缩已经最小修复并在同一缩放下复验；初始实现提交为 `87c2a046b0a2c5493c98b6e5c950761df7fcdfb8`，最后 UI 代码提交 `42b2442ba5cac6d55789aa560964691e68e45821` 已通过相同提交的全部必要 CI，交付于 [PR #35](https://github.com/sunbos/sqlseed/pull/35)；后续资料收尾提交的检查与审查状态以该 PR 当前 head 为准；无手动刷新到运行成功的流程已于 10 月 7 日补验。辅助功能及 coarse 的浏览器模拟结果与真实设备边界分别记录在下文。历史评审结果不改写。
 
 本报告随附 7 张原始截图和[便携证据摘要](liquid-glass-assets/evidence-summary.json)，包含布局、辅助功能、数据库、合成 AI 和性能的关键原始数值及截图 SHA256。摘要是原始记录的摘录，不是完整网络或浏览器 trace。正文中的其他文件名标识本轮证据来源，不依赖维护者的本机路径；自动结果摘自 `validation/automated-results.md`。
 
 ## 基线与可审阅预览
 
-2026-10-07 提交前复核，GitHub main 与本地 HEAD 仍为上述基线，main 的 CI / doc-sync 通过；唯一打开的 PR #34 为独立清理草稿，未合并到本轮实现。main 的绿灯不能代替候选改动的检查。
+开始实施时复核，GitHub main 与当时本地 HEAD 同为上述基线，main 的 CI / doc-sync 通过；唯一打开的 PR #34 为独立清理草稿，未合并到本轮实现。main 的绿灯不能代替候选改动的检查。最后 UI 验收于 10 月 7 日 08:04:54（UTC+8）再次核对：main 仍为 `b7a5ba5`，PR head 为 `42b2442b`，当时为 OPEN / Draft；这是验收时间点的身份记录，当前 PR 审查状态以 GitHub 为准。
 
-候选为 [8641 工作台](http://127.0.0.1:8641/#/workbench)，对照为 [8640 工作台](http://127.0.0.1:8640/#/workbench)。10 月 7 日发现验收进程已停止后，通过原隔离 launcher 重启为 baseline PID 12509 / candidate PID 12582。重新核验两端各 123 个项目模块的启动路径及磁盘哈希、首页与 17 项 HTTP 静态资源字节，全部匹配相应源码；两端均为 management disabled。基线指向冻结的 main，候选指向本工作树；候选 `workbench.css` SHA256 为 `4393912aa46e9b7bd14c9c0c1529601855ead1393ef09b7bcec12babebc95d30`。这些是来源核验，重启后的 HTTP 正常不替代新的浏览器交互验收。用户的 8630 服务未用于本轮写入测试。
+候选为 [8641 工作台](http://127.0.0.1:8641/#/workbench)，对照为 [8640 工作台](http://127.0.0.1:8640/#/workbench)。10 月 7 日发现验收进程已停止后，通过原隔离 launcher 重启为 baseline PID 12509 / candidate PID 12582。重新核验两端各 123 个项目模块的启动路径及磁盘哈希、首页与静态资源字节；最后 UI 提交后的 07:48 核验为 18 项 HTTP 资源（含 runs.css），全部匹配相应源码；两端均为 management disabled。基线指向冻结的 main，候选指向本工作树；候选 `workbench.css` SHA256 为 `4393912aa46e9b7bd14c9c0c1529601855ead1393ef09b7bcec12babebc95d30`。这些是来源核验，重启后的 HTTP 正常不替代新的浏览器交互验收。用户的 8630 服务未用于本轮写入测试。
 
 重启后一度因恢复到错误协议页面，工具的 URL 安全策略拒绝重新选取；用户随后手动打开有效 HTTP 页面，浏览器控制已恢复，未绕过限制。恢复时读取的原生 `cssVisualViewport.zoom=1`、`scale=1`，仍是 100%（`browser-restored-metrics-20261007.json`），不能作为 200% 验收。后续无手动刷新到运行成功的流程已补验。用户随后手动设为原生 200%，详见下节；本段 zoom=1 保留为恢复当时的历史状态，不改写成新结果。
 
@@ -56,13 +56,13 @@ tab 选择同步生效。横向反馈使用 160ms 指示线，快速反转从当
 | --- | --- |
 | ruff check / format、mypy、lint-imports | 均 exit 0 |
 | Web Node 测试 | 焦点修复后于 10 月 7 日重跑完整套件，1064 / 1064 通过，无失败或跳过；此前 1057 项加本次 7 项焦点行为回归 |
-| 运行页 CSS 补修后增量 | `node --test plugins/sqlseed-web/tests/test_runs.cjs`：33 / 33 通过，0 失败 / 取消 / 跳过；日志 `validation/logs/gates-20261007/native-200-runs-node.log`。此前完整 1064 项不表述为本次重跑，最终提交 CI 另验 |
+| 运行页 CSS 补修后增量 | `node --test plugins/sqlseed-web/tests/test_runs.cjs`：33 / 33 通过，0 失败 / 取消 / 跳过；日志 `validation/logs/gates-20261007/native-200-runs-node.log`。此前完整 1064 项不表述为本次重跑；42b 的 CI Web Node 步骤另已成功 |
 | 页面 Node 测试 | 47 / 47 通过，无失败或跳过 |
 | 离线 Python 首轮 | 4367 passed、29 skipped、82 deselected、33 setup errors |
 | 文档修复后定向复验 | 51 passed；覆盖并解决首轮全部 33 个 setup errors |
 | Python 去重合并 | 4400 passed、29 skipped、82 deselected，未解决失败 0；不是第二次完整运行 |
 | 架构与包边界 | 14 + 10 项通过，已包含在 Python 结果中 |
-| 文档同步与 MkDocs strict | 10 月 7 日最终复验均 exit 0，最新 strict 构建 2.772 秒 |
+| 文档同步与 MkDocs strict | 10 月 7 日 UI 收尾复验均 exit 0，strict 构建 4.351 秒；后续资料提交的检查以 PR 当前 head 为准 |
 | 本地 mutation gate | 246 / 246 killed；survived、timeout、suspicious、skipped 均为 0 |
 | 独立提交前源码审查 | 10 月 7 日未发现 P0 / P1 / P2；六组定向 Node 回归 115 / 115，diff check 通过 |
 
@@ -91,9 +91,11 @@ mutmut results
 
 随后根据 Sonar 的可维护性提示，将追加说明文案的嵌套三元表达式拆为等价 `if / else if` 分支，保持失败优先、循环来源其次及普通追加默认的顺序。独立复审确认分支等价，完整 Web Node 再次 1057 / 1057（`validation/logs/gates-20261007/node-web-review-fix.log`，06:31:04 完成，12.603 秒），实际浏览器重新加载后核对确认说明、7 行计划及就绪 footer 并取消，未再次写入（`review-fix-confirmation-20261007.txt`）。该 JS 重构发生在前述输入一致性审计之后；Python 与 mutation 目标未改。
 
-生成确认焦点补修增加 7 项行为回归：原生禁用失焦后 Esc / 返回调整恢复、引导重绘入口、预检迟到时恢复 BODY 以及不覆盖其他控件 / 其他页面的焦点，以及首次检查阻断时返回原因入口。前两条在修复前确实失败；修复后最终定向 116 / 116、完整 Web Node 1064 / 1064，无失败或跳过（`validation/logs/gates-20261007/confirmation-focus-final-node.log`，墙钟 12.296 秒）。真实浏览器的对应入口复验见下文；首次阻断返回原因入口由新增 Node 行为回归覆盖，未将它列为这次四入口浏览器实测。最终独立复审未发现剩余 P0 / P1 / P2。前一提交 `6345838` 的 CI、doc-sync、Sonar 与 CodeFlow 已通过，包含真实 PostgreSQL integration 及 macOS / Windows jobs；这些是前一提交的结果。含焦点修复的 `3e347cf7febc4946a4708c439549ccb28575d761` 已于 10 月 7 日 07:16:36 核验 CI run 37544159614 全部终态：12 项成功，docs 因仅 main push 执行而跳过，lint 内正式文档构建成功；doc-sync、Sonar（0 annotations）、CodeFlow（PR35）与 codecov/patch 均通过。后续运行表布局补修不由该提交的绿灯代替，需验证最终候选。CodeRabbit 因 Draft 跳过，不计为完成代码审查。
+生成确认焦点补修增加 7 项行为回归：原生禁用失焦后 Esc / 返回调整恢复、引导重绘入口、预检迟到时恢复 BODY 以及不覆盖其他控件 / 其他页面的焦点，以及首次检查阻断时返回原因入口。前两条在修复前确实失败；修复后最终定向 116 / 116、完整 Web Node 1064 / 1064，无失败或跳过（`validation/logs/gates-20261007/confirmation-focus-final-node.log`，墙钟 12.296 秒）。真实浏览器的对应入口复验见下文；首次阻断返回原因入口由新增 Node 行为回归覆盖，未将它列为这次四入口浏览器实测。最终独立复审未发现剩余 P0 / P1 / P2。前一提交 `6345838` 的 CI、doc-sync、Sonar 与 CodeFlow 已通过，包含真实 PostgreSQL integration 及 macOS / Windows jobs；这些是前一提交的结果。含焦点修复的 `3e347cf7febc4946a4708c439549ccb28575d761` 已于 10 月 7 日 07:16:36 核验 CI run 37544159614 全部终态：12 项成功，docs 因仅 main push 执行而跳过，lint 内正式文档构建成功；doc-sync、Sonar（0 annotations）、CodeFlow（PR35）与 codecov/patch 均通过。这些历史绿灯不代替后续运行表布局补修的验证。CodeRabbit 当时因 Draft 跳过，不计为完成代码审查。
 
-独立审查记录为 `validation/final-diff-review-20261007.md`；10 月 7 日文档复验记录为 `validation/logs/gates-20261007/docs-focus-result.json`。本轮 `.sonarcloud.properties` 仅精确列入上述 7 张已核验 PNG 的二进制排除项，没有扩大到目录或排除产品代码。
+最后 UI 代码提交 `42b2442ba5cac6d55789aa560964691e68e45821` 已于 10 月 7 日 08:03:40（UTC+8）核验 [CI run 37548484626](https://github.com/sunbos/sqlseed/actions/runs/37548484626) 及 [doc-sync run 37548484378](https://github.com/sunbos/sqlseed/actions/runs/37548484378) 成功。12 项实际 CI jobs 全部通过，docs 发布 job 按仅 main push 的条件跳过；lint 内 Web Node 和正式文档构建成功。Sonar 为 0 新问题 / 安全热点 / annotations，CodeFlow（PR35）与 codecov/patch 均成功。原始 API 终态为 `validation/pr35-native-200-ci-20261007.json` / `.md`，完整目标审计为 `validation/completion-audit.json`。CodeRabbit 在该快照中仍是 Draft skip；后续资料提交和正式审查结果以 [PR 当前检查](https://github.com/sunbos/sqlseed/pull/35/checks) 为准，不冒用该快照。
+
+独立审查记录为 `validation/final-diff-review-20261007.md`；焦点修复时文档复验为 `validation/logs/gates-20261007/docs-focus-result.json`，最后 UI 收尾复验为 `validation/logs/gates-20261007/native-200-docs-result.json`。本轮 `.sonarcloud.properties` 仅精确列入上述 7 张已核验 PNG 的二进制排除项，没有扩大到目录或排除产品代码。
 
 ## 功能保留与验证矩阵
 
@@ -192,7 +194,7 @@ mutmut results
 
 重新加载 CSS 后，原生 zoom=2 保持。表宽为 560px、容器 235px，名称列实际宽约 150.59px；`parents` / `children` 在左侧截图完整单行可读。实际横滚至 scrollLeft=325 后，结果及“查看当前数据”按钮完整可见；原生 Tab 到 children 按钮时边界为 106×44px，Enter 打开真实只读的 children 12 行数据，Esc 回原按钮并保持横滚位置，ArrowLeft 继续局部移至 305。页面内容宽仍为 319px，没有把表格横滚扩散到整页。两张修复后视口截图为 `native-200-run-table-fixed-left-20261007.png` / `native-200-run-table-fixed-right-20261007.png`。
 
-本项已由 30 个记录步骤及最终 zoom=2 / scale=1 关闭，修复后 `runs.css` SHA256 为 `bd7be50eda6ca2dede057a9d4b61a7e8e5ddb6f71575772381218741d81f8082`。没有数据库写入、配置编辑或真实手机测试；主题恢复为原浅色。此 CSS 补修晚于 `3e347cf7` 的全量与 CI；随后运行页增量 33 / 33 通过，原有完整 1064 项没有因此被改写为本次重跑。最终提交 CI 仍须单独核对。
+本项已由 30 个记录步骤及最终 zoom=2 / scale=1 关闭，修复后 `runs.css` SHA256 为 `bd7be50eda6ca2dede057a9d4b61a7e8e5ddb6f71575772381218741d81f8082`。没有数据库写入、配置编辑或真实手机测试；主题恢复为原浅色。此 CSS 补修晚于 `3e347cf7` 的全量与 CI；随后运行页增量 33 / 33 通过，原有完整 1064 项没有因此被改写为本次重跑。同一最终 UI 代码提交 `42b` 的 CI已另行核对成功，详见自动门禁。
 
 ### SQLite 写入、字段编辑与不写入边界
 
@@ -259,9 +261,9 @@ mutmut results
 
 滚动距离不同，不能把两条滚动记录视为严格等负载对照。交互采样中候选最大间隔更高，也没有证据宣称动效更快。移除数据区大面积模糊是减少效果范围的实现选择；其真实 GPU、功耗与帧率收益仍需目标设备和跨浏览器测量。原始文件为 `performance-scroll-comparison.json`、`performance-interaction-comparison.json`。
 
-## 尚未完成与交付边界
+## 完成状态与验证边界
 
 - 原生 200% 已按本节代表流程完成实际验收，运行表名称压缩已修复复验。先前 `browser-zoom-capability-probe.json` 保留为历史 zoom=1 尝试；新结果依据原生倍率、交互、几何和修复前后截图共同判定，不靠缩放设置成功或截图单独推导。
 - forced-colors / coarse 已有浏览器模拟证据，无 filter 已有现有声明分支的强制激活证据；真实高对比系统、真正不支持 filter 的引擎和触控设备仍未验证。
 - 默认态前后截图、长字段和所列键盘 / 弹层流程已随本报告记录；其他业务状态组合仍不能由这些单次观察概括。便携摘要保留关键数值，完整原始日志和浏览器 trace 未全部纳入仓库。
-- 实现已提交并推送，Draft PR #35 已关联本任务；尚未合并或发布。`3e347cf7` 已通过当前提交 CI，包含 PostgreSQL；后续运行表修复及材料提交仍须核对其最终 head，不能以前一提交绿灯替代。本地本轮数据库浏览器流程仍只覆盖 SQLite。真实 LLM、Safari / Firefox、真实手机与 GPU、屏幕阅读器、发行包和 XR 均不在上述已验证结论内。
+- 选定范围的必要实施与验收事项已完成，最后 UI 代码提交 `42b` 及其 CI 通过，包含 PostgreSQL。实现已提交并推送，[PR #35](https://github.com/sunbos/sqlseed/pull/35) 已关联本任务，未合并或发布；后续资料提交与正式审查以 PR 当前状态为准。本地本轮数据库浏览器流程仍只覆盖 SQLite。真实 LLM、Safari / Firefox、真实手机与 GPU、屏幕阅读器、发行包和 XR 均不在上述已验证结论内。
