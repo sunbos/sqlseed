@@ -75,6 +75,201 @@ const saveRevisions=ui=>ui.routes.set('/api/workbench/drafts/saved',options=>({
  ...JSON.parse(options.body),id:'saved',revision:2,target_key:'target-A'
 }));
 
+function blurWhenDisabled(ui, opener) {
+ let disabled=opener.disabled;
+ // Browsers blur a focused button when disabled; the general DOM fixture does not.
+ Object.defineProperty(opener,'disabled',{configurable:true,get:()=>disabled,set:value=>{
+  disabled=value;
+  if(value && ui.document.activeElement===opener)ui.document.activeElement=ui.document.body;
+ }});
+}
+
+for (const close of ['返回调整', 'Escape']) {
+ test(`confirmation restores its opener after the native busy blur on ${close}`, async () => {
+  const ui=harness();await ui.mount();ui.modelState().toggleTable('users',true);
+  const opener=ui.button('查看生成计划');blurWhenDisabled(ui,opener);
+  opener.focus();await opener.click();
+  assert.equal(opener.disabled,false);
+  assert.equal(ui.document.querySelector('.wb-execution-feedback').dataset.state,'ready');
+  if(close==='Escape')await dismiss(ui);else await ui.button(close,ui.document).click();
+  assert.equal(ui.document.querySelector('.modal'),null);
+  assert.equal(ui.document.activeElement===opener,true,'closing must return to the plan entry, not BODY');
+  assert.equal(written(ui).length,0);
+ });
+}
+
+test('confirmation restores the guide stage or its recreated next-action entry', async () => {
+ const ui=harness();await ui.mount();ui.modelState().toggleTable('users',true);
+ const stage=ui.root().querySelector('[data-guide-action="stage-3"]');blurWhenDisabled(ui,stage);
+ stage.focus();await stage.click();await dismiss(ui);
+ assert.equal(ui.document.activeElement===stage,true);
+ const opener=ui.root().querySelector('[data-guide-action="next"]');blurWhenDisabled(ui,opener);
+ opener.focus();await opener.click();await dismiss(ui);
+ const replacement=ui.root().querySelector('[data-guide-action="next"]');
+ assert.notEqual(replacement,opener,'the next action is redrawn when check status updates');
+ assert.equal(ui.document.activeElement===replacement,true);
+ assert.equal(replacement.disabled,false);assert.equal(written(ui).length,0);
+});
+
+test('confirmation restores the capability reason when its first check hides the plan entry',async()=>{
+ const ui=harness();await ui.mount();
+ ui.modelState().toggleTable('users',true);ui.modelState().toggleTable('orders',true);
+ const opener=ui.button('查看生成计划');blurWhenDisabled(ui,opener);
+ assert.equal(ui.root().querySelector('.wb-generation-unsupported'),null);
+ ui.routes.set('/api/workbench/check',()=>({ok:false,config_hash:'blocked',order:[],issues:[{
+  severity:'error',code:'cross_table_cycle',tables:['users','orders'],edge_ids:[],message:'cycle blocked'
+ }]}));
+ opener.focus();await opener.click();assert.equal(opener.hidden,true);
+ assert.equal(ui.button('当前范围无法生成',ui.document.querySelector('.modal')).disabled,true);
+ ui.document.activeElement=ui.document.body; // Native removal of a focused overlay clears focus.
+ await dismiss(ui);
+ const reason=ui.button('查看无法生成的原因',ui.root().querySelector('.wb-generation-unsupported'));
+ assert.equal(ui.document.activeElement===reason,true,'the replacement capability entry must receive focus');
+ assert.equal(reason.disabled,false);assert.equal(ui.document.querySelector('.modal'),null);
+ assert.deepEqual(plain(ui.modelState().document.tables.map(table=>table.name)),['users','orders']);
+ assert.equal(written(ui).length,0);
+});
+
+for(const destination of ['body','another control','another page']) {
+ test(`closing pending confirmation restores focus without overriding ${destination}`,async()=>{
+  const ui=await ready();ui.routes.set('/api/workbench/execution-plan',()=>plan);
+  await setMode(ui);await dismiss(ui);
+  const gate=deferred();ui.routes.set('/api/workbench/execution-plan',()=>gate.promise);
+  const opener=ui.root().querySelector('.wb-clear-recovery-actions').querySelector('button');
+  blurWhenDisabled(ui,opener);opener.focus();
+  const pending=opener.click();await nextTurn();
+  assert.equal(ui.document.querySelector('.wb-execution-feedback').dataset.state,'checking');
+  ui.document.activeElement=ui.document.body; // Native removal of a focused overlay clears focus.
+  await dismiss(ui);
+  let expected=ui.document.body;
+  if(destination==='another page')ui.leave();
+  else if(destination==='another control'){
+   expected=ui.root().querySelector('.count-setting input');expected.focus();
+  }
+  gate.resolve(plan);await pending;
+  if(destination==='body')expected=ui.root().querySelector('.wb-clear-recovery-actions').querySelector('button');
+  assert.equal(ui.document.activeElement===expected,true,'late completion must respect the current focus and page');
+  assert.equal(ui.document.querySelector('.modal'),null);assert.equal(written(ui).length,0);
+ });
+}
+
+test('confirmation footer reports checking and blocked state without moving focus, and details are user activated',async()=>{
+ const ui=await ready(),gate=deferred();
+ const footer=ui.document.querySelector('.modal-footer');
+ const feedback=footer.querySelector('.wb-execution-feedback');
+ assert.ok(feedback,'write actions need an adjacent state summary');
+ const status=feedback.querySelector('[role="status"]'),details=ui.document.querySelector('.wb-execution-plan');
+ const submit=ui.button('写入数据库',footer);
+ assert.equal(submit.getAttribute('aria-describedby'),status.id);
+ assert.equal(feedback.dataset.state,'ready');
+ ui.routes.set('/api/workbench/execution-plan',()=>gate.promise);
+ const pending=setMode(ui);await nextTurn();
+ assert.equal(feedback.dataset.state,'checking');assert.match(status.textContent,/正在核对/);
+ const back=ui.button('返回调整',footer);back.focus();let scrolled=0;
+ details.scrollIntoView=()=>{scrolled++;};
+ gate.resolve(blockedPlan);await pending;
+ assert.equal(feedback.dataset.state,'blocked');assert.match(status.textContent,/暂不能写入/);
+ assert.equal(submit.disabled,true);assert.equal(ui.document.activeElement,back);assert.equal(scrolled,0);
+ const diagnostic=[...details.querySelectorAll('details')].find(item=>item.querySelector('summary').textContent==='详细诊断');
+ assert.ok(diagnostic);assert.equal(Boolean(diagnostic.open),false,'diagnostics stay collapsed until requested');
+ const diagnosticSummary=diagnostic.querySelector('summary');let diagnosticScrolls=0;
+ diagnosticSummary.scrollIntoView=()=>{diagnosticScrolls++;};
+ const show=ui.button('查看原因',feedback);assert.ok(show);assert.equal(show.hidden,false);
+ assert.equal(show.getAttribute('aria-controls'),details.id);
+ await show.click();assert.equal(diagnostic.open,true);assert.equal(diagnosticScrolls,1);
+ assert.equal(ui.document.activeElement,diagnosticSummary);assert.equal(scrolled,0);
+ assert.match(diagnostic.textContent,/未选表 orders 引用了 users/);
+ assert.ok([...details.querySelectorAll('details')].filter(item=>item!==diagnostic).every(item=>!item.open));
+ const requests=ui.requests.length;ui.context.setLanguage('en');
+ assert.match(status.textContent,/Writing is blocked/);assert.ok(ui.button('View reasons',feedback));
+ assert.equal(diagnosticSummary.textContent,'Detailed diagnostics');assert.equal(diagnostic.open,true);
+ assert.equal(ui.document.activeElement,diagnosticSummary);
+ diagnostic.open=false;await ui.button('View reasons',feedback).click();
+ assert.equal(diagnostic.open,true);assert.equal(diagnosticScrolls,2);
+ assert.equal(ui.document.activeElement,diagnosticSummary);
+ assert.equal(ui.requests.length,requests);assert.equal(written(ui).length,0);
+});
+
+test('footer retains checking while an abandoned clear request finishes and then shows ready append state',async()=>{
+ const ui=await ready(),gate=deferred();ui.routes.set('/api/workbench/execution-plan',()=>gate.promise);
+ const pending=setMode(ui);await nextTurn();
+ const append=ui.document.querySelector('[aria-label="追加数据"]');append.checked=true;await append.dispatchEvent('change');
+ const feedback=ui.document.querySelector('.wb-execution-feedback');assert.ok(feedback);
+ assert.equal(feedback.dataset.state,'checking');assert.equal(ui.button('写入数据库',ui.document).disabled,true);
+ gate.resolve(blockedPlan);await pending;
+ assert.equal(feedback.dataset.state,'ready');assert.equal(ui.button('写入数据库',ui.document).disabled,false);
+ assert.equal(feedback.querySelector('button').hidden,true);assert.equal(written(ui).length,0);
+});
+
+test('footer exposes plan failures and recovers only after a fresh successful plan',async()=>{
+ const ui=await ready();ui.routes.set('/api/workbench/execution-plan',()=>{throw new Error('plan unavailable');});
+ await setMode(ui);
+ const feedback=ui.document.querySelector('.wb-execution-feedback');assert.ok(feedback);
+ assert.equal(feedback.dataset.state,'failure');assert.match(feedback.textContent,/未能完成/);
+ assert.match(ui.document.querySelector('.wb-execution-plan').textContent,/plan unavailable/);
+ assert.equal(ui.button('清空并生成',ui.document).disabled,true);
+ ui.routes.set('/api/workbench/execution-plan',()=>plan);
+ await ui.button('重新检查清空计划',ui.document.querySelector('.wb-execution-plan')).click();
+ assert.equal(feedback.dataset.state,'ready');assert.equal(ui.button('清空并生成',ui.document).disabled,false);
+ assert.equal(written(ui).length,0);
+});
+
+test('footer reports writing and failed submission without a duplicate write or focus jump',async()=>{
+ const ui=await ready(),gate=deferred();ui.routes.set('/api/workbench/runs',async()=>{await gate.promise;throw new Error('write unavailable');});
+ const submit=ui.button('写入数据库',ui.document);blurWhenDisabled(ui,submit);submit.focus();
+ const pending=submit.click();await nextTurn();
+ const feedback=ui.document.querySelector('.wb-execution-feedback');assert.ok(feedback);
+ assert.equal(feedback.dataset.state,'busy');assert.match(feedback.textContent,/正在提交/);
+ assert.equal(ui.document.activeElement===ui.document.body,true,'native disabling must first lose the submit focus');
+ await submit.click();assert.equal(written(ui).length,1);
+ gate.resolve();await pending;
+ assert.equal(feedback.dataset.state,'failure');assert.equal(submit.disabled,false);
+ assert.equal(ui.document.activeElement===submit,true,'a failed append must restore its lost submit focus');
+ assert.match(ui.document.querySelector('.wb-execution-plan').textContent,/write unavailable/);
+ assert.equal(written(ui).length,1);
+});
+
+for(const destination of ['another control','closed dialog','another page','changed lifecycle','unfocused submit']) {
+ test(`failed append does not steal focus after ${destination}`,async()=>{
+  const ui=await ready(),gate=deferred();
+  ui.routes.set('/api/workbench/runs',async()=>{await gate.promise;throw new Error('write unavailable');});
+  const submit=ui.button('写入数据库',ui.document),back=ui.button('返回调整',ui.document);
+  blurWhenDisabled(ui,submit);
+  (destination==='unfocused submit'?back:submit).focus();
+  const pending=submit.click();await nextTurn();
+  if(destination==='another control')back.focus();
+  else if(destination==='closed dialog')await dismiss(ui);
+  else if(destination==='another page')ui.leave();
+  else if(destination==='changed lifecycle')await ui.context.window.dispatchEvent({type:'sqlseed:draft-renamed',detail:{id:'saved',revision:2,name:'renamed'}});
+  else ui.document.activeElement=ui.document.body;
+  const expected=ui.document.activeElement;
+  gate.resolve();await pending;
+  assert.equal(ui.document.activeElement===expected,true,'late failure must preserve the current focus');
+  assert.equal(written(ui).length,1);
+ });
+}
+
+test('failed clear submission keeps its write disabled until the plan is checked again',async()=>{
+ const ui=await ready();ui.routes.set('/api/workbench/execution-plan',()=>plan);await setMode(ui);
+ ui.routes.set('/api/workbench/runs',()=>{throw new Error('write unavailable');});
+ const submit=ui.button('清空并生成',ui.document);blurWhenDisabled(ui,submit);submit.focus();
+ await submit.click();
+ assert.equal(submit.disabled,true);assert.equal(ui.document.activeElement===submit,false);
+ assert.ok(ui.button('重新核对计划',ui.document.querySelector('.wb-execution-plan')));
+ await submit.click();assert.equal(written(ui).length,1);
+});
+
+test('blocked append status directs the user to complete generation diagnostics',async()=>{
+ const ui=harness();ui.routes.set('/api/workbench/check',()=>({ok:false,config_hash:'invalid',order:['users'],issues:[
+  {severity:'error',table:'users',code:'invalid_rule',message:'Invalid amount range'}]}));
+ await ui.mount();ui.modelState().toggleTable('users',true);await ui.button('查看生成计划').click();
+ const feedback=ui.document.querySelector('.wb-execution-feedback'),details=ui.document.querySelector('.wb-execution-plan');
+ assert.equal(feedback.dataset.state,'blocked');assert.equal(ui.button('写入数据库',ui.document).disabled,true);
+ await ui.button('查看原因',feedback).click();
+ assert.equal(ui.document.activeElement,details);assert.match(details.textContent,/users.*Invalid amount range/);
+ assert.equal(written(ui).length,0);
+});
+
 for(const close of ['返回调整','Escape']) {
  test(`a blocked clear flow survives ${close} and repeats preflight before an explicit write`,async()=>{
   const ui=await ready(),before=plain(ui.modelState().document);let checks=0;

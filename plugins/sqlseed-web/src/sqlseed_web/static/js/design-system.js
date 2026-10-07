@@ -67,9 +67,9 @@ const readingTable = table(['#', '字段', '规则', '示例'], [
 readingTable.classList.add('wb-preview-data');
 root.append(section('foundation', '材质与文字', '透明度服从信息层级。功能层轻盈，数据与代码保持稳定阅读。', 'fields',
   h('div', { class: 'ds-grid ds-grid-three' },
-    surface('wb-config-context', '控制层', '用于配置工具栏与导航，柔和区分背景。', '--glass'),
-    surface('wb-content', '阅读层', '用于字段、记录和配置正文，减少背景干扰。', '--paper'),
-    surface('drawer-help', '内嵌说明', '用于规则说明与样例，边缘保持自然。', '--glass')),
+    surface('wb-config-context', '控制层', '导航与临时操作使用轻透表面，通过边缘区分层级。', '--surface-control'),
+    surface('wb-content', '阅读层', '字段、记录和配置正文使用稳定底色，不模糊其后的内容。', '--surface-data'),
+    surface('drawer-help', '内嵌说明', '规则说明与写入事实使用安静的底板，不在浮层中叠加玻璃。', '--wash')),
   h('div', { class: 'ds-fonts' }, h('div', { class: 'table-title' }, h('h2', {}, 'users · 用户基础信息')),
     h('span', {}, 'orders · 每一行，都有依据。'), h('code', { class: 'mono' }, 'user_id INTEGER'),
     h('span', {}, '1,024 行 · 2026-09-26')),
