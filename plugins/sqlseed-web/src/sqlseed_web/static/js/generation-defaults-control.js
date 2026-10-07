@@ -1,4 +1,4 @@
-import {tr, formatNumber, setText, setAttr, UserFacingError, errorText, serverText} from './i18n.js';
+import {tr, formatNumber, setText, setAttr, UserFacingError, errorText} from './i18n.js';
 import './i18n/messages/components.js';
 import {h, api} from './api.js';
 import {button} from './workbench/ui.js';
@@ -70,7 +70,7 @@ export function createGenerationDefaultsControl() {
     try {
       const [languages, providers] = await Promise.all([api('/api/meta/locales', {signal: controller.signal}), api('/api/meta/providers', {signal: controller.signal})]);
       if (destroyed) return;
-      localeOptions = languages.locales.map(item => ({value: item.code, label: serverText(item, 'label')}));
+      localeOptions = languages.locales.map(item => ({value: item.code, label: item.label}));
       providerFacts = providers.statuses || {};
       // Keep unavailable stored choices visible; never silently switch their meaning.
       const value = locale.get();

@@ -3,7 +3,12 @@ const test = require('node:test');
 const {Element, createDom, loadFrontend} = require('./frontend_helpers.cjs');
 
 function harness(rect = {top: 540, bottom: 580, left: 330, right: 790, width: 460}, settings = {}) {
-  const document = createDom(), window = new Element('window');
+  const document = createDom(), window = {
+    listeners: new Map(),
+    addEventListener: Element.prototype.addEventListener,
+    removeEventListener: Element.prototype.removeEventListener,
+    dispatchEvent: Element.prototype.dispatchEvent,
+  };
   const scrolls = [], created = [], createElement = document.createElement;
   document.createElement = tag => {
     const element = createElement(tag);
@@ -106,6 +111,46 @@ test('menu height is measured at the viewport-constrained width before positioni
   assert.equal(ui.popup.style.width, '1128px');
   assert.equal(ui.popup.style.maxHeight, '151px');
   assert.equal(ui.popup.style.top, '634px');
+});
+
+test('window resize repositions an open menu without treating Window as a DOM Node', async () => {
+  const ui = harness();
+  const contains = ui.popup.contains.bind(ui.popup);
+  // Native Node.contains rejects a Window; the generic DOM helper is permissive.
+  ui.popup.contains = target => {
+    if (target !== null && !(target instanceof Element)) {
+      throw new TypeError("Failed to execute 'contains' on 'Node': parameter 1 is not of type 'Node'.");
+    }
+    return contains(target);
+  };
+  try {
+    await ui.button.click();
+    ui.panel.scrollTop = 40;
+    const scrollTop = ui.panel.scrollTop;
+    const active = ui.active();
+    const options = ui.panel.querySelectorAll('[role="option"]');
+    ui.context.innerWidth = 600;
+    ui.context.innerHeight = 700;
+
+    await ui.window.dispatchEvent('resize');
+
+    assert.equal(ui.popup.style.left, '132px');
+    assert.equal(ui.popup.style.top, '275px');
+    assert.equal(ui.popup.style.width, '460px');
+    assert.equal(ui.button.getAttribute('aria-expanded'), 'true');
+    assert.equal(ui.popup.parentNode, ui.overlay);
+    assert.equal(ui.panel.parentNode, ui.popup);
+    assert.equal(ui.active(), active);
+    assert.equal(ui.panel.scrollTop, scrollTop);
+    for (const [index, option] of options.entries()) {
+      assert.equal(ui.panel.querySelectorAll('[role="option"]')[index], option);
+    }
+    assert.equal(ui.dropdown.get(), 'en');
+    assert.equal(ui.document.activeElement, ui.button);
+    assert.deepEqual(ui.changes, []);
+  } finally {
+    ui.dropdown.destroy();
+  }
 });
 
 test('Escape closes only the open menu and restores control focus', async () => {

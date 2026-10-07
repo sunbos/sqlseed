@@ -112,6 +112,52 @@ test('new-generation defaults save locally only and leave AI drafts untouched', 
   t.context.unmount();
 });
 
+for (const language of ['zh-CN', 'en']) {
+  test(`generation locale names remain plain while switching the ${language} settings UI`, async () => {
+    const t = harness({section: 'generation'}); await t.mounted;
+    try {
+      t.context.setLanguage(language);
+      const locale = t.input(t.context.t('defaults.localeAria'));
+      const count = t.input(t.context.t('defaults.countAria'));
+      count.value = '250'; await count.dispatchEvent('input');
+      await locale.click();
+      const panel = t.document.querySelector('.dropdown-floating');
+      const options = panel.querySelectorAll('[role="option"]');
+      const labels = () => ({
+        selected: locale.querySelector('.dropdown-btn-label').textContent,
+        options: options.map(option => option.textContent),
+      });
+      assert.deepEqual(labels(), {selected: 'English (US)', options: ['English (US)', '简体中文（中国）']});
+      assert.equal(options[0].getAttribute('aria-selected'), 'true');
+      const requestCount = t.calls.length;
+      const stored = t.window.localStorage.getItem('sqlseed.generation.defaults.v1');
+
+      t.context.setLanguage(language === 'zh-CN' ? 'en' : 'zh-CN');
+
+      assert.equal(t.input(t.context.t('defaults.localeAria')), locale);
+      assert.equal(t.input(t.context.t('defaults.countAria')), count);
+      assert.equal(t.document.querySelector('.dropdown-floating'), panel);
+      for (const [index, option] of options.entries()) {
+        assert.equal(panel.querySelectorAll('[role="option"]')[index], option);
+      }
+      assert.deepEqual(labels(), {selected: 'English (US)', options: ['English (US)', '简体中文（中国）']});
+      assert.equal(options[0].getAttribute('aria-selected'), 'true');
+      assert.equal(count.value, '250');
+      assert.equal(t.calls.length, requestCount);
+      assert.equal(t.window.localStorage.getItem('sqlseed.generation.defaults.v1'), stored);
+
+      await locale.dispatchEvent({type: 'keydown', key: 'Escape', stopImmediatePropagation() {}});
+      await t.find(t.context.t('defaults.save')).click();
+      const saved = JSON.parse(t.window.localStorage.getItem('sqlseed.generation.defaults.v1'));
+      assert.equal(saved.locale, 'en_US');
+      assert.equal(saved.count, 250);
+      assert.equal(t.calls.length, requestCount);
+    } finally {
+      t.context.unmount();
+    }
+  });
+}
+
 test('appearance settings apply immediately without changing an unsaved AI draft or saving requests', async () => {
   const t = harness(); await t.mounted;
   const model = t.input('模型名称'), keyInput = t.input('API Key');

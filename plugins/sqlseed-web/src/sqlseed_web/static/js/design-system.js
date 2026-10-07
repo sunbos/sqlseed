@@ -125,6 +125,11 @@ const countInput = h('input', { type: 'text', inputmode: 'numeric', value: '0', 
 const countField = field('生成数量 · 错误恢复示例', countInput);
 countField.append(countError);
 const stageSample = h('ol', {class:'wb-guide-stages', 'aria-label':'生成流程样式示例'});
+const pathShortcutSample = button('', () => {
+  const selected = pathShortcutSample.getAttribute('aria-pressed') !== 'true';
+  pathShortcutSample.setAttribute('aria-pressed', String(selected));
+  actionStatus.textContent = selected ? '依赖路径入口已选中；此样例未修改配置。' : '依赖路径入口恢复普通状态；此样例未修改配置。';
+}, {glyph:'relations', plain:true, class:'table-graph-shortcut', 'aria-label':'查看依赖路径样例', title:'查看依赖路径样例', 'aria-pressed':'false'});
 let stageIndicator;
 for (const [index, [label, hint]] of [['设定规则','选择表与字段'],['预览样例','只读查看结果'],['确认写入','核对生成计划']].entries()) {
   const stage = button('', () => {
@@ -143,8 +148,7 @@ root.append(section('controls', '基础控件', '悬停、键盘焦点与选中�
   actionStatus,
   h('h3',{},'关系图入口 · 节点与分支'),
   h('div', {class:'ds-row'},
-    button('', () => { actionStatus.textContent = '依赖路径入口样例；正式工作台会定位当前表的关系图。'; },
-      {glyph:'relations', plain:true, class:'table-graph-shortcut', 'aria-label':'查看依赖路径样例', title:'查看依赖路径样例'}),
+    pathShortcutSample,
     button('查看关系图', () => { actionStatus.textContent = '带文字的关系图入口样例，没有修改配置。'; }, {glyph:'relations',small:true})),
   h('h3',{},'生成流程 · 分段导航'), stageSample,
   h('h3',{},'连接恢复 · 主次操作'),
@@ -164,7 +168,7 @@ root.append(section('controls', '基础控件', '悬停、键盘焦点与选中�
   notes('Tab 逐项移动焦点，Space 切换复选框；焦点环不等同于已选状态。',
     '鼠标悬停呈现柔和阴影，按钮不移动；已选底色仍然保留，键盘焦点继续有清晰外圈。',
     '绿色主按钮使用同色相渐变、低反光内缘与柔和外阴影表达厚度；按下时回落，不出现白色亮顶线。',
-    '关系入口使用三个圆角节点和正交分支；检查小尺寸轮廓、明暗描边与键盘提示，不依赖图标独自解释功能。',
+    '关系入口使用居中的三个圆角节点和正交分支；点击样例切换选中状态。桌面触发区为 32×32px，窄屏及触控为 44×44px；检查明暗、悬停和键盘焦点，图标与触发区保持同心。',
     '生成流程共用底槽，选中底板短暂滑动，编号和文字保持原位；窄屏换行、初载和尺寸变化直接定位。',
     '快速来回切换时底板从当前位置转向；系统选择减少动态效果时立即切换。复选框和单选框只让标记短暂浮现，输入框不会位移。',
     '连接恢复按钮居中并保持间距，窄屏自然换行；主操作和次操作使用正式按钮样式。',
