@@ -16,6 +16,7 @@ exclude_docs: |
   /AGENTS.md
   /code-review/
   /design-review/
+  /ui-review/
   /superpowers/
   /specs/
 

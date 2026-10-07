@@ -1,5 +1,19 @@
 {
   "workbench": {
+    "scope.viewing": ["当前查看：{table}", "Viewing: {table}"],
+    "scope.noTable": ["暂无表", "No table"],
+    "scope.selectedCount": ["已选 {count} 张表用于生成", {"one":"{count} table selected for generation", "other":"{count} tables selected for generation"}],
+    "guide.currentStage": ["{stage}/3 · {title}", "{stage}/3 · {title}"],
+    "guide.rulesShort": ["规则", "Rules"],
+    "guide.previewShort": ["样例", "Preview"],
+    "guide.confirmShort": ["确认", "Confirm"],
+    "execution.status.ready": ["已核对，确认后将写入数据库。", "Reviewed. Confirm to write to the database."],
+    "execution.status.checking": ["正在核对写入方案，请稍候。", "Checking the write plan. Please wait."],
+    "execution.status.busy": ["正在提交写入，请勿重复操作。", "Submitting the write. Please wait."],
+    "execution.status.blocked": ["暂不能写入，请查看原因并调整。", "Writing is blocked. Review the reasons and adjust."],
+    "execution.status.failure": ["未能完成，请查看原因后重试。", "The request failed. Review the reasons before retrying."],
+    "execution.viewReasons": ["查看原因", "View reasons"],
+    "execution.diagnostics": ["详细诊断", "Detailed diagnostics"],
     "unsupported.title": ["当前工作台不支持此生成范围", "This generation scope is not supported"],
     "unsupported.body": [
       "所选范围包含当前不支持的跨表循环：{tables}。这不是行数或生成器参数错误。具体原因见下方；SQLite 追加仅在循环内每条单列外键已有可用父键时受支持，缺少来源时全选或原样重试无法解除限制。",

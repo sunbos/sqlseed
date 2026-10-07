@@ -32,7 +32,11 @@
 }
 
 .runs-page .run-status.error { color: var(--danger); background: var(--danger-bg); }
-.runs-page .run-table { font-size: var(--text-body); }
+.runs-page .run-table {
+  min-width: 560px;
+  font-size: var(--text-body);
+}
+.runs-page .run-table-name { min-width: 128px; }
 .runs-page .run-table td:nth-child(3),
 .runs-page .run-table td:nth-child(4),
 .runs-page .run-total strong { font-variant-numeric: tabular-nums; }

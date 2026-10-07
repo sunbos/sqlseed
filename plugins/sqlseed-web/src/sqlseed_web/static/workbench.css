@@ -160,7 +160,10 @@
 .wb-config-context [data-provider-warning] p { margin:0 0 8px; }
 .wb-config-context [data-provider-warning] .btn { margin:0 8px 0 0; }
 .wb-next-step { margin-bottom:16px; padding:10px 14px; border:1px solid var(--glass-edge); border-radius:8px; background:var(--paper); }
-.wb-next-step-heading { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:12px; }
+.wb-next-step-summary { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.wb-next-step-heading { display:flex; flex:1; min-width:0; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:12px; }
+.wb-next-step-heading h3 { margin:0; color:var(--ink); font-size:14px; line-height:1.45; }
+.wb-next-step-heading > .wb-button { flex:none; }
 .wb-next-step-body { display:grid; grid-template-columns:minmax(0,1fr); gap:14px; padding-top:6px; }
 .wb-next-step-body[hidden] { display:none; }
 .wb-page [data-plan-entry][hidden],.wb-next-step-ai[hidden] { display:none; }
@@ -168,7 +171,8 @@
 .wb-next-step-main h3 { margin:0 0 5px; font-size:14px; }
 .wb-next-step-main p { margin:0 0 8px; font-size:12px; line-height:1.65; color:var(--muted); }
 .wb-next-step-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; }
-.wb-guide-heading { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.wb-guide-heading { display:flex; min-width:0; flex-direction:column; align-items:flex-start; gap:4px; }
+.wb-guide-current { font-size:11px; }
 .wb-guide-heading strong { color:var(--ink); font-weight:var(--font-weight-emphasis); }
 .wb-guide-stages { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:4px; max-width:720px; list-style:none; padding:4px; margin:8px 0 14px; border:1px solid var(--glass-edge); border-radius:9px; background:var(--segment-track,var(--surface-inset)); box-shadow:var(--control-inset-shadow); font-size:13px; }
 .wb-guide-stages li { display:flex; min-width:0; }
@@ -184,7 +188,16 @@
 .wb-guide-stages button[aria-current=step],
 .wb-guide-stages button[aria-current=step]:not(:disabled):hover { color:var(--teal); background:var(--segment-selected,var(--control-surface)); box-shadow:var(--segment-shadow,none); }
 .wb-guide-stages [aria-current=step] .wb-guide-number { background:var(--teal); color:var(--on-primary); }
-@media(max-width:540px) { .wb-guide-stages { grid-template-columns:minmax(0,1fr); } .wb-guide-stages button { padding:8px 10px; } }
+.wb-guide-stages[data-compact=true] { margin-bottom:0; }
+.wb-guide-stages[data-compact=true] button { min-height:44px; padding:6px 4px; gap:4px; font-size:12px; }
+.wb-guide-stages[data-compact=true] .wb-guide-number { width:18px; height:18px; font-size:11px; }
+.wb-guide-stages small[hidden] { display:none; }
+@media(max-width:540px) { .wb-guide-stages button { padding:8px 4px; gap:4px; } }
+@media(max-width:760px) {
+  .wb-next-step-summary { align-items:stretch; flex-direction:column; gap:8px; }
+  .wb-next-step-heading { align-items:flex-start; gap:8px; }
+  .wb-next-step-actions { justify-content:flex-end; }
+}
 @media(prefers-reduced-motion:reduce) { .wb-guide-stages button { transition:none; } }
 @media(forced-colors:active) {
   .wb-guide-stages { border-color:ButtonBorder; background:Canvas; box-shadow:none; }
@@ -244,7 +257,7 @@
   width: 100%;
   justify-content: center;
 }
-.wb-page .wb-field-name { cursor:pointer; text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:4px; }
+.wb-page .wb-field-name { cursor:pointer; overflow-wrap:anywhere; text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:4px; }
 .wb-source-card { padding:12px; border:1px solid var(--line); border-radius:7px; margin:10px 0; font-size:12px; overflow-wrap:anywhere; background:var(--surface-inset); }
 .wb-source-card strong { font-size:11px; }
 .wb-source-card p { margin:8px 0; line-height:1.6; color:var(--muted); }
@@ -370,6 +383,12 @@
 .wb-write-strategy .wb-reset-identity { border-top:1px solid var(--line); margin-top:6px; padding-top:14px; }
 .wb-execution-plan { padding:12px 16px; border-radius:8px; background:var(--wash); }
 .wb-execution-plan ul { padding-left:22px; }
+.wb-execution-plan:focus-visible { outline:2px solid var(--focus); outline-offset:2px; }
+.wb-modal-actions.wb-execution-actions { flex-wrap:wrap; gap:8px; margin-top:12px; }
+.wb-execution-feedback { display:flex; align-items:baseline; justify-content:space-between; gap:6px 12px; flex-basis:100%; min-width:0; font-size:12px; line-height:1.45; }
+.wb-execution-feedback [role=status] { min-width:0; overflow-wrap:anywhere; }
+.wb-execution-feedback .wb-button { flex:none; min-height:32px; padding-block:4px; }
+.wb-execution-feedback .wb-button[hidden] { display:none; }
 .wb-clear-recovery { min-width:0; margin:12px 0; padding:14px 16px; border:1px solid var(--line); border-radius:8px; background:var(--paper); }
 .wb-clear-recovery h3 { margin:0 0 8px; font-size:15px; line-height:1.5; }
 .wb-clear-recovery p { margin:6px 0; line-height:1.65; overflow-wrap:anywhere; }
@@ -377,7 +396,7 @@
 .wb-clear-recovery-actions { display:flex; align-items:center; flex-wrap:wrap; gap:8px; margin-top:12px; }
 .wb-clear-recovery-actions:empty { display:none; }
 .wb-clear-recovery-actions .btn { white-space:normal; text-align:left; }
-.wb-clear-recovery-tables { display:grid; grid-template-columns:repeat(auto-fit,minmax(170px,1fr)); gap:7px; margin:10px 0; padding-left:20px; }
+.wb-clear-recovery-tables { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(170px,100%),1fr)); gap:7px; margin:10px 0; padding-left:20px; }
 .wb-page .count-setting .wb-number-control { width:160px; }
 .wb-clear-recovery-tables li { line-height:1.6; overflow-wrap:anywhere; }
 .wb-clear-scope-review { min-width:0; }
@@ -444,16 +463,21 @@ table.wb-clear-scope-review { width:100%; table-layout:fixed; }
 .wb-page .wb-content { border:1px solid var(--line); border-radius:10px; background:var(--paper); overflow:hidden; min-width:0; }
 .wb-page .wb-sidebar .source { padding:0 8px 12px; }
 .wb-page .wb-sidebar .source-note { margin-top:6px; }
+.wb-page .wb-table-directory { margin:0; padding:0; border:0; background:transparent; box-shadow:none; }
+.wb-page .wb-table-directory-summary { display:none; }
+.wb-page .wb-table-directory-content { min-width:0; }
 .wb-page .wb-table-search { display:flex; margin:0 8px 10px; width:auto; min-width:0; }
 
 
 .wb-page .wb-table-search input { width:100%; min-width:0; }
 .wb-page .wb-table-list { max-height:360px; min-height:0; overflow:auto; }
-.wb-page .wb-table-entry { display:grid; grid-template-columns:16px minmax(0,1fr) 28px; gap:6px; padding:0 6px; margin:2px 0; }
+.wb-page .wb-table-entry { display:grid; grid-template-columns:32px minmax(0,1fr) 32px; gap:4px; padding:0 2px; margin:2px 0; }
+.wb-page .wb-table-select { display:grid; align-self:stretch; place-items:center; min-width:32px; min-height:40px; margin:0; cursor:pointer; }
+.wb-page .wb-table-select input { flex:none; margin:0; }
 .wb-page .wb-table-entry .wb-table-name { display:flex; flex-direction:column; align-items:flex-start; gap:3px; padding:9px 0; min-width:0; }
 .wb-page .wb-table-name .table-name { width:100%; white-space:normal; overflow-wrap:anywhere; font-size:12px; line-height:1.4; }
 .wb-page .wb-table-name .count { margin:0; font-size:10px; line-height:1.4; white-space:normal; }
-.wb-page .wb-table-graph { display:flex; width:28px; height:30px; padding:5px; }
+.wb-page .wb-table-graph { display:flex; width:32px; height:40px; padding:6px; }
 .wb-page .wb-table-graph:focus-visible,.wb-page .wb-table-entry input:focus-visible { outline:2px solid var(--teal); outline-offset:2px; }
 .wb-page .wb-table-entry[hidden] { display:none; }
 .wb-page .wb-batch-preview { margin:12px 8px 0; width:calc(100% - 16px); justify-content:flex-start; padding-inline:8px; }
@@ -503,8 +527,14 @@ table.wb-clear-scope-review { width:100%; table-layout:fixed; }
 @media(max-width:760px) {
   .wb-page .wb-workspace { grid-template-columns:1fr; gap:12px; }
   .wb-page .wb-sidebar { display:block; }
+  .wb-page .wb-table-directory-summary { display:flex; align-items:center; min-height:44px; padding:0 28px 0 2px; gap:8px; }
+  .wb-page .wb-table-directory-summary > span { display:flex; min-width:0; flex-direction:column; gap:4px; overflow-wrap:anywhere; }
+  .wb-page .wb-table-directory-summary strong { font-size:13px; line-height:1.4; font-weight:var(--font-weight-emphasis); }
+  .wb-page .wb-table-directory-summary small { color:var(--muted); font-size:11px; }
+  .wb-page .wb-table-directory-content { padding-top:12px; }
   .wb-page .wb-table-list { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); max-height:210px; gap:4px; }
-  .wb-page .wb-table-entry { min-width:0; }
+  .wb-page .wb-table-entry { min-width:0; grid-template-columns:44px minmax(0,1fr) 44px; }
+  .wb-page .wb-table-select,.wb-page .wb-table-graph { min-width:44px; width:44px; min-height:44px; }
   .wb-page .wb-sidebar .sidebar-label { display:flex; }
   .wb-page .wb-batch-preview { width:auto; }
   .wb-page .table-heading { padding:14px 16px 8px; }
@@ -514,6 +544,16 @@ table.wb-clear-scope-review { width:100%; table-layout:fixed; }
   .wb-page .wb-data col.col-field { width:35%; }
   .wb-page .wb-data col.col-rule { width:65%; }
   .wb-page .wb-generation-settings { margin-left:0; }
+}
+@media(max-width:760px), (pointer:coarse) {
+  .wb-page .count-setting .wb-number-control { display:inline-flex; align-items:stretch; width:190px; max-width:100%; gap:4px; }
+  .wb-page .count-setting .wb-number-control input { min-width:0; flex:1; padding-right:8px; min-height:44px; }
+  .wb-page .count-setting .wb-number-actions { position:static; flex-direction:row; flex:none; width:auto; gap:2px; }
+  .wb-page .count-setting .wb-number-actions button { flex:none; width:44px; min-height:44px; font-size:16px; }
+}
+@media(pointer:coarse) and (min-width:761px) {
+  .wb-page .wb-table-entry { grid-template-columns:44px minmax(0,1fr) 44px; }
+  .wb-page .wb-table-select,.wb-page .wb-table-graph { min-width:44px; width:44px; min-height:44px; }
 }
 @media(max-width:480px) {
   .wb-page .wb-table-list { grid-template-columns:1fr; }
