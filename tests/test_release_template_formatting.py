@@ -73,3 +73,40 @@ def test_html_block_template_instruction_is_rejected(tmp_path: Path, example: st
     path.write_text(body, encoding="utf-8", newline="\n")
     with pytest.raises(sync.SyncError, match="template instructions"):
         sync.validate_notes(path)
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "- Describe a user-visible\n  addition.",
+        "- **Describe a user-visible\n  addition.**",
+        "<div>Describe a user-visible\naddition.</div>",
+    ],
+)
+def test_soft_wrapped_template_instruction_is_rejected(tmp_path: Path, example: str) -> None:
+    """A source-only line wrap preserves the rendered instruction sentence."""
+    path = tmp_path / "v0.2.6.md"
+    body = BODY.replace("- Preserve release assets.", example)
+    path.write_text(body, encoding="utf-8", newline="\n")
+    with pytest.raises(sync.SyncError, match="template instructions"):
+        sync.validate_notes(path)
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "Describe a user-visible  \naddition.",
+        "Describe a user-visible<br>addition.",
+        "<div>Describe a user-visible</div><div>addition.</div>",
+        "<p>Describe a user-visible</p>\n<p>addition.</p>",
+        "<ul><li>Describe a user-visible</li>\n<li>addition.</li></ul>",
+        "- `Describe a user-visible\n  addition.`",
+        "> Describe a user-visible\n> addition.",
+    ],
+)
+def test_rendered_line_boundaries_and_wrapped_examples_remain_valid(tmp_path: Path, example: str) -> None:
+    """Explicit breaks and separate blocks do not join; literal examples stay exempt."""
+    path = tmp_path / "v0.2.6.md"
+    body = BODY.replace("- Preserve release assets.", example)
+    path.write_text(body, encoding="utf-8", newline="\n")
+    assert sync.validate_notes(path) == body

@@ -182,18 +182,20 @@ class TemplateProseDetector(HTMLParser):
         if tag in {"code", "pre", "q", "blockquote"}:
             self.literal_tags.append(tag)
             self.parts.append("\0")
-        elif tag == "br":
+        elif tag in {"br", "div", "li", "p"}:
             self.parts.append("\n")
 
     def handle_endtag(self, tag: str) -> None:
         """Resume prose when the corresponding literal element closes."""
         if self.literal_tags and self.literal_tags[-1] == tag:
             self.literal_tags.pop()
+        if tag in {"div", "li", "p"}:
+            self.parts.append("\n")
 
     def handle_data(self, data: str) -> None:
-        """Keep text outside literal examples without attributes or formatting markup."""
+        """Collapse source line wraps while explicit rendered boundaries stay separate."""
         if not self.literal_tags:
-            self.parts.append(data)
+            self.parts.append(data.replace("\n", " "))
 
 
 def has_template_instructions(tokens: list[Token]) -> bool:
@@ -406,12 +408,19 @@ def rendered_link_targets(links: str) -> Iterator[str]:
 
 
 def github_link_parts(target_url: str) -> list[str]:
-    """Read GitHub paths without letting unrelated malformed HTML links stop validation."""
+    """Recognize GitHub's HTTPS origin without credentials or nonstandard ports."""
     try:
         url = urlsplit(target_url)
+        port = url.port
     except ValueError:
         return []
-    if url.scheme not in {"http", "https"} or url.hostname != "github.com":
+    if (
+        url.scheme != "https"
+        or url.hostname != "github.com"
+        or url.username is not None
+        or url.password is not None
+        or port not in {None, 443}
+    ):
         return []
     return unquote(url.path).strip("/").split("/")
 

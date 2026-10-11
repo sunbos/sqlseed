@@ -66,3 +66,44 @@ def test_source_reference_in_prose_does_not_replace_links_section(tmp_path: Path
     path.write_text(body + "- No links yet.\n", encoding="utf-8", newline="\n")
     with pytest.raises(sync.SyncError, match="must include a source link"):
         sync.validate_notes(path)
+
+
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "http://github.com",
+        "https://github.com:444",
+        "https://maintainer@github.com",
+        "https://maintainer:secret@github.com",
+        "https://@github.com",
+        "https://:secret@github.com",
+        "https://github.com:not-a-port",
+        "https://github.com:65536",
+    ],
+)
+def test_source_link_requires_canonical_github_origin(tmp_path: Path, origin: str) -> None:
+    """HTTP, custom ports, and userinfo must not satisfy the required GitHub source link."""
+    path = tmp_path / "v0.2.6.md"
+    body = BODY + f'- <a href="{origin}/sunbos/sqlseed/tree/v0.2.6">Source</a>\n'
+    path.write_text(body, encoding="utf-8", newline="\n")
+    with pytest.raises(sync.SyncError, match="must include a source link"):
+        sync.validate_notes(path)
+
+
+@pytest.mark.parametrize("origin", ["https://github.com", "https://github.com:443"])
+def test_https_default_port_is_the_canonical_github_origin(tmp_path: Path, origin: str) -> None:
+    """An explicit HTTPS default port identifies the same origin as an omitted port."""
+    path = tmp_path / "v0.2.6.md"
+    body = BODY + f"- [Source]({origin}/sunbos/sqlseed/tree/v0.2.6)\n"
+    path.write_text(body, encoding="utf-8", newline="\n")
+    assert sync.validate_notes(path) == body
+
+
+@pytest.mark.parametrize("target", ["tree/v0.2.5", "blob/v0.2.5/CHANGELOG.md", "compare/v0.2.4...v0.2.5"])
+def test_explicit_https_port_keeps_versioned_link_validation(tmp_path: Path, target: str) -> None:
+    """Recognizing the HTTPS default port must retain source, changelog, and diff tag checks."""
+    path = tmp_path / "v0.2.6.md"
+    body = BODY + f"- [Source](https://github.com:443/sunbos/sqlseed/{target})\n"
+    path.write_text(body, encoding="utf-8", newline="\n")
+    with pytest.raises(sync.SyncError, match=r"release link target 'v0\.2\.5' must match v0\.2\.6"):
+        sync.validate_notes(path)
