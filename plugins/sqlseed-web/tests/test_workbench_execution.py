@@ -354,7 +354,8 @@ def test_sqlite_nullable_self_reference_uses_new_ids_and_deferred_updates(
             "REFERENCES employees(id)); INSERT INTO employees VALUES(90,NULL); INSERT INTO "
             "employees VALUES(91,90);"
         )
-    args, _ = prepared(conn, store, [{"name": "employees", "count": 8, "batch_size": 3}])
+    # Seed the optional hierarchy pass so this small sample exercises real FK updates.
+    args, _ = prepared(conn, store, [{"name": "employees", "count": 8, "batch_size": 3, "seed": 42}])
     execution = {"mode": "replace_selected", "reset_identity": True}
     run = run_replacement(registry, store, args, execution)
     assert run["status"] == "done", run
