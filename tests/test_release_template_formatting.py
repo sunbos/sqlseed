@@ -110,3 +110,46 @@ def test_rendered_line_boundaries_and_wrapped_examples_remain_valid(tmp_path: Pa
     body = BODY.replace("- Preserve release assets.", example)
     path.write_text(body, encoding="utf-8", newline="\n")
     assert sync.validate_notes(path) == body
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "- ~~Describe a user-visible addition.~~",
+        "- ~Describe a user-visible addition.~",
+        "- [ ] Describe a user-visible addition.",
+        "- [x] Describe a user-visible addition.",
+        "- [X] Describe a user-visible addition.",
+        "1. [ ] **Describe a user-visible addition.**",
+        "- Changes:\n  - [x] ~~Describe a user-visible addition.~~",
+        "- [ ] Describe a user-visible\n  addition.",
+    ],
+)
+def test_github_formatted_template_instruction_is_rejected(tmp_path: Path, example: str) -> None:
+    """Strikethrough and real task-list checkboxes leave the instruction prose intact."""
+    path = tmp_path / "v0.2.6.md"
+    body = BODY.replace("- Preserve release assets.", example)
+    path.write_text(body, encoding="utf-8", newline="\n")
+    with pytest.raises(sync.SyncError, match="template instructions"):
+        sync.validate_notes(path)
+
+
+@pytest.mark.parametrize(
+    "example",
+    [
+        "- `~~Describe a user-visible addition.~~`",
+        "- [ ] `Describe a user-visible addition.`",
+        "> - [x] ~~Describe a user-visible addition.~~",
+        "- Fixed ~~Describe a user-visible addition.~~ copied into earlier notes.",
+        "[ ] Describe a user-visible addition.",
+        r"- \[ ] Describe a user-visible addition.",
+        "- [x]Describe a user-visible addition.",
+        "- Initial paragraph.\n\n  [ ] Describe a user-visible addition.",
+    ],
+)
+def test_github_formatting_examples_and_literal_markers_remain_valid(tmp_path: Path, example: str) -> None:
+    """Code, quotes, explanatory prose, and non-task markers do not become instructions."""
+    path = tmp_path / "v0.2.6.md"
+    body = BODY.replace("- Preserve release assets.", example)
+    path.write_text(body, encoding="utf-8", newline="\n")
+    assert sync.validate_notes(path) == body

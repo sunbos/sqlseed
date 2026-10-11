@@ -100,6 +100,11 @@ class SyncError(RuntimeError):
     """A validation, remote API, or concurrency failure that stops synchronization."""
 
 
+def markdown_parser() -> MarkdownIt:
+    """Use one CommonMark configuration with GitHub's single/double-tilde strikethrough."""
+    return MarkdownIt("commonmark", {"strikethrough_single_tilde": True}).enable("strikethrough")
+
+
 class HTMLHeadingDetector(HTMLParser):
     """Reject actual heading tags while ignoring attributes, comments, and entities."""
 
@@ -201,21 +206,33 @@ class TemplateProseDetector(HTMLParser):
 def has_template_instructions(tokens: list[Token]) -> bool:
     """Find complete template prose lines while allowing quotations and code examples."""
     quote_depth = 0
-    for token in tokens:
+    for index, token in enumerate(tokens):
         if token.type == "blockquote_open":
             quote_depth += 1
         elif token.type == "blockquote_close":
             quote_depth -= 1
         elif token.type in {"inline", "html_block"} and not quote_depth:
             text = template_prose(token)
+            if is_task_list_prose(tokens, index):
+                text = re.sub(r"^\[[ xX]\]\s+", "", text, count=1)
             if any(" ".join(line.split()) in TEMPLATE_INSTRUCTIONS for line in text.splitlines()):
                 return True
     return False
 
 
+def is_task_list_prose(tokens: list[Token], index: int) -> bool:
+    """Recognize a checkbox only at the start of a list item's first paragraph."""
+    return (
+        index >= 2
+        and tokens[index - 2].type == "list_item_open"
+        and tokens[index - 1].type == "paragraph_open"
+        and re.match(r"^\[[ xX]\][ \t\n]+", tokens[index].content) is not None
+    )
+
+
 def template_prose(token: Token) -> str:
     """Read rendered prose consistently for Markdown formatting and raw HTML blocks."""
-    markdown = MarkdownIt("commonmark")
+    markdown = markdown_parser()
     parser = TemplateProseDetector()
     rendered = markdown.renderer.render([token], markdown.options, {})
     parser.feed(rendered)
@@ -235,7 +252,7 @@ def markdown_content_lines(tokens: list[Token], headings: list[tuple[int, str]])
 def has_visible_content(lines: list[str]) -> bool:
     """Render CommonMark so code, images, entities, and reference links share one interpretation."""
     parser = VisibleContentDetector()
-    parser.feed(MarkdownIt("commonmark").render("\n".join(lines)))
+    parser.feed(markdown_parser().render("\n".join(lines)))
     return parser.visible
 
 
@@ -253,7 +270,7 @@ def read_notes(path: Path) -> str:
 def validate_note_structure(path: Path, body: str, *, template: bool = False) -> str:
     """Validate the shared bilingual structure and return the final links section."""
     lines = body.splitlines()
-    tokens = MarkdownIt("commonmark").parse(body)
+    tokens = markdown_parser().parse(body)
     headings = markdown_headings(lines, tokens)
     detector = HTMLHeadingDetector()
     for fragment in raw_html_fragments(tokens):
@@ -398,7 +415,7 @@ def bare_link_targets(tokens: list[Token]) -> Iterator[str]:
 
 def rendered_link_targets(links: str) -> Iterator[str]:
     """Use CommonMark's rendered anchors and source text tokens to identify clickable links."""
-    markdown = MarkdownIt("commonmark")
+    markdown = markdown_parser()
     tokens = markdown.parse(links)
     html = HTMLSourceLinks()
     html.feed(markdown.renderer.render(tokens, markdown.options, {}))
