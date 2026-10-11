@@ -168,6 +168,34 @@ def raw_html_fragments(tokens: list[Token]) -> Iterator[str]:
                 yield child.content
 
 
+class TemplateProseDetector(HTMLParser):
+    """Read formatted prose while keeping code and quotation examples separate."""
+
+    def __init__(self) -> None:
+        """Start with plain prose and no enclosing literal element."""
+        super().__init__()
+        self.parts: list[str] = []
+        self.literal_tags: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Make formatting transparent and preserve code, quotes, and line boundaries."""
+        if tag in {"code", "pre", "q", "blockquote"}:
+            self.literal_tags.append(tag)
+            self.parts.append("\0")
+        elif tag == "br":
+            self.parts.append("\n")
+
+    def handle_endtag(self, tag: str) -> None:
+        """Resume prose when the corresponding literal element closes."""
+        if self.literal_tags and self.literal_tags[-1] == tag:
+            self.literal_tags.pop()
+
+    def handle_data(self, data: str) -> None:
+        """Keep text outside literal examples without attributes or formatting markup."""
+        if not self.literal_tags:
+            self.parts.append(data)
+
+
 def has_template_instructions(tokens: list[Token]) -> bool:
     """Find complete template prose lines while allowing quotations and code examples."""
     quote_depth = 0
@@ -176,20 +204,24 @@ def has_template_instructions(tokens: list[Token]) -> bool:
             quote_depth += 1
         elif token.type == "blockquote_close":
             quote_depth -= 1
-        elif token.type == "inline" and not quote_depth:
-            text = "".join(template_prose(child) for child in token.children or [])
+        elif token.type in {"inline", "html_block"} and not quote_depth:
+            text = template_prose(token)
             if any(" ".join(line.split()) in TEMPLATE_INSTRUCTIONS for line in text.splitlines()):
                 return True
     return False
 
 
 def template_prose(token: Token) -> str:
-    """Keep text and line boundaries, with other inline syntax separating prose examples."""
-    if token.type == "text":
-        return token.content
-    if token.type in {"softbreak", "hardbreak"}:
-        return "\n"
-    return "\0"
+    """Read rendered prose consistently for Markdown formatting and raw HTML blocks."""
+    markdown = MarkdownIt("commonmark")
+    parser = TemplateProseDetector()
+    rendered = (
+        token.content
+        if token.type == "html_block"
+        else markdown.renderer.renderInline(token.children or [], markdown.options, {})
+    )
+    parser.feed(rendered)
+    return "".join(parser.parts)
 
 
 def markdown_content_lines(tokens: list[Token], headings: list[tuple[int, str]]) -> set[int]:
@@ -437,7 +469,7 @@ def load_notes(directory: Path, tags: list[str] | None, repo: str = DEFAULT_REPO
 
 def github_api(endpoint: str, *, payload: dict[str, str] | None = None, paginate: bool = False) -> Any:
     """Run gh without a shell, withholding stderr because it can contain credentials."""
-    command = ["gh", "api", "--method", "PATCH" if payload is not None else "GET", endpoint]
+    command = ["gh", "api", "--method", "PATCH" if payload is not None else "GET", endpoint, "--hostname", "github.com"]
     if paginate:
         command.extend(["--paginate", "--slurp"])
     if payload is not None:

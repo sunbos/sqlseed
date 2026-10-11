@@ -176,6 +176,22 @@ def test_offline_check_does_not_invoke_gh(notes_dir: Path, github: GitHubProcess
     assert github.clock.sleeps == []
 
 
+@pytest.mark.parametrize("apply", [False, True], ids=["preview", "apply"])
+def test_github_hostname_overrides_inherited_gh_host(
+    notes_dir: Path, github: GitHubProcess, monkeypatch: pytest.MonkeyPatch, apply: bool
+) -> None:
+    """Every GET and PATCH must target github.com even when gh defaults to another host."""
+    monkeypatch.setenv("GH_HOST", "github.enterprise.example")
+    arguments = ["--notes-dir", str(notes_dir)]
+    if apply:
+        arguments.extend(["--apply", "--backup-name", "github-com-only"])
+    assert sync.main(arguments) == 0
+    assert {command[3] for command in github.commands} == ({"GET", "PATCH"} if apply else {"GET"})
+    for command in github.commands:
+        assert "--hostname" in command
+        assert command[command.index("--hostname") + 1] == "github.com"
+
+
 @pytest.mark.parametrize("arguments", [[], ["--check"], ["--apply", "--backup-name", "placeholders"]])
 @pytest.mark.parametrize(
     "body",
