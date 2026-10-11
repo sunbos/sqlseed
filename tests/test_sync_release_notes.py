@@ -592,8 +592,9 @@ def test_named_backup_saves_only_version_files_inside_fixed_root() -> None:
 @pytest.mark.parametrize("name", ["../escape", "/outside", r"..\escape"])
 def test_backup_helper_rejects_unsafe_names_without_filesystem_changes(tmp_path: Path, name: str) -> None:
     """Direct helper callers cannot bypass the fixed-root CLI boundary."""
+    originals = {"v0.2.6": release(26, "v0.2.6")}
     with pytest.raises(sync.SyncError, match="Backup name"):
-        sync.backup_releases(name, {"v0.2.6": release(26, "v0.2.6")})
+        sync.backup_releases(name, originals)
     assert list(tmp_path.iterdir()) == []
 
 

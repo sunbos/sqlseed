@@ -75,10 +75,10 @@ def markdown_prefix(line: str) -> tuple[str, str]:
 
 
 def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int], set[int]]:
-    """Locate headings, nonblank content, and prose outside fenced or indented code."""
+    """Locate headings, nonblank content, and content outside fenced code."""
     headings = []
     content_lines = set()
-    prose_lines = set()
+    unfenced_lines = set()
     fence = ""
     for index, line in enumerate(lines):
         marker, tail = markdown_prefix(line)
@@ -94,11 +94,18 @@ def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int
             headings.append((index, line))
         elif line.strip():
             content_lines.add(index)
-            if not line.startswith("    ") and not line.lstrip(" ").startswith("\t"):
-                prose_lines.add(index)
+            unfenced_lines.add(index)
     if fence:
         raise SyncError("Release notes contain an unclosed fenced code block")
-    return headings, content_lines, prose_lines
+    return headings, content_lines, unfenced_lines
+
+
+def is_template_instruction(line: str) -> bool:
+    """Match standalone template prose while preserving indented code examples."""
+    if line.startswith("    ") or line.lstrip(" ").startswith("\t"):
+        return False
+    normalized = " ".join(line.split()).removeprefix("- ")
+    return normalized in TEMPLATE_INSTRUCTIONS
 
 
 def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
@@ -112,9 +119,8 @@ def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
     if "vVERSION" in body or "vPREVIOUS" in body:
         raise SyncError(f"{path}: replace release-template version placeholders")
     lines = body.splitlines()
-    headings, content_lines, prose_lines = markdown_structure(lines)
-    template_lines = set(TEMPLATE_INSTRUCTIONS) | {f"- {instruction}" for instruction in TEMPLATE_INSTRUCTIONS}
-    if any(" ".join(lines[index].split()) in template_lines for index in prose_lines):
+    headings, content_lines, unfenced_lines = markdown_structure(lines)
+    if any(is_template_instruction(lines[index]) for index in unfenced_lines):
         raise SyncError(f"{path}: replace release-template instructions with version-specific release notes")
     validate_sections(path, lines, headings, content_lines)
     validate_versioned_links(path, "\n".join(lines[headings[-1][0] + 1 :]), repo)
