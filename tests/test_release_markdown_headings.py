@@ -133,3 +133,70 @@ def test_html_heading_examples_remain_valid(tmp_path: Path, content: str) -> Non
     body = BODY.replace("- Preserve release assets.", content)
     path.write_text(body, encoding="utf-8", newline="\n")
     assert sync.validate_notes(path) == body
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "> ## Unexpected",
+        "- ## Unexpected",
+        "+ ### Unexpected",
+        "* # Unexpected",
+        "1. #### Unexpected",
+        "1) ##### Unexpected",
+        "> - ## Unexpected",
+        "- > ## Unexpected",
+        "> > ###### Unexpected",
+        "- Item\n\n  ## Unexpected",
+        "10. Item\n\n    ## Unexpected",
+        "> Unexpected\n> ---",
+        "- Unexpected\n  ---",
+        "> ```\n> Example\n## Unexpected",
+        "- ```\n  Example\n- ## Unexpected",
+    ],
+)
+def test_container_heading_is_rejected(tmp_path: Path, content: str) -> None:
+    """Quotes and list items cannot add rendered sections or hide them behind code fences."""
+    path = tmp_path / "v0.2.6.md"
+    path.write_text(BODY.replace("- Preserve release assets.", content), encoding="utf-8", newline="\n")
+    with pytest.raises(sync.SyncError, match="heading"):
+        sync.validate_notes(path)
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "> ```markdown\n> ## Example\n> ```",
+        "- ```markdown\n  ## Example\n  ```",
+        "10. ```markdown\n    ## Example\n    ```",
+        "> - ```html\n>   <h2>Example</h2>\n>   ```",
+        "- > ```markdown\n  > ## Example\n  > ```",
+        ">     ## Example",
+        "-     ## Example",
+        "- Item\n\n      ## Example",
+        ">     <h2>Example</h2>",
+        "- Item\n\n      <h2>Example</h2>",
+        "> `## Example`",
+        "- `## Example`",
+        "~~~bad`info\n## Example\n~~~",
+        "```some `inline code```",
+        "- Item\n> ---",
+        "Text\n> ---",
+    ],
+)
+def test_container_code_and_fence_examples_remain_valid(tmp_path: Path, content: str) -> None:
+    """Relative code indentation, nested fences, and valid info strings remain usable."""
+    path = tmp_path / "v0.2.6.md"
+    body = BODY.replace("- Preserve release assets.", content)
+    path.write_text(body, encoding="utf-8", newline="\n")
+    assert sync.validate_notes(path) == body
+
+
+@pytest.mark.parametrize("opening", ["```bad`info", "````bad``info", "> ```bad`info", "- ```bad`info"])
+def test_invalid_backtick_info_cannot_hide_headings(tmp_path: Path, opening: str) -> None:
+    """A backtick in an opening info string must not put following headings in code."""
+    path = tmp_path / "v0.2.6.md"
+    body = BODY.replace("- Preserve release assets.", f"{opening}\n## Unexpected\n````")
+    path.write_text(body, encoding="utf-8", newline="\n")
+    with pytest.raises(sync.SyncError, match=r"heading|fenced"):
+        sync.validate_notes(path)

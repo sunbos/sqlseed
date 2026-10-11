@@ -274,8 +274,9 @@ When preparing a new version release:
    ```bash
    git tag v<version>
    git push origin v<version>
-   gh release create v<version> --title "v<version>" --notes-file .github/release-notes/v<version>.md
+   gh release create v<version> --verify-tag --title "v<version>" --notes-file .github/release-notes/v<version>.md
    ```
+   `--verify-tag` aborts if the tag does not already exist in the remote repository.
 
 4. **CI publish** — `publish.yml` triggers on release or `workflow_dispatch` with an existing `release_tag`. It resolves the tag to a commit for testing, building and public acceptance. Inspect failed upload logs and PyPI files before retrying. For an uploader compatibility fix, merge the workflow correction and run `gh workflow run publish.yml --ref main -f release_tag=v<version>`; preserve the existing release tag, metadata validation and attestations. Core Metadata 2.5 needs PyPA publish action v1.14.2 or newer. See [the release guide](docs/releasing.md) for recovery details.
 

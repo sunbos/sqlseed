@@ -22,6 +22,29 @@ if TYPE_CHECKING:
 
 DEFAULT_REPO = "sunbos/sqlseed"
 DEFAULT_NOTES_DIR = Path(__file__).resolve().parents[1] / ".github" / "release-notes"
+# Preserve the original published collection while allowing newer notes to be added.
+REQUIRED_HISTORICAL_TAGS = (
+    "v0.1.1",
+    "v0.1.7",
+    "v0.1.8",
+    "v0.1.9",
+    "v0.1.10",
+    "v0.1.11",
+    "v0.1.12",
+    "v0.1.13",
+    "v0.1.14",
+    "v0.1.15",
+    "v0.1.16",
+    "v0.1.17",
+    "v0.1.18",
+    "v0.1.19",
+    "v0.1.20",
+    "v0.2.1",
+    "v0.2.3",
+    "v0.2.4",
+    "v0.2.5",
+    "v0.2.6",
+)
 BACKUP_ROOT = Path(__file__).resolve().parents[1] / ".release-backups"
 BACKUP_NAME_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 TAG_PATTERN = re.compile(r"v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)")
@@ -95,32 +118,94 @@ def markdown_prefix(line: str) -> tuple[str, str]:
     if prefix[0] == "#":
         if len(prefix) <= 6 and (not tail or tail[0].isspace()):
             return prefix, tail
-    elif len(prefix) >= 3:
+    elif len(prefix) >= 3 and (prefix[0] != "`" or "`" not in tail):
         return prefix, tail
     return "", ""
 
 
-def markdown_line_kinds(lines: list[str]) -> Iterator[tuple[int, str]]:
+def container_prefix(content: str) -> tuple[str, tuple[str, int]] | None:
+    """Remove one quote/list marker while preserving four-space code indentation."""
+    if ends_setext_paragraph(content):
+        return None
+    if match := re.match(r" {0,3}> ?", content):
+        return content[match.end() :], ("quote", 0)
+    if match := re.match(r" {0,3}(?:[-+*]|\d{1,9}[.)]) +", content):
+        whitespace = len(match[0]) - len(match[0].rstrip(" "))
+        width = match.end() - whitespace + (1 if whitespace > 4 else whitespace)
+        return content[width:], ("list", width)
+    return None
+
+
+def continue_container(content: str, frame: tuple[str, int]) -> str | None:
+    """Match a quote prefix or a list item's relative continuation indentation."""
+    kind, width = frame
+    if kind == "quote":
+        match = re.match(r" {0,3}> ?", content)
+        return content[match.end() :] if match else None
+    if not content.strip():
+        return ""
+    return content[width:] if content.startswith(" " * width) else None
+
+
+def container_content(
+    line: str, active: tuple[tuple[str, int], ...], literal: bool
+) -> tuple[str, tuple[tuple[str, int], ...], bool]:
+    """Follow existing containers and recognize new ones outside literal code/HTML."""
+    content = line.expandtabs(4)
+    frames = []
+    for frame in active:
+        continued = continue_container(content, frame)
+        if continued is None:
+            break
+        frames.append(frame)
+        content = continued
+    interrupted = len(frames) != len(active)
+    if literal and not interrupted:
+        return content, tuple(frames), False
+    while prefix := container_prefix(content):
+        content, frame = prefix
+        frames.append(frame)
+    context = tuple(frames)
+    return content, context, interrupted or context != active
+
+
+def markdown_content_kind(content: str, marker: str, raw_html: bool, paragraph: bool) -> tuple[str, bool]:
+    """Keep indented code distinct from ordinary paragraph continuation lines."""
+    if raw_html:
+        return "html", False
+    if marker.startswith("#"):
+        return "heading", False
+    if content.startswith("    ") and not paragraph:
+        return "code", False
+    return "prose", bool(content.strip())
+
+
+def markdown_line_kinds(lines: list[str]) -> Iterator[tuple[int, str, str, int]]:
     """Classify lines with fenced code taking precedence over raw HTML blocks."""
     fence = ""
     html_end = None
+    context: tuple[tuple[str, int], ...] = ()
+    context_id = 0
+    paragraph = False
     for index, line in enumerate(lines):
-        marker, tail = markdown_prefix(line)
+        content, context, changed = container_content(line, context, bool(fence or html_end is not None))
+        if changed:
+            fence, html_end, paragraph = "", None, False
+            context_id += 1
+        marker, tail = markdown_prefix(content)
         if fence:
             if marker.startswith(fence[0]) and len(marker) >= len(fence) and not tail.strip():
                 fence = ""
             else:
-                yield index, "code"
+                yield index, "code", content, context_id
             continue
-        raw_html, html_end = html_block_state(line, html_end, index == 0 or not lines[index - 1].strip())
-        if raw_html:
-            yield index, "html"
-        elif marker.startswith(("`", "~")):
+        raw_html, html_end = html_block_state(content, html_end, not paragraph)
+        if not raw_html and marker.startswith(("`", "~")):
             fence = marker
-        elif marker.startswith("#"):
-            yield index, "heading"
-        else:
-            yield index, "prose"
+            paragraph = False
+            continue
+        kind, paragraph = markdown_content_kind(content, marker, raw_html, paragraph)
+        yield index, kind, content, context_id
     if fence:
         raise SyncError("Release notes contain an unclosed fenced code block")
 
@@ -131,7 +216,13 @@ def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int
     content_lines = set()
     unfenced_lines = set()
     html_lines = set()
-    for index, kind in markdown_line_kinds(lines):
+    rendered_lines = lines.copy()
+    nested_lines = set()
+    context_lines: dict[int, set[int]] = {}
+    for index, kind, content, context_id in markdown_line_kinds(lines):
+        rendered_lines[index] = content
+        if content != lines[index]:
+            nested_lines.add(index)
         if kind == "html":
             html_lines.add(index)
         if kind == "heading":
@@ -140,7 +231,18 @@ def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int
             content_lines.add(index)
             if kind != "code":
                 unfenced_lines.add(index)
+                context_lines.setdefault(context_id, set()).add(index)
+    validate_nested_setext(rendered_lines, nested_lines, context_lines, html_lines)
     return headings, content_lines, unfenced_lines, html_lines
+
+
+def validate_nested_setext(
+    lines: list[str], nested_lines: set[int], context_lines: dict[int, set[int]], html_lines: set[int]
+) -> None:
+    """Require a paragraph within the same container before interpreting a Setext underline."""
+    for context in context_lines.values():
+        if any(is_setext_heading(lines, index, context) for index in nested_lines & context - html_lines):
+            raise SyncError("Nested Setext headings are not allowed; use the canonical ATX H2 and H3 headings")
 
 
 def is_template_instruction(line: str) -> bool:
@@ -298,26 +400,48 @@ def without_inline_examples(text: str) -> str:
     return "".join(parts)
 
 
-def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
-    """Read canonical UTF-8 notes and check their bilingual section structure."""
+def read_notes(path: Path) -> str:
+    """Read notes and templates using the same canonical UTF-8 and newline rules."""
     try:
         body = path.read_bytes().decode("utf-8")
     except (OSError, UnicodeError) as exc:
         raise SyncError(f"Cannot read UTF-8 notes: {path}") from exc
     if body.startswith("\ufeff") or "\r" in body or not body.endswith("\n"):
         raise SyncError(f"{path}: use UTF-8 without BOM, LF line endings, and a final newline")
-    if "vVERSION" in body or "vPREVIOUS" in body:
-        raise SyncError(f"{path}: replace release-template version placeholders")
+    return body
+
+
+def validate_note_structure(path: Path, body: str, *, template: bool = False) -> str:
+    """Validate the shared bilingual structure and return the final links section."""
     lines = body.splitlines()
     headings, content_lines, unfenced_lines, html_lines = markdown_structure(lines)
     HTMLHeadingDetector().feed(html_prose(lines, unfenced_lines, html_lines))
     if any(is_setext_heading(lines, index, unfenced_lines) for index in unfenced_lines - html_lines):
         raise SyncError(f"{path}: Setext headings are not allowed; use the canonical ATX H2 and H3 headings")
-    if any(is_template_instruction(lines[index]) for index in unfenced_lines):
+    if not template and any(is_template_instruction(lines[index]) for index in unfenced_lines):
         raise SyncError(f"{path}: replace release-template instructions with version-specific release notes")
     validate_sections(path, lines, headings, content_lines)
-    validate_versioned_links(path, "\n".join(lines[headings[-1][0] + 1 :]), repo)
+    if template:
+        subsections = [heading[4:] for _, heading in headings if heading.startswith("### ")]
+        if subsections != [*SUBSECTIONS, *SUBSECTIONS.values()]:
+            raise SyncError(f"{path}: template must include all English/Chinese subsections in canonical order")
+    return "\n".join(lines[headings[-1][0] + 1 :])
+
+
+def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
+    """Read canonical UTF-8 notes and check their bilingual section structure."""
+    body = read_notes(path)
+    if "vVERSION" in body or "vPREVIOUS" in body:
+        raise SyncError(f"{path}: replace release-template version placeholders")
+    links = validate_note_structure(path, body)
+    validate_versioned_links(path, links, repo)
     return body
+
+
+def validate_template(path: Path, repo: str = DEFAULT_REPO) -> None:
+    """Keep the complete canonical template while allowing its instructions and placeholders."""
+    links = validate_note_structure(path, read_notes(path), template=True)
+    validate_versioned_links(path, links, repo, expected_tag="vVERSION")
 
 
 def validate_sections(path: Path, lines: list[str], headings: list[tuple[int, str]], content_lines: set[int]) -> None:
@@ -345,27 +469,42 @@ def validate_sections(path: Path, lines: list[str], headings: list[tuple[int, st
             raise SyncError(f"{path}: {heading} must contain nonwhitespace content")
 
 
-def validate_versioned_links(path: Path, links: str, repo: str) -> None:
+def validate_versioned_links(path: Path, links: str, repo: str, *, expected_tag: str | None = None) -> None:
     """Require a tagged source root and keep final versioned links on the note's tag."""
+    expected_tag = path.stem if expected_tag is None else expected_tag
     source_found = False
     for match in re.finditer(r"https?://github\.com/[^\s<>)\"']+", links):
         parts = unquote(urlsplit(match[0]).path).strip("/").split("/")
         if parts[:2] != repo.split("/") or len(parts) < 4 or parts[2] not in {"tree", "blob", "compare"}:
             continue
         target = parts[3].rsplit("...", 1)[-1] if parts[2] == "compare" else parts[3]
-        if target != path.stem:
-            raise SyncError(f"{path}: release link target {target!r} must match {path.stem}")
+        if target != expected_tag:
+            raise SyncError(f"{path}: release link target {target!r} must match {expected_tag}")
         if parts[2] == "tree" and len(parts) == 4:
             source_found = True
     if not source_found:
         raise SyncError(
-            f"{path}: links section must include a source link to https://github.com/{repo}/tree/{path.stem}"
+            f"{path}: links section must include a source link to https://github.com/{repo}/tree/{expected_tag}"
         )
+
+
+def validate_collection(directory: Path, selected: list[str], repo: str) -> None:
+    """Protect the default historical inventory and validate any supplied template."""
+    default_directory = directory.resolve() == DEFAULT_NOTES_DIR.resolve()
+    if default_directory and repo == DEFAULT_REPO:
+        missing = [tag for tag in REQUIRED_HISTORICAL_TAGS if tag not in selected]
+        if missing:
+            raise SyncError(f"Missing required historical release notes in {directory}: {', '.join(missing)}")
+    template = directory / "TEMPLATE.md"
+    if default_directory or template.exists():
+        validate_template(template, repo)
 
 
 def load_notes(directory: Path, tags: list[str] | None, repo: str = DEFAULT_REPO) -> dict[str, str]:
     """Validate selected version filenames and their contents before contacting GitHub."""
     selected = tags if tags is not None else [path.stem for path in directory.glob("v*.md")]
+    if tags is None:
+        validate_collection(directory, selected, repo)
     if not selected:
         raise SyncError(f"No version notes found in {directory}")
     if len(selected) != len(set(selected)):

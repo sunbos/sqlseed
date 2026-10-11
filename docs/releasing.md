@@ -90,11 +90,13 @@ Compatibility and Verification only when applicable. Both languages describe
 the same changes. Link changelogs and source to the exact version tag; keep
 historical verification evidence and upgrade limits with their own version.
 
-Check the notes before committing and use them when creating an approved release:
+Check the notes before committing. After approval, push the release commit and tag,
+then create the release with the reviewed notes. `--verify-tag` stops if the tag is
+missing from the remote repository:
 
 ```bash
 python scripts/sync_release_notes.py --check
-gh release create v<version> --title "v<version>" --notes-file .github/release-notes/v<version>.md
+gh release create v<version> --verify-tag --title "v<version>" --notes-file .github/release-notes/v<version>.md
 ```
 
 For existing releases, preview the differences, then apply the reviewed files:

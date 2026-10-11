@@ -42,11 +42,12 @@ Release 标题统一为 `v<version>`，审阅后的正文保存在
 变更、修复、移除、兼容性与验收记录，两种语言描述相同的变更。变更日志和源码链接固定到
 对应版本标签，历史验收依据与升级限制保留在所属版本。
 
-提交前校验说明，批准发布后用该文件创建 Release：
+提交前校验说明。批准发布后，先推送发布提交与标签，再用审阅后的文件创建 Release。
+`--verify-tag` 会在远端仓库缺少该标签时中止：
 
 ```bash
 python scripts/sync_release_notes.py --check
-gh release create v<version> --title "v<version>" --notes-file .github/release-notes/v<version>.md
+gh release create v<version> --verify-tag --title "v<version>" --notes-file .github/release-notes/v<version>.md
 ```
 
 修改已有 Release 时，先预览差异，再同步审阅后的文件：

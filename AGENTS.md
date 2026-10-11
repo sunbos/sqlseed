@@ -108,5 +108,5 @@ make mutmut
 - 修改依赖后，在根目录、`plugins/sqlseed-ai/`、`plugins/mcp-server-sqlseed/` 各自运行 `uv lock`，维护已有三个 lock files；CLI/Web 当前没有独立 lock file。
 - 版本发布同时更新 [CHANGELOG.md](CHANGELOG.md) 和 [CHANGELOG.zh-CN.md](CHANGELOG.zh-CN.md)。
 - GitHub Release 标题统一为 `v<version>`，正文维护在 `.github/release-notes/v<version>.md`，按[双语模板](.github/release-notes/TEMPLATE.md)编写并运行 `python scripts/sync_release_notes.py --check`。创建时使用 `--notes-file`；历史说明同步先预览并备份，保留各版本兼容性与验收记录，详见[维护说明](.github/release-notes/README.md)。
-- 推送提交后再创建/推送 `v<version>` tag，并通过 `gh release create` 发布；详细命令与 sigstore attestation 失败的已知处理方式见 [CLAUDE.md](CLAUDE.md) 的 Release Checklist，以及 `.github/workflows/publish.yml`。
+- 推送提交后再创建/推送 `v<version>` tag，并通过 `gh release create --verify-tag` 发布，远端仓库缺少标签时中止；详细命令与 sigstore attestation 失败的已知处理方式见 [CLAUDE.md](CLAUDE.md) 的 Release Checklist，以及 `.github/workflows/publish.yml`。
 - 五包上传成功后，`publish.yml` 的 `verify-public` job 自动在 Linux/Python 3.12 从正式 PyPI 验收。按 [发布指南](docs/releasing.md) 检查该 job 和 `public-pypi-acceptance` artifact，保留文件来源与哈希、真实入口和 SQLite 结果；可用 `scripts/verify_pypi_release.sh <version>` 本地复验。本地构建成功不代表线上发行已验收。

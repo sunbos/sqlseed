@@ -28,6 +28,15 @@ python scripts/sync_release_notes.py --check
 ```
 
 The CI lint job runs the same offline check; it does not contact GitHub.
+Without `--tag`, the default directory for `sunbos/sqlseed` must contain all 20
+historical versions listed in the script; missing or renamed files fail validation,
+and newer versions can be added. The default directory must also retain
+`TEMPLATE.md` with all six bilingual subsection pairs and its `tree/vVERSION`
+source link. Template placeholders and instructional prose are allowed there.
+Explicit `--tag` selections validate only that subset. A custom `--notes-dir`
+does not require the historical set or a template, but checks any `TEMPLATE.md`
+it contains when `--tag` is omitted. A different `--repo` does not require the
+`sunbos/sqlseed` historical set.
 
 Preview existing GitHub Releases, then apply with a new backup name:
 
@@ -55,8 +64,9 @@ preview again before retrying with a new backup name.
 It does not create releases, republish packages or modify tags/assets.
 
 For a new approved version, commit its reviewed notes with the release changes
-and use `gh release create v<version> --title "v<version>" --notes-file
+and use `gh release create v<version> --verify-tag --title "v<version>" --notes-file
 .github/release-notes/v<version>.md` after pushing the commit and tag.
+`--verify-tag` stops if the tag is missing from the remote repository.
 See the [release guide](../../docs/releasing.md).
 
 每个 `v<version>.md` 对应一个已有或计划发布的 GitHub Release 正文，标题统一为
@@ -84,6 +94,13 @@ GitHub 的 403/404 行为见[发布指南](../../docs/releasing.zh-CN.md#maintai
 已匹配的版本），写请求之间至少间隔一秒，并回读验证。中途失败时保留备份、核对已报告版本，
 重新预览后使用新的备份名称重试。工具不创建 Release、不重发包、不修改标签或附件。
 CI 的 lint 任务也执行同一离线格式校验，不连接 GitHub。
+未指定 `--tag` 时，`sunbos/sqlseed` 的默认目录必须保留脚本列出的全部 20 个历史版本；
+缺失或改名会导致校验失败，仍可新增后续版本。默认目录还必须保留 `TEMPLATE.md`，
+包含全部六组双语子章节及 `tree/vVERSION` 源码链接；模板允许保留占位符和指引文字。
+显式 `--tag` 只校验所选版本。自定义 `--notes-dir` 不要求历史集合或模板存在，
+但未指定 `--tag` 时会校验其中已有的 `TEMPLATE.md`。指定其他 `--repo` 时，
+不强制要求 `sunbos/sqlseed` 的历史版本集合。
 
 新版本在发布审批后，将审阅过的说明随发布改动提交，推送提交与标签后用
-`--notes-file` 创建 Release。完整流程见[发布指南](../../docs/releasing.zh-CN.md)。
+`--verify-tag --notes-file` 创建 Release；远端仓库缺少该标签时，`--verify-tag` 会中止操作。
+完整流程见[发布指南](../../docs/releasing.zh-CN.md)。
