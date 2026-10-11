@@ -56,7 +56,15 @@ python scripts/sync_release_notes.py
 python scripts/sync_release_notes.py --apply --backup-dir /tmp/sqlseed-release-notes-backup
 ```
 
-线上命令要求 GitHub CLI 能访问 `api.github.com`，同步还需编辑 Release 的权限。
+线上命令要求 GitHub CLI 能访问 `api.github.com`，同步还需仓库写入权限
+（细粒度或 GitHub App token 的 `Contents: write`）。如果历史目标提交相对默认分支
+修改了 `.github/workflows/`，还需要经典 PAT/OAuth 的 `workflow` scope，或细粒度
+及 GitHub App token 的 `Workflows: write` 权限，否则可能返回 404 或 403。
+在 token 或 App 设置中授权；OAuth CLI 登录可通过
+`gh auth refresh -h github.com -s workflow` 补充授权，此命令不会修改通过环境变量
+提供的 PAT。Actions 内置的 `GITHUB_TOKEN` 无法满足这项额外的 workflow 权限。
+详见 [GitHub Release 更新权限规则](https://docs.github.com/en/rest/releases/releases#update-a-release)。
+
 默认命令仅预览。实际同步先将原始 Release 保存到备份目录，然后仅修改标题和正文，
 检查并发编辑并回读验证，保留标签、发布状态与附件。中途失败时保留备份、核对已报告版本，
 重新预览后使用新的备份目录重试。修改已有 Release 的正文不会触发本仓库监听

@@ -35,7 +35,12 @@ python scripts/sync_release_notes.py --apply --backup-dir /tmp/sqlseed-release-n
 ```
 
 Both commands require GitHub CLI access to `api.github.com`; applying also
-requires permission to edit releases. Only release titles and bodies are
+requires repository write access. Historical targets that change workflow files
+relative to the default branch additionally need the classic PAT/OAuth `workflow`
+scope or fine-grained/GitHub App `Workflows: write` permission. Authorize it in
+the token/app settings; the built-in Actions `GITHUB_TOKEN` cannot provide it.
+See the [release guide](../../docs/releasing.md#maintain-github-release-notes)
+for authorization steps and GitHub's 403/404 behavior. Only release titles and bodies are
 updated. The script backs up originals, detects concurrent changes and checks
 each update. If an update fails partway through, retain the backup, inspect the
 reported versions and preview again before retrying with a new backup directory.
@@ -58,7 +63,11 @@ See the [release guide](../../docs/releasing.md).
 以原发布说明及对应中英文变更日志为依据，不为跳过的版本号新建 Release。
 
 以上命令分别执行离线格式校验、线上差异预览与实际同步。线上操作要求 GitHub CLI 能
-访问 `api.github.com`，同步还需有编辑 Release 的权限。工具仅修改标题与正文，先备份
+访问 `api.github.com`，同步还需仓库写入权限。历史目标相对默认分支修改 workflow 文件时，
+还需在 token/App 设置中授权经典 PAT/OAuth 的 `workflow` scope，或细粒度及 GitHub App
+token 的 `Workflows: write`；Actions 内置 `GITHUB_TOKEN` 无法提供此权限。授权步骤和
+GitHub 的 403/404 行为见[发布指南](../../docs/releasing.zh-CN.md#maintain-github-release-notes)。
+工具仅修改标题与正文，先备份
 原文，再检查并发变化并回读验证。中途失败时保留备份、核对已报告版本，重新预览后使用
 新的备份目录重试。工具不创建 Release、不重发包、不修改标签或附件。
 CI 的 lint 任务也执行同一离线格式校验，不连接 GitHub。

@@ -40,23 +40,28 @@ class SyncError(RuntimeError):
     """A validation, remote API, or concurrency failure that stops synchronization."""
 
 
-def markdown_headings(lines: list[str]) -> list[tuple[int, str]]:
-    """Find ATX headings outside fenced code, preserving their source line numbers."""
+def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int]]:
+    """Locate headings and nonblank content, excluding heading text and fence delimiters."""
     headings = []
+    content_lines = set()
     fence = ""
     for index, line in enumerate(lines):
         marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)
         if fence:
             if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
                 fence = ""
+            elif line.strip():
+                content_lines.add(index)
             continue
         if marker:
             fence = marker[1]
         elif re.match(r" {0,3}#{1,6}(?:\s|$)", line):
             headings.append((index, line))
+        elif line.strip():
+            content_lines.add(index)
     if fence:
         raise SyncError("Release notes contain an unclosed fenced code block")
-    return headings
+    return headings, content_lines
 
 
 def validate_notes(path: Path) -> str:
@@ -70,7 +75,7 @@ def validate_notes(path: Path) -> str:
     if "vVERSION" in body or "vPREVIOUS" in body:
         raise SyncError(f"{path}: replace release-template version placeholders")
     lines = body.splitlines()
-    headings = markdown_headings(lines)
+    headings, content_lines = markdown_structure(lines)
     if any(not (heading.startswith("## ") or heading.startswith("### ")) for _, heading in headings):
         raise SyncError(f"{path}: only unindented H2 and H3 headings are allowed outside code blocks")
     if [heading for _, heading in headings if heading.startswith("## ")] != HEADINGS:
@@ -78,8 +83,7 @@ def validate_notes(path: Path) -> str:
     if not body.startswith(HEADINGS[0] + "\n"):
         raise SyncError(f"{path}: notes must start with {HEADINGS[0]}")
     positions = [index for index, heading in headings if heading.startswith("## ")] + [len(lines)]
-    sections = [lines[start + 1 : end] for start, end in pairwise(positions)]
-    if any(not any(line.strip() for line in section) for section in sections):
+    if any(not any(start < index < end for index in content_lines) for start, end in pairwise(positions)):
         raise SyncError(f"{path}: English, Chinese, and links sections must be nonempty")
     english = [heading[4:] for index, heading in headings if positions[0] < index < positions[1]]
     chinese = [heading[4:] for index, heading in headings if positions[1] < index < positions[2]]
@@ -90,6 +94,9 @@ def validate_notes(path: Path) -> str:
         or any(index > positions[2] for index, _ in headings)
     ):
         raise SyncError(f"{path}: require matching English/Chinese subsections in canonical order")
+    for (start, heading), (end, _) in pairwise([*headings, (len(lines), "")]):
+        if heading.startswith("### ") and not any(start < index < end for index in content_lines):
+            raise SyncError(f"{path}: {heading} must contain nonwhitespace content")
     return body
 
 
@@ -222,8 +229,9 @@ def apply_notes(repo: str, notes: dict[str, str], releases: dict[str, dict[str, 
             fresh
         ) != preservation_fields(original):
             raise SyncError(f"{tag}: release changed after preview; no update applied to this release")
+        # Like `gh release edit`, carry the existing tag: GitHub can detach it if omitted.
         # Intentionally omit every other API parameter, including make_latest.
-        github_api(endpoint, payload={"name": tag, "body": body})
+        github_api(endpoint, payload={"name": tag, "body": body, "tag_name": original["tag_name"]})
         updated = validate_release(github_api(endpoint))
         if (
             updated["name"] != tag

@@ -105,7 +105,17 @@ python scripts/sync_release_notes.py --apply --backup-dir /tmp/sqlseed-release-n
 ```
 
 Online commands require GitHub CLI access to `api.github.com`; applying requires
-release-edit permission. The default command only previews. Applying saves the
+repository write access (`Contents: write` for fine-grained or GitHub App tokens).
+For historical targets that change `.github/workflows/` relative to the default
+branch, GitHub additionally requires the classic PAT/OAuth `workflow` scope or
+fine-grained/GitHub App `Workflows: write` permission; otherwise it may return
+404 or 403. Authorize these permissions in the token or app settings, or refresh
+an OAuth CLI login with `gh auth refresh -h github.com -s workflow`. That command
+does not change a PAT supplied through the environment. The built-in Actions
+`GITHUB_TOKEN` cannot satisfy this extra workflow permission. See
+[GitHub's release-update permission rules](https://docs.github.com/en/rest/releases/releases#update-a-release).
+
+The default command only previews. Applying saves the
 original releases in the backup directory before changing titles or bodies,
 checks for concurrent edits and verifies each result. It preserves tags, release
 state and assets. If an update fails partway through, retain the backup, inspect

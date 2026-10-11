@@ -82,7 +82,9 @@ class GitHubProcess:
             if identifier == self.fail_patch:
                 return subprocess.CompletedProcess(command, 1, "", "HTTP 401 Bearer ghp_secret_do_not_print")
             payload = json.loads(kwargs["input"])
-            assert set(payload) == {"name", "body"}
+            assert set(payload) <= {"name", "body", "tag_name"}
+            # Match the API behavior guarded against by `gh release edit`.
+            current["tag_name"] = payload.get("tag_name", "")
             current.update(payload)
             current["updated_at"] = "2026-10-12T00:00:00Z"
             current.update(self.mutate_after_patch)
@@ -174,6 +176,32 @@ def test_code_fence_headings_are_content(notes_dir: Path, github: GitHubProcess)
     assert github.commands == []
 
 
+@pytest.mark.parametrize("empty_content", ["", " \n\t", "```python\n \n```", "~~~text\n~~~"])
+@pytest.mark.parametrize("empty_heading", ["### Added", "### 新增"])
+def test_empty_subsection_is_rejected_even_with_other_nonempty_subsections(
+    notes_dir: Path,
+    github: GitHubProcess,
+    capsys: pytest.CaptureFixture[str],
+    empty_content: str,
+    empty_heading: str,
+) -> None:
+    body = BODY.replace("### Fixed", "### Added\n\nAdded content.\n\n### Fixed").replace(
+        "### 修复", "### 新增\n\nAdded content.\n\n### 修复"
+    )
+    body = body.replace(f"{empty_heading}\n\nAdded content.", f"{empty_heading}\n\n{empty_content}")
+    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
+    assert sync.main(["--notes-dir", str(notes_dir)]) == 1
+    assert github.commands == []
+    assert f"{empty_heading} must contain nonwhitespace content" in capsys.readouterr().err
+
+
+def test_fenced_code_alone_is_valid_subsection_content(notes_dir: Path, github: GitHubProcess) -> None:
+    body = BODY.replace("- Preserve release assets.", "```markdown\n### Example code\n```")
+    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
+    assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
+    assert github.commands == []
+
+
 @pytest.mark.parametrize("condition", ["missing", "duplicate", "draft"])
 def test_every_selected_version_must_have_one_published_release(
     notes_dir: Path, github: GitHubProcess, tmp_path: Path, condition: str
@@ -223,7 +251,10 @@ def test_specific_tag_leaves_other_releases_alone(notes_dir: Path, github: GitHu
     assert sorted(path.name for path in backups.iterdir()) == ["v0.2.6.json"]
 
 
-@pytest.mark.parametrize("field,value", [("body", "Edited by someone else"), ("updated_at", "2026-10-11T00:00:00Z")])
+@pytest.mark.parametrize(
+    "field,value",
+    [("body", "Edited by someone else"), ("updated_at", "2026-10-11T00:00:00Z"), ("tag_name", "v0.2.4")],
+)
 def test_concurrent_changes_stop_before_patch(
     notes_dir: Path, github: GitHubProcess, tmp_path: Path, field: str, value: str
 ) -> None:
