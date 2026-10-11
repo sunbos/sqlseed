@@ -20,7 +20,7 @@ def test_legacy_stdout_preserves_bilingual_diff(tmp_path: Path, monkeypatch: pyt
     body = (SCRIPT.parents[1] / ".github/release-notes/v0.2.6.md").read_text(encoding="utf-8")
     notes = tmp_path / "notes"
     notes.mkdir()
-    (notes / "v0.2.6.md").write_text(body, encoding="utf-8")
+    (notes / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
     process = GitHubProcess([release(26, "v0.2.6")])
     backup_root = tmp_path / ".release-backups"
     monkeypatch.setattr(sync, "BACKUP_ROOT", backup_root)

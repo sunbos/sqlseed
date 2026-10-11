@@ -10,17 +10,33 @@ import re
 import subprocess
 import sys
 import time
+from html.parser import HTMLParser
 from io import TextIOWrapper
-from itertools import pairwise
+from itertools import groupby, pairwise
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlsplit
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 DEFAULT_REPO = "sunbos/sqlseed"
 DEFAULT_NOTES_DIR = Path(__file__).resolve().parents[1] / ".github" / "release-notes"
 BACKUP_ROOT = Path(__file__).resolve().parents[1] / ".release-backups"
 BACKUP_NAME_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 TAG_PATTERN = re.compile(r"v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)")
+HTML_BLOCK_TAG_PATTERN = (
+    "address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|"
+    "fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|"
+    "main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|pre|script|search|section|source|style|summary|table|"
+    "tbody|td|textarea|tfoot|th|thead|title|tr|track|ul"
+)
+INLINE_TOKEN = re.compile(r"\\[\\`<]|`+|<(?=[A-Za-z!/?])")
+HTML_BLOCK_START = re.compile(r"</?(?:" + HTML_BLOCK_TAG_PATTERN + r")(?=[ \t/>]|$)", re.IGNORECASE)
+INLINE_BLOCK_BOUNDARY = re.compile(
+    r"\n(?:[ \t]*\n| {0,3}(?:>|[-+*][ \t]|1[.)][ \t]|<!--|</?(?:" + HTML_BLOCK_TAG_PATTERN + r")(?=[ \t/>]|\n)))",
+    re.IGNORECASE,
+)
 HEADINGS = ["## English", "## 中文", "## Links / 相关链接"]
 SUBSECTIONS = {
     "Added": "新增",
@@ -60,6 +76,15 @@ class SyncError(RuntimeError):
     """A validation, remote API, or concurrency failure that stops synchronization."""
 
 
+class HTMLHeadingDetector(HTMLParser):
+    """Reject actual heading tags while ignoring attributes, comments, and entities."""
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        """Reject heading start tags, including self-closing forms delegated by HTMLParser."""
+        if tag in {"h1", "h2", "h3", "h4", "h5", "h6"}:
+            raise SyncError("HTML headings are not allowed; use the canonical ATX H2 and H3 headings")
+
+
 def markdown_prefix(line: str) -> tuple[str, str]:
     """Recognize a heading or code-fence prefix in linear time without backtracking."""
     content = line.lstrip(" ")
@@ -75,30 +100,47 @@ def markdown_prefix(line: str) -> tuple[str, str]:
     return "", ""
 
 
-def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int], set[int]]:
-    """Locate headings, nonblank content, and content outside fenced code."""
-    headings = []
-    content_lines = set()
-    unfenced_lines = set()
+def markdown_line_kinds(lines: list[str]) -> Iterator[tuple[int, str]]:
+    """Classify lines with fenced code taking precedence over raw HTML blocks."""
     fence = ""
+    html_end = None
     for index, line in enumerate(lines):
         marker, tail = markdown_prefix(line)
         if fence:
             if marker.startswith(fence[0]) and len(marker) >= len(fence) and not tail.strip():
                 fence = ""
-            elif line.strip():
-                content_lines.add(index)
+            else:
+                yield index, "code"
             continue
-        if marker.startswith(("`", "~")):
+        raw_html, html_end = html_block_state(line, html_end, index == 0 or not lines[index - 1].strip())
+        if raw_html:
+            yield index, "html"
+        elif marker.startswith(("`", "~")):
             fence = marker
         elif marker.startswith("#"):
-            headings.append((index, line))
-        elif line.strip():
-            content_lines.add(index)
-            unfenced_lines.add(index)
+            yield index, "heading"
+        else:
+            yield index, "prose"
     if fence:
         raise SyncError("Release notes contain an unclosed fenced code block")
-    return headings, content_lines, unfenced_lines
+
+
+def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int], set[int], set[int]]:
+    """Locate headings, content, unfenced content, and lines in raw HTML blocks."""
+    headings = []
+    content_lines = set()
+    unfenced_lines = set()
+    html_lines = set()
+    for index, kind in markdown_line_kinds(lines):
+        if kind == "html":
+            html_lines.add(index)
+        if kind == "heading":
+            headings.append((index, lines[index]))
+        elif lines[index].strip():
+            content_lines.add(index)
+            if kind != "code":
+                unfenced_lines.add(index)
+    return headings, content_lines, unfenced_lines, html_lines
 
 
 def is_template_instruction(line: str) -> bool:
@@ -141,11 +183,119 @@ def is_setext_heading(lines: list[str], index: int, unfenced_lines: set[int]) ->
         if ends_setext_paragraph(previous):
             break
         content = previous.lstrip(" ")
-        if content.startswith((">", "<")) or re.match(r"(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)", content):
+        if (
+            content.startswith(">")
+            or starts_html_block(content)
+            or re.match(r"(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)", content)
+        ):
             return False
         has_paragraph = True
         start -= 1
     return has_paragraph
+
+
+def html_prose(lines: list[str], unfenced_lines: set[int], html_lines: set[int]) -> str:
+    """Keep prose and indented paragraph continuations, excluding standalone code."""
+    prose = []
+    paragraph = False
+    for index, line in enumerate(lines):
+        indented = line.startswith("    ") or line.lstrip(" ").startswith("\t")
+        paragraph = index in html_lines or (index in unfenced_lines and (paragraph or not indented))
+        prose.append(line if paragraph else "")
+    parts = []
+    for raw_html, group in groupby(enumerate(prose), key=lambda item: item[0] in html_lines):
+        text = "\n".join(line for _, line in group) + "\n"
+        parts.append(text if raw_html else without_inline_examples(text))
+    return "".join(parts)
+
+
+def html_token_end(text: str, start: int) -> int:
+    """Preserve complete HTML tokens so attribute backticks cannot start Markdown code."""
+    if text.startswith("<!--", start):
+        end = text.find("-->", start + 4)
+        return len(text) if end < 0 else end + 3
+    quote = ""
+    for index in range(start + 1, len(text)):
+        character = text[index]
+        if quote:
+            if character == quote:
+                quote = ""
+        elif character in "\"'":
+            quote = character
+        elif character == ">":
+            return index + 1
+    return start + 1
+
+
+def starts_html_block(content: str) -> bool:
+    """Separate actual HTML blocks from autolinks and inline HTML paragraphs."""
+    if content.startswith(("<!--", "<?", "<![CDATA[")) or re.match(r"<![A-Z]", content):
+        return True
+    if HTML_BLOCK_START.match(content):
+        return True
+    return bool(re.match(r"</?[A-Za-z][A-Za-z0-9-]*(?=[ \t/>])", content)) and html_token_end(content, 0) == len(
+        content.rstrip()
+    )
+
+
+def html_block_ending(line: str, paragraph_boundary: bool) -> str | None:
+    """Identify raw HTML blocks by their standard closing token or a blank line."""
+    content = line.lstrip(" ")
+    if len(line) - len(content) > 3:
+        return None
+    for prefix, ending in (("<!--", "-->"), ("<?", "?>"), ("<![CDATA[", "]]>")):
+        if content.startswith(prefix):
+            return ending
+    if match := re.match(r"<(script|pre|style|textarea)(?=[ \t>]|$)", content, re.IGNORECASE):
+        return f"</{match[1]}>"
+    if re.match(r"<![A-Z]", content):
+        return ">"
+    if HTML_BLOCK_START.match(content) or (paragraph_boundary and starts_html_block(content)):
+        return ""
+    return None
+
+
+def html_block_state(line: str, ending: str | None, paragraph_boundary: bool) -> tuple[bool, str | None]:
+    """Keep Markdown-looking characters literal until a raw HTML block ends."""
+    if ending is None:
+        ending = html_block_ending(line, paragraph_boundary)
+    if ending is None:
+        return False, None
+    if not ending:
+        return bool(line.strip()), "" if line.strip() else None
+    return True, None if ending.lower() in line.lower() else ending
+
+
+def inline_code_end(text: str, opening: re.Match[str]) -> int:
+    """Find an exact backtick run before a paragraph or HTML block boundary."""
+    for closing in re.finditer(r"`+", text[opening.end() :]):
+        if len(closing[0]) != len(opening[0]):
+            continue
+        end = opening.end() + closing.end()
+        if INLINE_BLOCK_BOUNDARY.search(text, opening.end(), end):
+            break
+        return end
+    return opening.end()
+
+
+def without_inline_examples(text: str) -> str:
+    """Mask Markdown code spans and escaped angle brackets before parsing raw HTML."""
+    parts = []
+    position = 0
+    while match := INLINE_TOKEN.search(text, position):
+        parts.append(text[position : match.start()])
+        token = match[0]
+        if token.startswith("\\"):
+            parts.append(" " if token == "\\<" else token[1:])
+            position = match.end()
+        elif token == "<":
+            position = html_token_end(text, match.start())
+            parts.append(text[match.start() : position])
+        else:
+            position = inline_code_end(text, match)
+            parts.append(token if position == match.end() else " ")
+    parts.append(text[position:])
+    return "".join(parts)
 
 
 def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
@@ -159,8 +309,9 @@ def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
     if "vVERSION" in body or "vPREVIOUS" in body:
         raise SyncError(f"{path}: replace release-template version placeholders")
     lines = body.splitlines()
-    headings, content_lines, unfenced_lines = markdown_structure(lines)
-    if any(is_setext_heading(lines, index, unfenced_lines) for index in unfenced_lines):
+    headings, content_lines, unfenced_lines, html_lines = markdown_structure(lines)
+    HTMLHeadingDetector().feed(html_prose(lines, unfenced_lines, html_lines))
+    if any(is_setext_heading(lines, index, unfenced_lines) for index in unfenced_lines - html_lines):
         raise SyncError(f"{path}: Setext headings are not allowed; use the canonical ATX H2 and H3 headings")
     if any(is_template_instruction(lines[index]) for index in unfenced_lines):
         raise SyncError(f"{path}: replace release-template instructions with version-specific release notes")

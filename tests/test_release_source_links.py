@@ -42,7 +42,7 @@ BODY = """## English
 def test_notes_require_their_own_tagged_source_link(tmp_path: Path, links: str) -> None:
     """Other useful links cannot substitute for the release's source snapshot."""
     path = tmp_path / "v0.2.6.md"
-    path.write_text(BODY + links + "\n", encoding="utf-8")
+    path.write_text(BODY + links + "\n", encoding="utf-8", newline="\n")
     with pytest.raises(sync.SyncError, match="must include a source link"):
         sync.validate_notes(path)
 
@@ -53,7 +53,7 @@ def test_tagged_source_link_follows_selected_repository(tmp_path: Path, repo: st
     """The selected repository's exact-tag source root satisfies the link contract."""
     path = tmp_path / "v0.2.6.md"
     body = BODY + f"- [Source](https://github.com/{repo}/tree/v0.2.6{suffix})\n"
-    path.write_text(body, encoding="utf-8")
+    path.write_text(body, encoding="utf-8", newline="\n")
     assert sync.validate_notes(path, repo) == body
 
 
@@ -63,6 +63,6 @@ def test_source_reference_in_prose_does_not_replace_links_section(tmp_path: Path
     body = BODY.replace(
         "- Validate release metadata.", "- Previously used https://github.com/sunbos/sqlseed/tree/v0.2.6."
     )
-    path.write_text(body + "- No links yet.\n", encoding="utf-8")
+    path.write_text(body + "- No links yet.\n", encoding="utf-8", newline="\n")
     with pytest.raises(sync.SyncError, match="must include a source link"):
         sync.validate_notes(path)
