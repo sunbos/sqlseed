@@ -52,10 +52,20 @@ constrained to the CI versions. Its separate fresh environment verifies missing
 optional component behavior without accidentally installing AI, CLI, MCP,
 Mimesis or PostgreSQL support. Neither file limits end users' package versions.
 
+`requirements-release-notes.txt` contains only the Markdown parser and its
+dependencies for standalone release-note validation and synchronization. It is
+constrained to the CI versions; `requirements-ci.in` includes the same input.
+Activate a separate virtualenv and install it with `python -m pip install
+--require-hashes --only-binary :all: -r .github/requirements-release-notes.txt`
+when the full CI/development environment is not installed. The tool does not
+require the sqlseed packages, and `--check` remains offline after this separate
+dependency installation step.
+
 Regenerate from the repository root with uv:
 
 ```sh
 uv pip compile .github/requirements-ci.in --universal --python-version 3.10 --generate-hashes --no-emit-package sqlseed --no-emit-package sqlseed-cli --no-emit-package sqlseed-ai --no-emit-package mcp-server-sqlseed --no-emit-package sqlseed-web --output-file .github/requirements-ci.txt
+uv pip compile .github/requirements-release-notes.in --constraints .github/requirements-ci.txt --universal --python-version 3.10 --generate-hashes --output-file .github/requirements-release-notes.txt
 uv pip compile .github/requirements-bootstrap.in --constraints .github/requirements-ci.txt --universal --python-version 3.10 --generate-hashes --output-file .github/requirements-bootstrap.txt
 uv pip compile .github/requirements-minimal.in --constraints .github/requirements-ci.txt --universal --python-version 3.10 --generate-hashes --no-emit-package sqlseed --no-emit-package sqlseed-web --output-file .github/requirements-minimal.txt
 uv pip compile .github/requirements-macos-build.in --universal --python-version 3.10 --generate-hashes --output-file .github/requirements-macos-build.txt

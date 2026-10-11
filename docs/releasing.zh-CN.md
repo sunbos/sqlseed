@@ -34,6 +34,57 @@ gh workflow run publish.yml --ref main -f release_tag=v0.2.4
 
 工作流仅解析一次标签对应的提交，然后使用该精确源码进行测试、构建与公开安装检查。因此可以维护工作流，而不移动已发布标签。保持元数据验证和证明生成功能开启。例如，Core Metadata 2.5 要求 [PyPA publish action v1.14.2 或更新版本](https://github.com/pypa/gh-action-pypi-publish/releases/tag/v1.14.2)；重新运行固定在旧上传工具版本的工作流只会重复元数据错误。
 
+## 维护 GitHub 发布说明 {#maintain-github-release-notes}
+
+Release 标题统一为 `v<version>`，审阅后的正文保存在
+`.github/release-notes/v<version>.md`。复制[双语模板](https://github.com/sunbos/sqlseed/blob/main/.github/release-notes/TEMPLATE.md)，
+同步删除中英文中不适用的子章节。固定顺序为英文、中文、共用链接；各语言按需使用新增、
+变更、修复、移除、兼容性与验收记录，两种语言描述相同的变更。变更日志和源码链接固定到
+对应版本标签，历史验收依据与升级限制保留在所属版本。
+
+完整 CI/开发环境已包含 Markdown 解析器。单独维护发布说明时，先激活独立虚拟环境，
+再从仓库根目录安装小型哈希锁定依赖集，无需安装 sqlseed 包：
+
+```bash
+python -m pip install --require-hashes --only-binary :all: -r .github/requirements-release-notes.txt
+```
+
+安装依赖是单独的准备步骤；`--check` 仍完全离线运行。
+提交前校验说明。批准发布后，先推送发布提交与标签，再用审阅后的文件创建 Release。
+`--verify-tag` 会在远端仓库缺少该标签时中止：
+
+```bash
+python scripts/sync_release_notes.py --check
+gh release create v<version> --verify-tag --title "v<version>" --notes-file .github/release-notes/v<version>.md
+```
+
+修改已有 Release 时，先预览差异，再同步审阅后的文件：
+
+```bash
+python scripts/sync_release_notes.py
+python scripts/sync_release_notes.py --apply --backup-name release-notes-20261012
+```
+
+线上命令要求 GitHub CLI 能访问 `api.github.com`，同步还需仓库写入权限
+（细粒度或 GitHub App token 的 `Contents: write`）。如果历史目标提交相对默认分支
+修改了 `.github/workflows/`，还需要经典 PAT/OAuth 的 `workflow` scope，或细粒度
+及 GitHub App token 的 `Workflows: write` 权限，否则可能返回 404 或 403。
+在 token 或 App 设置中授权；OAuth CLI 登录可通过
+`gh auth refresh -h github.com -s workflow` 补充授权，此命令不会修改通过环境变量
+提供的 PAT。Actions 内置的 `GITHUB_TOKEN` 无法满足这项额外的 workflow 权限。
+详见 [GitHub Release 更新权限规则](https://docs.github.com/en/rest/releases/releases#update-a-release)。
+
+默认命令仅预览。实际同步先将全部原始记录保存到检出目录下的 `.release-backups/<name>/`，
+然后仅修改标题和正文。名称只能包含 ASCII 字母、数字、连字符和下划线，必须使用新名称；
+不接受任意路径、符号链接备份根目录或已有名称。该目录已被 Git 忽略，删除检出目录前须保留
+或复制备份。脚本检查版本链接与说明文件名一致，即使 Release 初始已匹配，也会检查并发变化，
+更新后回读验证。写请求之间至少间隔一秒，保留标签、发布状态与附件。每次只运行一个同步任务，完成前避免
+其他 Release 编辑；更新前的读取与 PATCH 是两次独立请求，无法阻止两次请求之间发生的编辑。
+中途失败时保留备份、核对已报告版本，
+重新预览后使用新的备份名称重试。修改已有 Release 的正文不会触发本仓库监听
+`release: published` 的 PyPI 发布流程。这些命令不新建缺失版本，也不重新发布包。
+详见[说明维护规则](https://github.com/sunbos/sqlseed/blob/main/.github/release-notes/README.md)。
+
 ## 发布前验证已安装产物 {#validate-installed-artifacts-before-release}
 
 在仓库检出目录之外创建全新虚拟环境。用一次 `pip install` 安装五个 wheel 路径，并为 AI wheel 请求 `[mcp]` extra，以启用独立的 AI MCP 服务。在检出目录之外、未设置 `PYTHONPATH` 的情况下，运行已审查仓库中的脚本：

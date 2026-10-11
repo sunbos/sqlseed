@@ -1,0 +1,2 @@
+# Standalone release-note maintenance; keep its parser explicit in the CI lock.
+markdown-it-py==4.2.0

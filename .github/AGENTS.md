@@ -11,6 +11,7 @@
 | 依赖锁更新方法及平台限制 | [DEPENDENCIES.md](DEPENDENCIES.md) |
 | 源码事实同步 | [doc-sync.yml](workflows/doc-sync.yml) |
 | PyPI 构建、上传、正式发行验收 | [publish.yml](workflows/publish.yml)、[发布指南](../docs/releasing.md) |
+| GitHub Release 正文与模板 | [release-notes/](release-notes/README.md)、[同步工具](../scripts/sync_release_notes.py)；统一双语章节、版本标题及固定标签链接 |
 | GitHub Pages | [mkdocs-deploy.yml](workflows/mkdocs-deploy.yml)、[部署维护说明](PAGES.md) |
 
 ## 依赖与测试

@@ -79,6 +79,70 @@ validation and attestations enabled. For example, Core Metadata 2.5 requires
 [PyPA publish action v1.14.2 or newer](https://github.com/pypa/gh-action-pypi-publish/releases/tag/v1.14.2);
 rerunning a workflow pinned to the older uploader will repeat its metadata error.
 
+## Maintain GitHub release notes
+
+Use `v<version>` as the release title and keep its reviewed body in
+`.github/release-notes/v<version>.md`. Copy the
+[bilingual template](https://github.com/sunbos/sqlseed/blob/main/.github/release-notes/TEMPLATE.md)
+and remove unused subsections in both languages. The order is English, Chinese,
+then shared links. Within each language, use Added, Changed, Fixed, Removed,
+Compatibility and Verification only when applicable. Both languages describe
+the same changes. Link changelogs and source to the exact version tag; keep
+historical verification evidence and upgrade limits with their own version.
+
+The full CI/development environment includes the Markdown parser. For standalone
+release-note maintenance, activate a separate virtualenv and install its small
+hash-locked dependency set from the repository root; no sqlseed package is needed:
+
+```bash
+python -m pip install --require-hashes --only-binary :all: -r .github/requirements-release-notes.txt
+```
+
+Installation is a separate preparation step; `--check` still runs entirely offline.
+Check the notes before committing. After approval, push the release commit and tag,
+then create the release with the reviewed notes. `--verify-tag` stops if the tag is
+missing from the remote repository:
+
+```bash
+python scripts/sync_release_notes.py --check
+gh release create v<version> --verify-tag --title "v<version>" --notes-file .github/release-notes/v<version>.md
+```
+
+For existing releases, preview the differences, then apply the reviewed files:
+
+```bash
+python scripts/sync_release_notes.py
+python scripts/sync_release_notes.py --apply --backup-name release-notes-20261012
+```
+
+Online commands require GitHub CLI access to `api.github.com`; applying requires
+repository write access (`Contents: write` for fine-grained or GitHub App tokens).
+For historical targets that change `.github/workflows/` relative to the default
+branch, GitHub additionally requires the classic PAT/OAuth `workflow` scope or
+fine-grained/GitHub App `Workflows: write` permission; otherwise it may return
+404 or 403. Authorize these permissions in the token or app settings, or refresh
+an OAuth CLI login with `gh auth refresh -h github.com -s workflow`. That command
+does not change a PAT supplied through the environment. The built-in Actions
+`GITHUB_TOKEN` cannot satisfy this extra workflow permission. See
+[GitHub's release-update permission rules](https://docs.github.com/en/rest/releases/releases#update-a-release).
+
+The default command only previews. Applying saves all original records under
+`.release-backups/<name>/` in the checkout before changing titles or bodies.
+Choose a new name using only ASCII letters, digits, hyphens and underscores;
+arbitrary paths, symlink backup roots and existing names are rejected. This
+directory is ignored by Git; retain or copy it before removing the checkout.
+The script checks versioned links against each note's filename, checks for
+concurrent edits even when a release initially matches, and verifies each result.
+It waits at least one second between mutations and preserves tags, release
+state and assets. Run one synchronization at a time and avoid other release edits
+until it finishes: the pre-update read and PATCH are separate API calls, so the
+check cannot prevent an edit made between them. If an update fails partway through, retain the backup, inspect
+the reported versions and preview again before retrying with a new backup
+name. Updating an existing release's text does not trigger this repository's
+`release: published` PyPI workflow. These commands do not create missing releases
+or republish packages. See the
+[notes maintenance instructions](https://github.com/sunbos/sqlseed/blob/main/.github/release-notes/README.md).
+
 ## Validate installed artifacts before release
 
 Use a fresh virtual environment outside the checkout. Install all five wheel

@@ -12,6 +12,7 @@
 | [check_public_entrypoints.py](check_public_entrypoints.py) | 验证发行包 CLI/MCP 的真实入口及写入结果 |
 | [check_pypi_metadata.py](check_pypi_metadata.py) | 校验正式 PyPI metadata、安装报告中的文件来源与哈希 |
 | [verify_pypi_release.sh](verify_pypi_release.sh) | 从正式 PyPI 安装指定版本，验收五包、最小环境及 sdist |
+| [sync_release_notes.py](sync_release_notes.py) | 离线校验双语 Release 说明，默认预览；显式同步前备份，只更新已有 Release 的标题与正文 |
 | [quickstart.py](quickstart.py)、[make_test_db.py](make_test_db.py) | 演示和测试数据库辅助入口；执行前核对参数与目标路径 |
 | [complex_validation/](complex_validation/) | 专项语料与复现工具；不是替代 pytest 的统一产品门禁 |
 

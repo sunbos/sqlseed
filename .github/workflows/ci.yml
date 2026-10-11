@@ -39,6 +39,12 @@ jobs:
       - name: Format check
         run: ruff format --check src/ tests/ plugins/
 
+      - name: Check bilingual release notes
+        run: |
+          ruff check scripts/sync_release_notes.py
+          ruff format --check scripts/sync_release_notes.py
+          python scripts/sync_release_notes.py --check
+
       - name: Type check
         run: mypy
 

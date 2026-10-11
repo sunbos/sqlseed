@@ -596,6 +596,10 @@ def test_windows_maintenance_accepts_the_same_isolated_writable_environment(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _isolated_environment(tmp_path, monkeypatch)
+    settings = importlib.import_module("sqlseed_web.settings_environment")
+    installer = settings._Installer("pip", sys.executable, None, "powershell")
+    # Exercise admission without probing host executables under a simulated platform.
+    monkeypatch.setattr(module, "_installer", lambda: installer)
     monkeypatch.setattr(sys, "platform", "win32")
     monkeypatch.setattr(module.sysconfig, "get_path", lambda name: str(tmp_path))
     assert module._environment().reason is None
