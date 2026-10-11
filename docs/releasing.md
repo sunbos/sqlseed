@@ -101,7 +101,7 @@ For existing releases, preview the differences, then apply the reviewed files:
 
 ```bash
 python scripts/sync_release_notes.py
-python scripts/sync_release_notes.py --apply --backup-dir /tmp/sqlseed-release-notes-backup
+python scripts/sync_release_notes.py --apply --backup-name release-notes-20261012
 ```
 
 Online commands require GitHub CLI access to `api.github.com`; applying requires
@@ -115,14 +115,19 @@ does not change a PAT supplied through the environment. The built-in Actions
 `GITHUB_TOKEN` cannot satisfy this extra workflow permission. See
 [GitHub's release-update permission rules](https://docs.github.com/en/rest/releases/releases#update-a-release).
 
-The default command only previews. Applying saves the
-original releases in the backup directory before changing titles or bodies,
-checks for concurrent edits and verifies each result. It preserves tags, release
+The default command only previews. Applying saves all original records under
+`.release-backups/<name>/` in the checkout before changing titles or bodies.
+Choose a new name using only ASCII letters, digits, hyphens and underscores;
+arbitrary paths, symlink backup roots and existing names are rejected. This
+directory is ignored by Git; retain or copy it before removing the checkout.
+The script checks versioned links against each note's filename, checks for
+concurrent edits even when a release initially matches, and verifies each result.
+It waits at least one second between mutations and preserves tags, release
 state and assets. Run one synchronization at a time and avoid other release edits
 until it finishes: the pre-update read and PATCH are separate API calls, so the
 check cannot prevent an edit made between them. If an update fails partway through, retain the backup, inspect
 the reported versions and preview again before retrying with a new backup
-directory. Updating an existing release's text does not trigger this repository's
+name. Updating an existing release's text does not trigger this repository's
 `release: published` PyPI workflow. These commands do not create missing releases
 or republish packages. See the
 [notes maintenance instructions](https://github.com/sunbos/sqlseed/blob/main/.github/release-notes/README.md).

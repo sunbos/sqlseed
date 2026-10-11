@@ -53,7 +53,7 @@ gh release create v<version> --title "v<version>" --notes-file .github/release-n
 
 ```bash
 python scripts/sync_release_notes.py
-python scripts/sync_release_notes.py --apply --backup-dir /tmp/sqlseed-release-notes-backup
+python scripts/sync_release_notes.py --apply --backup-name release-notes-20261012
 ```
 
 线上命令要求 GitHub CLI 能访问 `api.github.com`，同步还需仓库写入权限
@@ -65,11 +65,14 @@ python scripts/sync_release_notes.py --apply --backup-dir /tmp/sqlseed-release-n
 提供的 PAT。Actions 内置的 `GITHUB_TOKEN` 无法满足这项额外的 workflow 权限。
 详见 [GitHub Release 更新权限规则](https://docs.github.com/en/rest/releases/releases#update-a-release)。
 
-默认命令仅预览。实际同步先将原始 Release 保存到备份目录，然后仅修改标题和正文，
-检查并发编辑并回读验证，保留标签、发布状态与附件。每次只运行一个同步任务，完成前避免
+默认命令仅预览。实际同步先将全部原始记录保存到检出目录下的 `.release-backups/<name>/`，
+然后仅修改标题和正文。名称只能包含 ASCII 字母、数字、连字符和下划线，必须使用新名称；
+不接受任意路径、符号链接备份根目录或已有名称。该目录已被 Git 忽略，删除检出目录前须保留
+或复制备份。脚本检查版本链接与说明文件名一致，即使 Release 初始已匹配，也会检查并发变化，
+更新后回读验证。写请求之间至少间隔一秒，保留标签、发布状态与附件。每次只运行一个同步任务，完成前避免
 其他 Release 编辑；更新前的读取与 PATCH 是两次独立请求，无法阻止两次请求之间发生的编辑。
 中途失败时保留备份、核对已报告版本，
-重新预览后使用新的备份目录重试。修改已有 Release 的正文不会触发本仓库监听
+重新预览后使用新的备份名称重试。修改已有 Release 的正文不会触发本仓库监听
 `release: published` 的 PyPI 发布流程。这些命令不新建缺失版本，也不重新发布包。
 详见[说明维护规则](https://github.com/sunbos/sqlseed/blob/main/.github/release-notes/README.md)。
 

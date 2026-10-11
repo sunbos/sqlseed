@@ -9,11 +9,16 @@ import json
 import re
 import subprocess
 import sys
+import time
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
 
+DEFAULT_REPO = "sunbos/sqlseed"
 DEFAULT_NOTES_DIR = Path(__file__).resolve().parents[1] / ".github" / "release-notes"
+BACKUP_ROOT = Path(__file__).resolve().parents[1] / ".release-backups"
+BACKUP_NAME_PATTERN = re.compile(r"[A-Za-z0-9_-]+")
 TAG_PATTERN = re.compile(r"v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)")
 HEADINGS = ["## English", "## 中文", "## Links / 相关链接"]
 SUBSECTIONS = {
@@ -79,7 +84,7 @@ def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int
     return headings, content_lines
 
 
-def validate_notes(path: Path) -> str:
+def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
     """Read canonical UTF-8 notes and check their bilingual section structure."""
     try:
         body = path.read_bytes().decode("utf-8")
@@ -92,6 +97,7 @@ def validate_notes(path: Path) -> str:
     lines = body.splitlines()
     headings, content_lines = markdown_structure(lines)
     validate_sections(path, lines, headings, content_lines)
+    validate_versioned_links(path, "\n".join(lines[headings[-1][0] + 1 :]), repo)
     return body
 
 
@@ -120,7 +126,18 @@ def validate_sections(path: Path, lines: list[str], headings: list[tuple[int, st
             raise SyncError(f"{path}: {heading} must contain nonwhitespace content")
 
 
-def load_notes(directory: Path, tags: list[str] | None) -> dict[str, str]:
+def validate_versioned_links(path: Path, links: str, repo: str) -> None:
+    """Require this repository's final source and comparison links to target the note's tag."""
+    for match in re.finditer(r"https?://github\.com/[^\s<>)\"']+", links):
+        parts = unquote(urlsplit(match[0]).path).strip("/").split("/")
+        if parts[:2] != repo.split("/") or len(parts) < 4 or parts[2] not in {"tree", "blob", "compare"}:
+            continue
+        target = parts[3].rsplit("...", 1)[-1] if parts[2] == "compare" else parts[3]
+        if target != path.stem:
+            raise SyncError(f"{path}: release link target {target!r} must match {path.stem}")
+
+
+def load_notes(directory: Path, tags: list[str] | None, repo: str = DEFAULT_REPO) -> dict[str, str]:
     """Validate selected version filenames and their contents before contacting GitHub."""
     selected = tags if tags is not None else [path.stem for path in directory.glob("v*.md")]
     if not selected:
@@ -131,7 +148,7 @@ def load_notes(directory: Path, tags: list[str] | None) -> dict[str, str]:
         if not TAG_PATTERN.fullmatch(tag):
             raise SyncError(f"Invalid version tag: {tag!r}; expected vX.Y.Z")
     ordered = sorted(selected, key=lambda tag: tuple(int(part) for part in tag[1:].split(".")))
-    return {tag: validate_notes(directory / f"{tag}.md") for tag in ordered}
+    return {tag: validate_notes(directory / f"{tag}.md", repo) for tag in ordered}
 
 
 def github_api(endpoint: str, *, payload: dict[str, str] | None = None, paginate: bool = False) -> Any:
@@ -223,16 +240,26 @@ def preview(notes: dict[str, str], releases: dict[str, dict[str, Any]]) -> None:
             )
 
 
-def backup_releases(directory: Path, releases: dict[str, dict[str, Any]]) -> None:
+def backup_releases(name: str, releases: dict[str, dict[str, Any]]) -> None:
     """Save every full original JSON record before the first remote mutation."""
+    if not BACKUP_NAME_PATTERN.fullmatch(name):
+        raise SyncError("Backup name must contain only ASCII letters, digits, '-' and '_'")
     for tag in releases:
         if not TAG_PATTERN.fullmatch(tag):
             raise SyncError(f"Invalid backup tag: {tag!r}; expected vX.Y.Z")
+    if BACKUP_ROOT.is_symlink():
+        raise SyncError("The repository .release-backups directory must not be a symlink")
+    BACKUP_ROOT.mkdir(mode=0o700, exist_ok=True)
+    if BACKUP_ROOT.resolve(strict=True) != BACKUP_ROOT:
+        raise SyncError("The repository backup root must not traverse a symlink")
+    directory = BACKUP_ROOT / name
     try:
-        directory.mkdir(mode=0o700, parents=True, exist_ok=False)
+        directory.mkdir(mode=0o700, exist_ok=False)
     except FileExistsError as exc:
-        raise SyncError("Backup directory already exists; choose a new --backup-dir") from exc
+        raise SyncError("Backup already exists; choose a new --backup-name") from exc
     backup_root = directory.resolve(strict=True)
+    if backup_root.parent != BACKUP_ROOT:
+        raise SyncError("Backup directory must stay inside the repository backup root")
     for tag, release in releases.items():
         output = (backup_root / f"{tag}.json").resolve()
         if output.parent != backup_root:
@@ -243,22 +270,35 @@ def backup_releases(directory: Path, releases: dict[str, dict[str, Any]]) -> Non
     print(f"Backed up {len(releases)} complete release records to {directory}")
 
 
+def wait_before_mutation(previous_finished: float | None) -> None:
+    """Leave at least one second after the previous PATCH before checking the next release."""
+    if previous_finished is not None:
+        delay = 1.0 - (time.monotonic() - previous_finished)
+        if delay > 0:
+            time.sleep(delay)
+
+
 def apply_notes(repo: str, notes: dict[str, str], releases: dict[str, dict[str, Any]]) -> None:
     """Apply only name/body, stopping on concurrent edits or failed preservation checks."""
+    last_patch_finished = None
     for tag, body in notes.items():
         original = releases[tag]
-        if original["name"] == tag and original["body"] == body:
-            print(f"{tag}: already matches")
-            continue
+        needs_update = original["name"] != tag or original["body"] != body
+        if needs_update:
+            wait_before_mutation(last_patch_finished)
         endpoint = f"repos/{repo}/releases/{original['id']}"
         fresh = validate_release(github_api(endpoint))
         if any(fresh[key] != original[key] for key in ("name", "body", "updated_at")) or preservation_fields(
             fresh
         ) != preservation_fields(original):
             raise SyncError(f"{tag}: release changed after preview; no update applied to this release")
+        if not needs_update:
+            print(f"{tag}: already matches")
+            continue
         # Like `gh release edit`, carry the existing tag: GitHub can detach it if omitted.
         # Intentionally omit every other API parameter, including make_latest.
         github_api(endpoint, payload={"name": tag, "body": body, "tag_name": original["tag_name"]})
+        last_patch_finished = time.monotonic()
         updated = validate_release(github_api(endpoint))
         if (
             updated["name"] != tag
@@ -276,33 +316,37 @@ def main(argv: list[str] | None = None) -> int:
     mode.add_argument("--check", action="store_true", help="validate local notes without invoking gh")
     mode.add_argument("--apply", action="store_true", help="update existing release titles and bodies")
     parser.add_argument("--tag", action="append", help="select vX.Y.Z; repeat to select several versions")
-    parser.add_argument("--repo", default="sunbos/sqlseed", help="GitHub owner/repository")
+    parser.add_argument("--repo", default=DEFAULT_REPO, help="GitHub owner/repository")
     parser.add_argument("--notes-dir", type=Path, default=DEFAULT_NOTES_DIR)
-    parser.add_argument("--backup-dir", type=Path, help="new directory, required for --apply; outside --notes-dir")
+    parser.add_argument(
+        "--backup-name",
+        help="required for --apply: unique ASCII letters/digits/-/_ name under repository .release-backups",
+    )
     args = parser.parse_args(argv)
-    if args.apply and args.backup_dir is None:
-        parser.error("--apply requires --backup-dir")
+    if args.apply and args.backup_name is None:
+        parser.error("--apply requires --backup-name")
     if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repo):
         parser.error("--repo must be owner/repository")
-    if args.backup_dir is not None and args.backup_dir.resolve().is_relative_to(args.notes_dir.resolve()):
-        parser.error("--backup-dir must be outside --notes-dir")
+    if args.backup_name is not None and not BACKUP_NAME_PATTERN.fullmatch(args.backup_name):
+        parser.error("--backup-name must contain only ASCII letters, digits, '-' and '_'")
     try:
-        notes = load_notes(args.notes_dir, args.tag)
+        notes = load_notes(args.notes_dir, args.tag, args.repo)
         if args.check:
             print(f"Validated {len(notes)} local release notes; no GitHub access")
             return 0
         releases = select_releases(args.repo, notes)
         preview(notes, releases)
         if args.apply:
-            backup_releases(args.backup_dir, releases)
+            backup_releases(args.backup_name, releases)
             apply_notes(args.repo, notes, releases)
         else:
-            print("Preview only; no releases changed. Use --apply --backup-dir PATH to update.")
+            print("Preview only; no releases changed. Use --apply --backup-name NAME to update.")
     except (SyncError, OSError) as exc:
         print(f"Error: {exc}", file=sys.stderr)
         if args.apply:
             print(
-                f"Stopped without automatic rollback. Inspect remote state and backups in {args.backup_dir} "
+                "Stopped without automatic rollback. "
+                f"Inspect remote state and backups in {BACKUP_ROOT / args.backup_name} "
                 "before retrying; earlier updates, if any, remain applied.",
                 file=sys.stderr,
             )

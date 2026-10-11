@@ -56,6 +56,23 @@ def release(identifier: int, tag: str) -> dict[str, Any]:
     }
 
 
+class VirtualClock:
+    """Advance elapsed time deterministically without delaying the test process."""
+
+    def __init__(self) -> None:
+        self.elapsed = 0.0
+        self.sleeps: list[float] = []
+
+    def monotonic(self) -> float:
+        """Return elapsed simulated time."""
+        return self.elapsed
+
+    def sleep(self, duration: float) -> None:
+        """Record a requested wait and advance simulated time."""
+        self.sleeps.append(duration)
+        self.elapsed += duration
+
+
 class GitHubProcess:
     """Model GitHub pagination, tag-detachment behavior, conflicts, and failed updates."""
 
@@ -67,11 +84,18 @@ class GitHubProcess:
         self.fail_patch: int | None = None
         self.conflict: dict[str, Any] = {}
         self.mutate_after_patch: dict[str, Any] = {}
+        self.clock = VirtualClock()
+        self.read_duration = 0.0
+        self.patch_duration = 0.0
+        self.patch_starts: list[float] = []
+        self.patch_finishes: list[float] = []
 
     def run(self, command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         """Execute a simulated gh request against persistent release state."""
         self.commands.append(command)
         endpoint = command[4]
+        if command[3] == "GET":
+            self.clock.elapsed += self.read_duration
         if endpoint.endswith("/releases?per_page=100"):
             assert "--paginate" in command
             assert "--slurp" in command
@@ -79,6 +103,7 @@ class GitHubProcess:
         identifier = int(endpoint.rsplit("/", 1)[1])
         current = next(item for item in self.releases if item["id"] == identifier)
         if command[3] == "PATCH":
+            self.patch_starts.append(self.clock.monotonic())
             assert command[-2:] == ["--input", "-"]
             if self.backup_dir is not None:
                 for original in self.initial:
@@ -93,6 +118,8 @@ class GitHubProcess:
             current.update(payload)
             current["updated_at"] = "2026-10-12T00:00:00Z"
             current.update(self.mutate_after_patch)
+            self.clock.elapsed += self.patch_duration
+            self.patch_finishes.append(self.clock.monotonic())
         else:
             current.update(self.conflict)
         return subprocess.CompletedProcess(command, 0, json.dumps(current), "")
@@ -108,11 +135,18 @@ def notes_dir(tmp_path: Path) -> Path:
     return directory
 
 
+@pytest.fixture(autouse=True)
+def isolated_backup_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the fixed repository backup root inside each test's isolated filesystem."""
+    monkeypatch.setattr(sync, "BACKUP_ROOT", tmp_path.resolve() / ".release-backups")
+
+
 @pytest.fixture
 def github(monkeypatch: pytest.MonkeyPatch) -> GitHubProcess:
     """Intercept only the external process boundary, retaining actual script behavior."""
     process = GitHubProcess([release(25, "v0.2.5"), release(26, "v0.2.6")])
     monkeypatch.setattr(sync.subprocess, "run", process.run)
+    monkeypatch.setattr(sync, "time", process.clock)
     return process
 
 
@@ -123,6 +157,7 @@ def test_default_preview_reads_all_pages_without_writes(
     assert sync.main(["--notes-dir", str(notes_dir)]) == 0
     assert github.releases == github.initial
     assert [command[3] for command in github.commands] == ["GET"]
+    assert github.clock.sleeps == []
     output = capsys.readouterr().out
     assert "v0.2.5: would update" in output
     assert "v0.2.6: would update" in output
@@ -134,6 +169,7 @@ def test_offline_check_does_not_invoke_gh(notes_dir: Path, github: GitHubProcess
     """Local validation succeeds without starting a GitHub CLI process."""
     assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
     assert github.commands == []
+    assert github.clock.sleeps == []
 
 
 @pytest.mark.parametrize(
@@ -174,6 +210,55 @@ def test_malformed_notes_stop_before_network(notes_dir: Path, github: GitHubProc
     """Encoding and structural errors are rejected before contacting GitHub."""
     (notes_dir / "v0.2.6.md").write_bytes(body)
     assert sync.main(["--notes-dir", str(notes_dir)]) == 1
+    assert github.commands == []
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        "tree/v0.2.5",
+        "blob/v0.2.5/CHANGELOG.md",
+        "blob/v0.2.5/CHANGELOG.zh-CN.md",
+        "blob/v0.2.5/docs/migration.md",
+        "compare/v0.2.4...v0.2.5",
+    ],
+)
+def test_stale_versioned_links_fail_before_network(
+    notes_dir: Path, github: GitHubProcess, capsys: pytest.CaptureFixture[str], destination: str
+) -> None:
+    """Copying old source, changelog, migration, or comparison links cannot pass validation."""
+    body = BODY.replace("https://github.com/sunbos/sqlseed", f"https://github.com/sunbos/sqlseed/{destination}")
+    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
+    assert sync.main(["--notes-dir", str(notes_dir)]) == 1
+    assert "release link target 'v0.2.5' must match v0.2.6" in capsys.readouterr().err
+    assert github.commands == []
+
+
+def test_current_links_allow_previous_comparison_base_and_historical_body_references(
+    notes_dir: Path, github: GitHubProcess
+) -> None:
+    """Only final release links target the current tag; earlier compatibility references stay valid."""
+    body = BODY.replace(
+        "- Preserve release assets.",
+        "- Compare [older behavior](https://github.com/sunbos/sqlseed/blob/v0.2.4/docs/migration.md).",
+    ).replace(
+        "- [Source](https://github.com/sunbos/sqlseed)",
+        "- [Source](https://github.com/sunbos/sqlseed/tree/v0.2.6)\n"
+        "- [Changelog](https://github.com/sunbos/sqlseed/blob/v0.2.6/CHANGELOG.md#fixed)\n"
+        "- [Full diff](https://github.com/sunbos/sqlseed/compare/v0.2.5...v0.2.6)\n"
+        "- [Original comparison](https://github.com/sunbos/sqlseed/compare/v0.2.3...v0.2.6)\n"
+        "- [Dependency](https://github.com/example/dependency/tree/v1.0.0)",
+    )
+    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
+    assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
+    assert github.commands == []
+
+
+def test_versioned_links_follow_explicit_repository_selection(notes_dir: Path, github: GitHubProcess) -> None:
+    """A custom repository receives the same stale-link validation as the default repository."""
+    body = BODY.replace("https://github.com/sunbos/sqlseed", "https://github.com/owner/fork/tree/v0.2.5")
+    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
+    assert sync.main(["--check", "--notes-dir", str(notes_dir), "--repo", "owner/fork"]) == 1
     assert github.commands == []
 
 
@@ -245,8 +330,8 @@ def test_every_selected_version_must_have_one_published_release(
         github.releases.append(deepcopy(github.releases[-1]))
     else:
         github.releases[-1]["draft"] = True
-    backups = tmp_path / "backups"
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(backups)]) == 1
+    backups = sync.BACKUP_ROOT / "backups"
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", backups.name]) == 1
     assert not backups.exists()
     assert all(command[3] == "GET" for command in github.commands)
 
@@ -262,23 +347,32 @@ def test_missing_required_release_field_is_not_masked_by_extra_fields(
     assert all(command[3] == "GET" for command in github.commands)
 
 
-def test_apply_requires_external_backup_directory(notes_dir: Path, github: GitHubProcess) -> None:
-    """The CLI requires an explicit backup destination outside the notes directory."""
-    for arguments in (["--apply"], ["--apply", "--backup-dir", str(notes_dir / "backups")]):
-        with pytest.raises(SystemExit) as error:
-            sync.main(["--notes-dir", str(notes_dir), *arguments])
-        assert error.value.code == 2
+def test_apply_requires_explicit_backup_name(notes_dir: Path, github: GitHubProcess) -> None:
+    """The CLI requires an explicit backup name before any remote access."""
+    with pytest.raises(SystemExit) as error:
+        sync.main(["--notes-dir", str(notes_dir), "--apply"])
+    assert error.value.code == 2
     assert github.commands == []
+
+
+@pytest.mark.parametrize("name", ["", ".", "..", "../outside", "/outside", r"C:\outside", "a/b", r"a\b", "a b", "中文"])
+def test_unsafe_backup_names_fail_before_network(notes_dir: Path, github: GitHubProcess, name: str) -> None:
+    """Backup names cannot supply paths, traversal components, whitespace, or non-ASCII text."""
+    with pytest.raises(SystemExit) as error:
+        sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", name])
+    assert error.value.code == 2
+    assert github.commands == []
+    assert not sync.BACKUP_ROOT.exists()
 
 
 def test_apply_changes_only_titles_and_bodies_and_saves_full_originals(
     notes_dir: Path, github: GitHubProcess, tmp_path: Path
 ) -> None:
     """Successful updates preserve tags, assets, publication metadata, and complete originals."""
-    github.backup_dir = tmp_path / "backups"
+    github.backup_dir = sync.BACKUP_ROOT / "backups"
     github.releases[-1]["prerelease"] = True
     github.initial = deepcopy(github.releases)
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(github.backup_dir)]) == 0
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", github.backup_dir.name]) == 0
     for original, updated in zip(github.initial, github.releases, strict=True):
         assert updated == {
             **original,
@@ -289,10 +383,31 @@ def test_apply_changes_only_titles_and_bodies_and_saves_full_originals(
         assert json.loads((github.backup_dir / f"{original['tag_name']}.json").read_text(encoding="utf-8")) == original
 
 
+def test_bulk_apply_waits_one_second_after_previous_patch_completion(
+    notes_dir: Path, github: GitHubProcess, tmp_path: Path
+) -> None:
+    """Fast reads cannot cause consecutive mutative requests to bypass GitHub's pacing guidance."""
+    github.patch_duration = 0.2
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "backups"]) == 0
+    assert github.clock.sleeps == [1.0]
+    assert github.patch_starts[1] - github.patch_finishes[0] >= 1.0
+    assert [item["body"] for item in github.releases] == [BODY, BODY]
+
+
+def test_slow_verification_reads_count_toward_mutation_interval(
+    notes_dir: Path, github: GitHubProcess, tmp_path: Path
+) -> None:
+    """Reads that already consume the required interval do not add redundant waiting."""
+    github.read_duration = 1.1
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "backups"]) == 0
+    assert github.clock.sleeps == []
+    assert github.patch_starts[1] - github.patch_finishes[0] >= 1.0
+
+
 def test_specific_tag_leaves_other_releases_alone(notes_dir: Path, github: GitHubProcess, tmp_path: Path) -> None:
     """Selecting one version limits both mutations and backups to that release."""
-    backups = tmp_path / "backups"
-    assert sync.main(["--notes-dir", str(notes_dir), "--tag", "v0.2.6", "--apply", "--backup-dir", str(backups)]) == 0
+    backups = sync.BACKUP_ROOT / "backups"
+    assert sync.main(["--notes-dir", str(notes_dir), "--tag", "v0.2.6", "--apply", "--backup-name", backups.name]) == 0
     assert github.releases[0] == github.initial[0]
     assert github.releases[1]["name"] == "v0.2.6"
     assert sorted(path.name for path in backups.iterdir()) == ["v0.2.6.json"]
@@ -306,21 +421,35 @@ def test_concurrent_changes_stop_before_patch(
     notes_dir: Path, github: GitHubProcess, tmp_path: Path, field: str, value: str
 ) -> None:
     """Freshly detected body, timestamp, or tag changes prevent the PATCH."""
-    backups = tmp_path / "backups"
+    backups = sync.BACKUP_ROOT / "backups"
     github.conflict = {field: value}
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(backups)]) == 1
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", backups.name]) == 1
     assert all(command[3] == "GET" for command in github.commands)
     assert len(list(backups.glob("*.json"))) == 2
     assert github.releases[0][field] == value
+
+
+def test_initially_matching_release_is_revalidated_before_skipping(
+    notes_dir: Path, github: GitHubProcess, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Concurrent edits to an initially matching release cannot produce a successful no-op apply."""
+    for item in github.releases:
+        item.update(name=item["tag_name"], body=BODY)
+    github.conflict = {"body": "A newer edit"}
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "backups"]) == 1
+    assert "release changed after preview" in capsys.readouterr().err
+    assert github.releases[0]["body"] == "A newer edit"
+    assert all(command[3] == "GET" for command in github.commands)
+    assert github.clock.sleeps == []
 
 
 def test_partial_failure_retains_all_backups_and_never_prints_credentials(
     notes_dir: Path, github: GitHubProcess, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """Partial failures retain all originals and report the state without revealing CLI secrets."""
-    github.backup_dir = tmp_path / "backups"
+    github.backup_dir = sync.BACKUP_ROOT / "backups"
     github.fail_patch = 26
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(github.backup_dir)]) == 1
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", github.backup_dir.name]) == 1
     assert github.releases[0]["body"] == BODY
     assert github.releases[1] == github.initial[1]
     assert len(list(github.backup_dir.glob("*.json"))) == 2
@@ -332,11 +461,11 @@ def test_partial_failure_retains_all_backups_and_never_prints_credentials(
 
 def test_existing_backup_is_never_overwritten(notes_dir: Path, github: GitHubProcess, tmp_path: Path) -> None:
     """Previous backup content survives an attempted reuse of its directory."""
-    backups = tmp_path / "backups"
-    backups.mkdir()
+    backups = sync.BACKUP_ROOT / "backups"
+    backups.mkdir(parents=True)
     previous = backups / "v0.2.6.json"
     previous.write_text("previous original", encoding="utf-8")
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(backups)]) == 1
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", backups.name]) == 1
     assert previous.read_text(encoding="utf-8") == "previous original"
     assert github.releases == github.initial
 
@@ -344,19 +473,19 @@ def test_existing_backup_is_never_overwritten(notes_dir: Path, github: GitHubPro
 @pytest.mark.parametrize("tag", ["../escape", "v0.2.6/../../escape", r"..\escape", "/escape"])
 def test_backup_helper_rejects_traversal_before_creating_any_files(tmp_path: Path, tag: str) -> None:
     """The backup helper validates its own filenames even when called without CLI selection."""
-    backups = tmp_path / "backups"
+    backups = sync.BACKUP_ROOT / "backups"
     originals = {"v0.2.5": release(25, "v0.2.5"), tag: release(26, tag)}
     with pytest.raises(sync.SyncError, match="Invalid backup tag"):
-        sync.backup_releases(backups, originals)
+        sync.backup_releases(backups.name, originals)
     assert not backups.exists()
     assert list(tmp_path.iterdir()) == []
 
 
 def test_existing_empty_backup_directory_is_rejected(notes_dir: Path, github: GitHubProcess, tmp_path: Path) -> None:
     """Apply requires a new directory even when an existing destination is empty."""
-    backups = tmp_path / "backups"
-    backups.mkdir()
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(backups)]) == 1
+    backups = sync.BACKUP_ROOT / "backups"
+    backups.mkdir(parents=True)
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", backups.name]) == 1
     assert list(backups.iterdir()) == []
     assert github.releases == github.initial
 
@@ -369,12 +498,13 @@ def test_backup_directory_symlink_is_rejected(
     target = tmp_path / "target"
     if target_exists:
         target.mkdir()
-    backups = tmp_path / "backups"
+    sync.BACKUP_ROOT.mkdir()
+    backups = sync.BACKUP_ROOT / "backups"
     try:
         backups.symlink_to(target, target_is_directory=True)
     except (NotImplementedError, OSError):
         pytest.skip("Creating symlinks is unavailable in this test environment")
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(backups)]) == 1
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", backups.name]) == 1
     assert backups.is_symlink()
     assert target.exists() == target_exists
     if target_exists:
@@ -382,13 +512,41 @@ def test_backup_directory_symlink_is_rejected(
     assert github.releases == github.initial
 
 
-def test_new_user_selected_backup_directory_saves_only_version_files(tmp_path: Path) -> None:
-    """An intentional external destination remains supported with missing parent directories."""
-    backups = tmp_path / "chosen-parent" / "new-backup"
+def test_named_backup_saves_only_version_files_inside_fixed_root() -> None:
+    """Valid names select a new child under the fixed repository backup directory."""
+    backups = sync.BACKUP_ROOT / "release-notes_20261012"
     original = release(26, "v0.2.6")
-    sync.backup_releases(backups, {"v0.2.6": original})
+    sync.backup_releases(backups.name, {"v0.2.6": original})
     assert [path.name for path in backups.iterdir()] == ["v0.2.6.json"]
     assert json.loads((backups / "v0.2.6.json").read_text(encoding="utf-8")) == original
+
+
+@pytest.mark.parametrize("name", ["../escape", "/outside", r"..\escape"])
+def test_backup_helper_rejects_unsafe_names_without_filesystem_changes(tmp_path: Path, name: str) -> None:
+    """Direct helper callers cannot bypass the fixed-root CLI boundary."""
+    with pytest.raises(sync.SyncError, match="Backup name"):
+        sync.backup_releases(name, {"v0.2.6": release(26, "v0.2.6")})
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("target_exists", [True, False])
+def test_fixed_backup_root_symlink_never_writes_outside_repository(
+    notes_dir: Path, github: GitHubProcess, tmp_path: Path, target_exists: bool
+) -> None:
+    """A substituted root cannot redirect backup creation to an external directory."""
+    outside = tmp_path / "outside"
+    if target_exists:
+        outside.mkdir()
+    try:
+        sync.BACKUP_ROOT.symlink_to(outside, target_is_directory=True)
+    except (NotImplementedError, OSError):
+        pytest.skip("Creating symlinks is unavailable in this test environment")
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "backups"]) == 1
+    assert sync.BACKUP_ROOT.is_symlink()
+    assert outside.exists() == target_exists
+    if target_exists:
+        assert list(outside.iterdir()) == []
+    assert github.releases == github.initial
 
 
 def test_verification_detects_changed_assets_and_stops_remaining_updates(
@@ -396,14 +554,16 @@ def test_verification_detects_changed_assets_and_stops_remaining_updates(
 ) -> None:
     """A post-update asset mismatch halts synchronization before modifying the next release."""
     github.mutate_after_patch = {"assets": []}
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(tmp_path / "backups")]) == 1
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "backups"]) == 1
     assert github.releases[1] == github.initial[1]
     assert "verification failed" in capsys.readouterr().err
 
 
 def test_second_apply_is_idempotent(notes_dir: Path, github: GitHubProcess, tmp_path: Path) -> None:
     """Already synchronized releases require no further remote mutations."""
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(tmp_path / "first")]) == 0
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "first"]) == 0
     github.commands.clear()
-    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-dir", str(tmp_path / "second")]) == 0
+    github.clock.sleeps.clear()
+    assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "second"]) == 0
     assert all(command[3] == "GET" for command in github.commands)
+    assert github.clock.sleeps == []

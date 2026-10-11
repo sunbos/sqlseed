@@ -27,11 +27,11 @@ python scripts/sync_release_notes.py --check
 
 The CI lint job runs the same offline check; it does not contact GitHub.
 
-Preview existing GitHub Releases, then apply with a new backup directory:
+Preview existing GitHub Releases, then apply with a new backup name:
 
 ```bash
 python scripts/sync_release_notes.py
-python scripts/sync_release_notes.py --apply --backup-dir /tmp/sqlseed-release-notes-backup
+python scripts/sync_release_notes.py --apply --backup-name release-notes-20261012
 ```
 
 Both commands require GitHub CLI access to `api.github.com`; applying also
@@ -41,9 +41,14 @@ scope or fine-grained/GitHub App `Workflows: write` permission. Authorize it in
 the token/app settings; the built-in Actions `GITHUB_TOKEN` cannot provide it.
 See the [release guide](../../docs/releasing.md#maintain-github-release-notes)
 for authorization steps and GitHub's 403/404 behavior. Only release titles and bodies are
-updated. The script backs up originals, detects concurrent changes and checks
-each update. If an update fails partway through, retain the backup, inspect the
-reported versions and preview again before retrying with a new backup directory.
+updated. Backups are stored in the checkout's gitignored `.release-backups/<name>/`;
+names accept only ASCII letters, digits, hyphens and underscores. Existing names,
+arbitrary paths and symlink backup roots are rejected. Keep or copy the backups
+before removing the checkout. The script checks versioned links against the note
+filename, detects concurrent changes (including initially matching releases),
+spaces mutations by at least one second and verifies each update. If an update
+fails partway through, retain the backup, inspect the reported versions and
+preview again before retrying with a new backup name.
 It does not create releases, republish packages or modify tags/assets.
 
 For a new approved version, commit its reviewed notes with the release changes
@@ -67,9 +72,11 @@ See the [release guide](../../docs/releasing.md).
 还需在 token/App 设置中授权经典 PAT/OAuth 的 `workflow` scope，或细粒度及 GitHub App
 token 的 `Workflows: write`；Actions 内置 `GITHUB_TOKEN` 无法提供此权限。授权步骤和
 GitHub 的 403/404 行为见[发布指南](../../docs/releasing.zh-CN.md#maintain-github-release-notes)。
-工具仅修改标题与正文，先备份
-原文，再检查并发变化并回读验证。中途失败时保留备份、核对已报告版本，重新预览后使用
-新的备份目录重试。工具不创建 Release、不重发包、不修改标签或附件。
+工具仅修改标题与正文，先将原文备份到检出目录下已被 Git 忽略的 `.release-backups/<name>/`。
+名称只接受 ASCII 字母、数字、连字符和下划线，不接受已有名称、任意路径或符号链接备份根目录；
+删除检出目录前须保留或复制备份。脚本检查版本链接与说明文件名一致，检查并发变化（包括初始
+已匹配的版本），写请求之间至少间隔一秒，并回读验证。中途失败时保留备份、核对已报告版本，
+重新预览后使用新的备份名称重试。工具不创建 Release、不重发包、不修改标签或附件。
 CI 的 lint 任务也执行同一离线格式校验，不连接 GitHub。
 
 新版本在发布审批后，将审阅过的说明随发布改动提交，推送提交与标签后用
