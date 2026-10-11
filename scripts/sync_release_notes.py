@@ -29,6 +29,20 @@ SUBSECTIONS = {
     "Compatibility": "兼容性",
     "Verification": "验收记录",
 }
+TEMPLATE_INSTRUCTIONS = (
+    "Describe a user-visible addition.",
+    "Describe a behavior or maintenance change.",
+    "Describe the trigger and corrected behavior.",
+    "Describe a removal and its replacement, if any.",
+    "Record version-specific upgrade steps and support limits.",
+    "Link evidence for this version; distinguish historical records from new checks.",
+    "描述用户可见的新增能力。",
+    "描述行为或维护方式的变化。",
+    "描述问题的触发条件与修复后的行为。",
+    "描述移除内容及替代方式（如有）。",
+    "记录本版本的升级步骤与支持边界。",
+    "链接本版本的验收依据，区分历史记录与新执行的检查。",
+)
 INVARIANT_FIELDS = (
     "id",
     "tag_name",
@@ -94,6 +108,8 @@ def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
         raise SyncError(f"{path}: use UTF-8 without BOM, LF line endings, and a final newline")
     if "vVERSION" in body or "vPREVIOUS" in body:
         raise SyncError(f"{path}: replace release-template version placeholders")
+    if any(instruction in body for instruction in TEMPLATE_INSTRUCTIONS):
+        raise SyncError(f"{path}: replace release-template instructions with version-specific release notes")
     lines = body.splitlines()
     headings, content_lines = markdown_structure(lines)
     validate_sections(path, lines, headings, content_lines)

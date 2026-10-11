@@ -34,6 +34,10 @@ BODY = """## English
 
 - [Source](https://github.com/sunbos/sqlseed)
 """
+TEMPLATE = (SCRIPT.parents[1] / ".github" / "release-notes" / "TEMPLATE.md").read_text(encoding="utf-8")
+TEMPLATE_INSTRUCTIONS = [
+    line for line in TEMPLATE.split("## Links / 相关链接", 1)[0].splitlines() if line.startswith("- ")
+]
 
 
 def release(identifier: int, tag: str) -> dict[str, Any]:
@@ -170,6 +174,34 @@ def test_offline_check_does_not_invoke_gh(notes_dir: Path, github: GitHubProcess
     assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
     assert github.commands == []
     assert github.clock.sleeps == []
+
+
+@pytest.mark.parametrize("arguments", [[], ["--check"], ["--apply", "--backup-name", "placeholders"]])
+@pytest.mark.parametrize(
+    "body",
+    [
+        TEMPLATE.replace("vPREVIOUS", "v0.2.5").replace("vVERSION", "v0.2.6"),
+        *[
+            BODY.replace("- Preserve release assets." if instruction.isascii() else "- 保留发行资产。", instruction)
+            for instruction in TEMPLATE_INSTRUCTIONS
+        ],
+    ],
+    ids=["whole-template", *[f"instruction-{index}" for index in range(len(TEMPLATE_INSTRUCTIONS))]],
+)
+def test_template_instructions_stop_before_network(
+    notes_dir: Path,
+    github: GitHubProcess,
+    capsys: pytest.CaptureFixture[str],
+    arguments: list[str],
+    body: str,
+) -> None:
+    """Reject real template prose even when only one language retains a single instruction."""
+    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
+    assert not (notes_dir / "TEMPLATE.md").exists()
+    assert sync.main([*arguments, "--notes-dir", str(notes_dir)]) == 1
+    assert "template instructions" in capsys.readouterr().err
+    assert github.commands == []
+    assert not sync.BACKUP_ROOT.exists()
 
 
 @pytest.mark.parametrize(
