@@ -1,5 +1,6 @@
 # Resolve all five local candidates together; only third-party packages are
 # emitted into requirements-ci.txt. See .github/DEPENDENCIES.md.
+-r requirements-release-notes.in
 -e .[dev,all,docs]
 -e ./plugins/sqlseed-cli
 -e ./plugins/sqlseed-ai[dev]

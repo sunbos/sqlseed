@@ -90,6 +90,15 @@ Compatibility and Verification only when applicable. Both languages describe
 the same changes. Link changelogs and source to the exact version tag; keep
 historical verification evidence and upgrade limits with their own version.
 
+The full CI/development environment includes the Markdown parser. For standalone
+release-note maintenance, activate a separate virtualenv and install its small
+hash-locked dependency set from the repository root; no sqlseed package is needed:
+
+```bash
+python -m pip install --require-hashes --only-binary :all: -r .github/requirements-release-notes.txt
+```
+
+Installation is a separate preparation step; `--check` still runs entirely offline.
 Check the notes before committing. After approval, push the release commit and tag,
 then create the release with the reviewed notes. `--verify-tag` stops if the tag is
 missing from the remote repository:

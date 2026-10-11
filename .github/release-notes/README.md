@@ -21,7 +21,15 @@ The initial set covers all 20 published releases from `v0.1.1` through `v0.2.6`.
 It preserves original release content and uses the matching bilingual changelog
 where available. Missing version numbers are not new releases to create.
 
-Check the files offline:
+The full CI/development environment already includes the Markdown parser.
+For standalone maintenance, activate a separate virtualenv and install the small
+hash-locked dependency set from the repository root; no sqlseed package is needed:
+
+```bash
+python -m pip install --require-hashes --only-binary :all: -r .github/requirements-release-notes.txt
+```
+
+Dependency installation is a separate preparation step. Check the files offline:
 
 ```bash
 python scripts/sync_release_notes.py --check
@@ -82,6 +90,14 @@ See the [release guide](../../docs/releasing.md).
 链接章节必须包含本仓库的 `tree/v<version>` 源码链接。未替换的模板指引会被拒绝，
 引用和代码示例中可以保留这些文字。
 
+完整 CI/开发环境已包含 Markdown 解析器。单独维护发布说明时，先激活独立虚拟环境，
+再从仓库根目录安装小型哈希锁定依赖集，无需安装 sqlseed 包：
+
+```bash
+python -m pip install --require-hashes --only-binary :all: -r .github/requirements-release-notes.txt
+```
+
+安装依赖是单独的准备步骤；`--check` 仍完全离线运行。
 工具统一输出 UTF-8，包括重定向到文件的双语预览。
 以上命令分别执行离线格式校验、线上差异预览与实际同步。线上操作要求 GitHub CLI 能
 访问 `api.github.com`，同步还需仓库写入权限。历史目标相对默认分支修改 workflow 文件时，

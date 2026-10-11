@@ -42,6 +42,14 @@ Release 标题统一为 `v<version>`，审阅后的正文保存在
 变更、修复、移除、兼容性与验收记录，两种语言描述相同的变更。变更日志和源码链接固定到
 对应版本标签，历史验收依据与升级限制保留在所属版本。
 
+完整 CI/开发环境已包含 Markdown 解析器。单独维护发布说明时，先激活独立虚拟环境，
+再从仓库根目录安装小型哈希锁定依赖集，无需安装 sqlseed 包：
+
+```bash
+python -m pip install --require-hashes --only-binary :all: -r .github/requirements-release-notes.txt
+```
+
+安装依赖是单独的准备步骤；`--check` 仍完全离线运行。
 提交前校验说明。批准发布后，先推送发布提交与标签，再用审阅后的文件创建 Release。
 `--verify-tag` 会在远端仓库缺少该标签时中止：
 
