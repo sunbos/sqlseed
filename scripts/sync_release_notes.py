@@ -40,22 +40,37 @@ class SyncError(RuntimeError):
     """A validation, remote API, or concurrency failure that stops synchronization."""
 
 
+def markdown_prefix(line: str) -> tuple[str, str]:
+    """Recognize a heading or code-fence prefix in linear time without backtracking."""
+    content = line.lstrip(" ")
+    if len(line) - len(content) > 3 or not content or content[0] not in "#`~":
+        return "", ""
+    tail = content.lstrip(content[0])
+    prefix = content[: len(content) - len(tail)]
+    if prefix[0] == "#":
+        if len(prefix) <= 6 and (not tail or tail[0].isspace()):
+            return prefix, tail
+    elif len(prefix) >= 3:
+        return prefix, tail
+    return "", ""
+
+
 def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int]]:
     """Locate headings and nonblank content, excluding heading text and fence delimiters."""
     headings = []
     content_lines = set()
     fence = ""
     for index, line in enumerate(lines):
-        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)
+        marker, tail = markdown_prefix(line)
         if fence:
-            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+            if marker.startswith(fence[0]) and len(marker) >= len(fence) and not tail.strip():
                 fence = ""
             elif line.strip():
                 content_lines.add(index)
             continue
-        if marker:
-            fence = marker[1]
-        elif re.match(r" {0,3}#{1,6}(?:\s|$)", line):
+        if marker.startswith(("`", "~")):
+            fence = marker
+        elif marker.startswith("#"):
             headings.append((index, line))
         elif line.strip():
             content_lines.add(index)
@@ -76,11 +91,17 @@ def validate_notes(path: Path) -> str:
         raise SyncError(f"{path}: replace release-template version placeholders")
     lines = body.splitlines()
     headings, content_lines = markdown_structure(lines)
-    if any(not (heading.startswith("## ") or heading.startswith("### ")) for _, heading in headings):
+    validate_sections(path, lines, headings, content_lines)
+    return body
+
+
+def validate_sections(path: Path, lines: list[str], headings: list[tuple[int, str]], content_lines: set[int]) -> None:
+    """Require canonical bilingual headings and nonempty ordered subsections."""
+    if any(not heading.startswith(("## ", "### ")) for _, heading in headings):
         raise SyncError(f"{path}: only unindented H2 and H3 headings are allowed outside code blocks")
     if [heading for _, heading in headings if heading.startswith("## ")] != HEADINGS:
         raise SyncError(f"{path}: expected exactly these headings in order: {', '.join(HEADINGS)}")
-    if not body.startswith(HEADINGS[0] + "\n"):
+    if lines[0] != HEADINGS[0]:
         raise SyncError(f"{path}: notes must start with {HEADINGS[0]}")
     positions = [index for index, heading in headings if heading.startswith("## ")] + [len(lines)]
     if any(not any(start < index < end for index in content_lines) for start, end in pairwise(positions)):
@@ -97,7 +118,6 @@ def validate_notes(path: Path) -> str:
     for (start, heading), (end, _) in pairwise([*headings, (len(lines), "")]):
         if heading.startswith("### ") and not any(start < index < end for index in content_lines):
             raise SyncError(f"{path}: {heading} must contain nonwhitespace content")
-    return body
 
 
 def load_notes(directory: Path, tags: list[str] | None) -> dict[str, str]:
@@ -142,14 +162,14 @@ def github_api(endpoint: str, *, payload: dict[str, str] | None = None, paginate
         )
     try:
         return json.loads(result.stdout)
-    except (UnicodeError, ValueError) as exc:
+    except ValueError as exc:
         raise SyncError("GitHub CLI returned invalid JSON; synchronization stopped") from exc
 
 
 def validate_release(release: Any) -> dict[str, Any]:
     """Require the API fields used for conflict detection and preservation checks."""
     required = set(INVARIANT_FIELDS) - {"immutable"} | {"name", "body", "updated_at", "assets"}
-    if not isinstance(release, dict) or not required <= release.keys():
+    if not isinstance(release, dict) or required.difference(release):
         raise SyncError("GitHub returned an incomplete release record")
     if not isinstance(release["id"], int) or not isinstance(release["assets"], list):
         raise SyncError("GitHub returned an invalid release ID or assets list")
@@ -205,12 +225,19 @@ def preview(notes: dict[str, str], releases: dict[str, dict[str, Any]]) -> None:
 
 def backup_releases(directory: Path, releases: dict[str, dict[str, Any]]) -> None:
     """Save every full original JSON record before the first remote mutation."""
-    directory.mkdir(parents=True, exist_ok=True)
-    paths = {tag: directory / f"{tag}.json" for tag in releases}
-    if any(path.exists() for path in paths.values()):
-        raise SyncError("Backup files already exist; choose a new --backup-dir to preserve previous originals")
+    for tag in releases:
+        if not TAG_PATTERN.fullmatch(tag):
+            raise SyncError(f"Invalid backup tag: {tag!r}; expected vX.Y.Z")
+    try:
+        directory.mkdir(mode=0o700, parents=True, exist_ok=False)
+    except FileExistsError as exc:
+        raise SyncError("Backup directory already exists; choose a new --backup-dir") from exc
+    backup_root = directory.resolve(strict=True)
     for tag, release in releases.items():
-        with paths[tag].open("x", encoding="utf-8", newline="\n") as handle:
+        output = (backup_root / f"{tag}.json").resolve()
+        if output.parent != backup_root:
+            raise SyncError("Backup output must stay inside the selected backup directory")
+        with output.open("x", encoding="utf-8", newline="\n") as handle:
             json.dump(release, handle, ensure_ascii=False, indent=2)
             handle.write("\n")
     print(f"Backed up {len(releases)} complete release records to {directory}")
@@ -251,7 +278,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--tag", action="append", help="select vX.Y.Z; repeat to select several versions")
     parser.add_argument("--repo", default="sunbos/sqlseed", help="GitHub owner/repository")
     parser.add_argument("--notes-dir", type=Path, default=DEFAULT_NOTES_DIR)
-    parser.add_argument("--backup-dir", type=Path, help="required for --apply; outside --notes-dir")
+    parser.add_argument("--backup-dir", type=Path, help="new directory, required for --apply; outside --notes-dir")
     args = parser.parse_args(argv)
     if args.apply and args.backup_dir is None:
         parser.error("--apply requires --backup-dir")

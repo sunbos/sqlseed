@@ -66,7 +66,9 @@ python scripts/sync_release_notes.py --apply --backup-dir /tmp/sqlseed-release-n
 详见 [GitHub Release 更新权限规则](https://docs.github.com/en/rest/releases/releases#update-a-release)。
 
 默认命令仅预览。实际同步先将原始 Release 保存到备份目录，然后仅修改标题和正文，
-检查并发编辑并回读验证，保留标签、发布状态与附件。中途失败时保留备份、核对已报告版本，
+检查并发编辑并回读验证，保留标签、发布状态与附件。每次只运行一个同步任务，完成前避免
+其他 Release 编辑；更新前的读取与 PATCH 是两次独立请求，无法阻止两次请求之间发生的编辑。
+中途失败时保留备份、核对已报告版本，
 重新预览后使用新的备份目录重试。修改已有 Release 的正文不会触发本仓库监听
 `release: published` 的 PyPI 发布流程。这些命令不新建缺失版本，也不重新发布包。
 详见[说明维护规则](https://github.com/sunbos/sqlseed/blob/main/.github/release-notes/README.md)。

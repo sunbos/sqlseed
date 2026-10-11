@@ -118,7 +118,9 @@ does not change a PAT supplied through the environment. The built-in Actions
 The default command only previews. Applying saves the
 original releases in the backup directory before changing titles or bodies,
 checks for concurrent edits and verifies each result. It preserves tags, release
-state and assets. If an update fails partway through, retain the backup, inspect
+state and assets. Run one synchronization at a time and avoid other release edits
+until it finishes: the pre-update read and PATCH are separate API calls, so the
+check cannot prevent an edit made between them. If an update fails partway through, retain the backup, inspect
 the reported versions and preview again before retrying with a new backup
 directory. Updating an existing release's text does not trigger this repository's
 `release: published` PyPI workflow. These commands do not create missing releases
