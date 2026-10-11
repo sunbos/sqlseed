@@ -309,7 +309,7 @@ class TestCLIConfigPriorityIntegration:
             cli,
             ["fill", "--config", config_path, "--no-ai"],
         )
-        assert "Data will be appended" in result.output
+        assert "Tables without clear_before=true will receive appended data" in result.output
 
     def test_cli_fill_config_no_note_when_clear(self, tmp_path: Any) -> None:
         db_path = _make_db(tmp_path)
@@ -319,9 +319,9 @@ class TestCLIConfigPriorityIntegration:
             cli,
             ["fill", "--config", config_path, "--clear", "--no-ai"],
         )
-        assert "Data will be appended" not in result.output
+        assert "will receive appended data" not in result.output
 
-    def test_cli_fill_config_no_note_when_yaml_clear(self, tmp_path: Any) -> None:
+    def test_cli_fill_config_note_preserves_yaml_clear(self, tmp_path: Any) -> None:
         db_path = _make_db(tmp_path)
         config_path = _make_config(
             tmp_path,
@@ -329,8 +329,12 @@ class TestCLIConfigPriorityIntegration:
             tables=[{"name": "users", "count": 10, "clear_before": True, "columns": []}],
         )
         runner = CliRunner()
+        first = runner.invoke(cli, ["fill", "--config", config_path, "--no-ai"])
+        assert first.exit_code == 0, first.output
         result = runner.invoke(
             cli,
             ["fill", "--config", config_path, "--no-ai"],
         )
-        assert "Data will be appended" not in result.output
+        assert result.exit_code == 0, result.output
+        assert "Tables without clear_before=true will receive appended data" in result.output
+        assert _count_rows(db_path) == 10
