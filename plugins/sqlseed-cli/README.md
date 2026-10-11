@@ -77,6 +77,8 @@ override those values, including options equal to the command defaults. Without
 If the configuration file cannot be read, parsed, or validated, `fill` reports the
 reason and exits with status 2 before generation or clearing tables. Correct the
 file path, UTF-8 YAML/JSON syntax, or reported fields and retry.
+Each invocation reads the configuration once; changes made after loading take
+effect on a later invocation.
 
 If any table reports generation errors, the command prints those errors and exits
 with status 1. `count` reports rows actually committed; a later batch failure can
@@ -85,6 +87,9 @@ runs that script again; the script itself is not embedded in the snapshot.
 
 `replay` reports missing, unreadable, or malformed snapshot files with exit status 2
 before generation starts. Check the path, read permissions, and UTF-8 YAML syntax.
+Snapshot metadata requires a nonblank string `table_name`, a positive integer
+`count`, and an integer or null `seed` (which may be omitted). Boolean values are
+not accepted as integers.
 
 The optional AI plugin registers `ai-suggest`, `ai-analyze`, and `auto-heal` through
 `sqlseed.cli_commands`. CLI does not require AI for its five base commands.

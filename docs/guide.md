@@ -286,6 +286,8 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 If `--config` cannot be read, parsed, or validated, `fill` prints the reason and
 exits with status 2 before generation or clearing tables. Correct the file path,
 UTF-8 YAML/JSON syntax, or reported fields and retry the same command.
+Each invocation reads the configuration once; changes made after loading take
+effect on a later invocation.
 
 ### `preview`
 
@@ -347,7 +349,9 @@ exclusive with `--db`. Without either option, the target defaults to `test.db`.
 
 Missing, unreadable, or malformed snapshot files produce a diagnostic and exit
 status 2 before generation starts. Check the file path, read permissions, and
-UTF-8 YAML syntax.
+UTF-8 YAML syntax. Snapshot metadata requires a nonblank string `table_name`, a
+positive integer `count`, and an integer or null `seed` (which may be omitted).
+Boolean values are not accepted as integers.
 
 Replay the generation configuration saved in a snapshot. To compare generated
 values, use a fresh database with the same schema, provider and dependency

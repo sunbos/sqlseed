@@ -26,7 +26,7 @@ from sqlseed._utils.logger import configure_logging, get_logger
 from sqlseed._utils.paths import get_cache_dir
 from sqlseed._utils.redaction import redact_url_credentials
 from sqlseed._version import __version__
-from sqlseed.config.loader import generate_template, load_config, save_config
+from sqlseed.config.loader import generate_template, save_config
 from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 from sqlseed.core.orchestrator import DataOrchestrator
@@ -54,17 +54,19 @@ def cli() -> None:
 
 
 def _fill_from_config_cmd(config_path: str, *, clear_before: bool = False, **kwargs: Any) -> None:
+    click.echo(f"Loading config: {config_path}")
+    if not clear_before:
+        click.echo(
+            "Note: Tables without clear_before=true will receive appended data. Use --clear to reset configured tables."
+        )
+
     try:
-        config = load_config(config_path)
+        # Let the core API load and execute one configuration, without a separate
+        # diagnostic read that could observe a different version of the file.
+        results = fill_from_config(config_path, clear_before=clear_before, **kwargs)
     except (OSError, TypeError, ValueError, yaml.YAMLError) as exc:
-        raise click.UsageError(_redact_credentials(f"Cannot load configuration: {exc}")) from None
-    table_count = len(config.tables)
-    click.echo(f"Loading config: {config_path} ({table_count} table(s))")
+        raise click.UsageError(_redact_credentials(f"Configuration fill failed: {exc}")) from None
 
-    if not (clear_before or any(tc.clear_before for tc in config.tables)):
-        click.echo("Note: Data will be appended. Use --clear to reset tables before generation.")
-
-    results = fill_from_config(config_path, clear_before=clear_before, **kwargs)
     for result in results:
         click.echo(str(result))
         for error in result.errors:
@@ -559,10 +561,29 @@ def init(config_path: str, db: str | None, db_url: str | None) -> None:
     click.echo(f"Configuration template saved to: {config_path}")
 
 
-def _load_replay_config(snapshot_path: str) -> tuple[dict[str, Any], GeneratorConfig]:
+class _ReplayMetadata(pydantic.BaseModel):
+    """Validate the snapshot envelope before opening its configured database."""
+
+    model_config = pydantic.ConfigDict(strict=True, hide_input_in_errors=True)
+
+    table_name: str
+    count: int = pydantic.Field(gt=0)
+    seed: int | None = None
+
+    @pydantic.field_validator("table_name")
+    @classmethod
+    def nonblank_table_name(cls, value: str) -> str:
+        """Keep valid identifier spelling while rejecting empty names."""
+        if not value.strip():
+            raise ValueError("table_name must not be blank")
+        return value
+
+
+def _load_replay_config(snapshot_path: str) -> tuple[_ReplayMetadata, GeneratorConfig]:
     manager = SnapshotManager()
     try:
         data = manager.load(snapshot_path)
+        metadata = _ReplayMetadata.model_validate(data)
     except FileNotFoundError as exc:
         raise click.UsageError(f"Snapshot file not found: {snapshot_path}") from exc
     except OSError as exc:
@@ -574,7 +595,7 @@ def _load_replay_config(snapshot_path: str) -> tuple[dict[str, Any], GeneratorCo
         config = GeneratorConfig(**data["config"])
     except (pydantic.ValidationError, KeyError, TypeError) as exc:
         raise click.UsageError(_redact_credentials(f"Invalid config in snapshot: {exc}")) from exc
-    return data, config
+    return metadata, config
 
 
 @cli.command()
@@ -590,14 +611,8 @@ def replay(snapshot_path: str) -> None:
     if ".." in Path(snapshot_path).parts and not resolved_path.is_relative_to(cache_dir):
         raise click.UsageError("snapshot path must be within cache directory")
 
-    data, config = _load_replay_config(snapshot_path)
-
-    try:
-        table_name = data["table_name"]
-        count = data["count"]
-    except (KeyError, TypeError) as exc:
-        raise click.UsageError(f"Invalid snapshot file format: {exc}") from exc
-    seed = data.get("seed")
+    metadata, config = _load_replay_config(snapshot_path)
+    table_name = metadata.table_name
 
     table_config = None
     for tc in config.tables:
@@ -609,8 +624,8 @@ def replay(snapshot_path: str) -> None:
         with DataOrchestrator.from_config(config) as orch:
             result = orch.fill_table(
                 table_name=table_name,
-                count=count,
-                seed=seed,
+                count=metadata.count,
+                seed=metadata.seed,
                 batch_size=table_config.batch_size if table_config else 5000,
                 clear_before=table_config.clear_before if table_config else False,
                 column_configs=table_config.columns if table_config else None,
