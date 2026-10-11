@@ -205,6 +205,42 @@ def test_template_instructions_stop_before_network(
 
 
 @pytest.mark.parametrize(
+    "example",
+    [
+        '- Fixed copied text "Describe a user-visible addition." in published notes.',
+        "- Documented `Describe a user-visible addition.` as a template example.",
+        "> - Describe a user-visible addition.",
+        "```markdown\n- Describe a user-visible addition.\n```",
+        "~~~~markdown\n- 描述用户可见的新增能力。\n~~~~",
+        "```markdown\n" + TEMPLATE.replace("vPREVIOUS", "v0.2.5").replace("vVERSION", "v0.2.6") + "```",
+        "    - Describe a user-visible addition.",
+        "\t- 描述用户可见的新增能力。",
+    ],
+    ids=["quotation", "inline-code", "blockquote", "backtick-fence", "tilde-fence", "full-template", "spaces", "tab"],
+)
+def test_template_instruction_examples_are_valid(notes_dir: Path, github: GitHubProcess, example: str) -> None:
+    """Quoted explanations and code examples are content rather than unfinished template prose."""
+    body = BODY.replace("- Preserve release assets.", example)
+    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
+    assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
+    assert github.commands == []
+
+
+@pytest.mark.parametrize("instruction", [TEMPLATE_INSTRUCTIONS[0], TEMPLATE_INSTRUCTIONS[-1]])
+@pytest.mark.parametrize("prefix", ["", "   ", "- ", "   -   "])
+def test_fenced_example_does_not_hide_remaining_template_instruction(
+    notes_dir: Path, github: GitHubProcess, capsys: pytest.CaptureFixture[str], instruction: str, prefix: str
+) -> None:
+    """Standalone instructions outside code still fail, including surrounding whitespace."""
+    example = f"```markdown\n{instruction}\n```\n\n{prefix}{instruction.removeprefix('- ')}  "
+    body = BODY.replace("- Preserve release assets.", example)
+    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
+    assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 1
+    assert "template instructions" in capsys.readouterr().err
+    assert github.commands == []
+
+
+@pytest.mark.parametrize(
     "arguments",
     [
         ["--tag", "v0.2.7"],

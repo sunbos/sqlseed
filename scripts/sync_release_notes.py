@@ -74,10 +74,11 @@ def markdown_prefix(line: str) -> tuple[str, str]:
     return "", ""
 
 
-def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int]]:
-    """Locate headings and nonblank content, excluding heading text and fence delimiters."""
+def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int], set[int]]:
+    """Locate headings, nonblank content, and prose outside fenced or indented code."""
     headings = []
     content_lines = set()
+    prose_lines = set()
     fence = ""
     for index, line in enumerate(lines):
         marker, tail = markdown_prefix(line)
@@ -93,9 +94,11 @@ def markdown_structure(lines: list[str]) -> tuple[list[tuple[int, str]], set[int
             headings.append((index, line))
         elif line.strip():
             content_lines.add(index)
+            if not line.startswith("    ") and not line.lstrip(" ").startswith("\t"):
+                prose_lines.add(index)
     if fence:
         raise SyncError("Release notes contain an unclosed fenced code block")
-    return headings, content_lines
+    return headings, content_lines, prose_lines
 
 
 def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
@@ -108,10 +111,11 @@ def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
         raise SyncError(f"{path}: use UTF-8 without BOM, LF line endings, and a final newline")
     if "vVERSION" in body or "vPREVIOUS" in body:
         raise SyncError(f"{path}: replace release-template version placeholders")
-    if any(instruction in body for instruction in TEMPLATE_INSTRUCTIONS):
-        raise SyncError(f"{path}: replace release-template instructions with version-specific release notes")
     lines = body.splitlines()
-    headings, content_lines = markdown_structure(lines)
+    headings, content_lines, prose_lines = markdown_structure(lines)
+    template_lines = set(TEMPLATE_INSTRUCTIONS) | {f"- {instruction}" for instruction in TEMPLATE_INSTRUCTIONS}
+    if any(" ".join(lines[index].split()) in template_lines for index in prose_lines):
+        raise SyncError(f"{path}: replace release-template instructions with version-specific release notes")
     validate_sections(path, lines, headings, content_lines)
     validate_versioned_links(path, "\n".join(lines[headings[-1][0] + 1 :]), repo)
     return body
