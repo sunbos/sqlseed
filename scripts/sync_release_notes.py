@@ -109,6 +109,45 @@ def is_template_instruction(line: str) -> bool:
     return normalized in TEMPLATE_INSTRUCTIONS
 
 
+def is_setext_underline(line: str) -> bool:
+    """Recognize a Setext underline with at most three leading spaces."""
+    if line.startswith("    ") or line.lstrip(" ").startswith("\t"):
+        return False
+    content = line.strip()
+    return bool(content) and content[0] in "=-" and not content.strip(content[0])
+
+
+def ends_setext_paragraph(line: str) -> bool:
+    """Treat thematic breaks and link definitions as paragraph boundaries."""
+    content = line.strip()
+    compact = content.replace(" ", "").replace("\t", "")
+    return (len(compact) >= 3 and compact[0] in "-*_" and not compact.strip(compact[0])) or (
+        content.startswith("[") and "]:" in content
+    )
+
+
+def is_setext_heading(lines: list[str], index: int, unfenced_lines: set[int]) -> bool:
+    """Find extra top-level Setext sections without mistaking list or quote separators for headings."""
+    if not is_setext_underline(lines[index]):
+        return False
+    start = index - 1
+    has_paragraph = False
+    while start in unfenced_lines:
+        previous = lines[start]
+        if previous.startswith("    ") or previous.lstrip(" ").startswith("\t"):
+            # Indented lines can continue a paragraph but cannot begin one.
+            start -= 1
+            continue
+        if ends_setext_paragraph(previous):
+            break
+        content = previous.lstrip(" ")
+        if content.startswith((">", "<")) or re.match(r"(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)", content):
+            return False
+        has_paragraph = True
+        start -= 1
+    return has_paragraph
+
+
 def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
     """Read canonical UTF-8 notes and check their bilingual section structure."""
     try:
@@ -121,6 +160,8 @@ def validate_notes(path: Path, repo: str = DEFAULT_REPO) -> str:
         raise SyncError(f"{path}: replace release-template version placeholders")
     lines = body.splitlines()
     headings, content_lines, unfenced_lines = markdown_structure(lines)
+    if any(is_setext_heading(lines, index, unfenced_lines) for index in unfenced_lines):
+        raise SyncError(f"{path}: Setext headings are not allowed; use the canonical ATX H2 and H3 headings")
     if any(is_template_instruction(lines[index]) for index in unfenced_lines):
         raise SyncError(f"{path}: replace release-template instructions with version-specific release notes")
     validate_sections(path, lines, headings, content_lines)
