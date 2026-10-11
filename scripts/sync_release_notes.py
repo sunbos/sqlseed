@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+"""Preview or update the titles and bilingual notes of existing GitHub releases."""
+
+from __future__ import annotations
+
+import argparse
+import difflib
+import json
+import re
+import subprocess
+import sys
+from itertools import pairwise
+from pathlib import Path
+from typing import Any
+
+DEFAULT_NOTES_DIR = Path(__file__).resolve().parents[1] / ".github" / "release-notes"
+TAG_PATTERN = re.compile(r"v(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)")
+HEADINGS = ["## English", "## 中文", "## Links / 相关链接"]
+SUBSECTIONS = {
+    "Added": "新增",
+    "Changed": "变更",
+    "Fixed": "修复",
+    "Removed": "移除",
+    "Compatibility": "兼容性",
+    "Verification": "验收记录",
+}
+INVARIANT_FIELDS = (
+    "id",
+    "tag_name",
+    "target_commitish",
+    "draft",
+    "prerelease",
+    "created_at",
+    "published_at",
+    "immutable",
+)
+
+
+class SyncError(RuntimeError):
+    """A validation, remote API, or concurrency failure that stops synchronization."""
+
+
+def markdown_headings(lines: list[str]) -> list[tuple[int, str]]:
+    """Find ATX headings outside fenced code, preserving their source line numbers."""
+    headings = []
+    fence = ""
+    for index, line in enumerate(lines):
+        marker = re.match(r" {0,3}(`{3,}|~{3,})(.*)$", line)
+        if fence:
+            if marker and marker[1][0] == fence[0] and len(marker[1]) >= len(fence) and not marker[2].strip():
+                fence = ""
+            continue
+        if marker:
+            fence = marker[1]
+        elif re.match(r" {0,3}#{1,6}(?:\s|$)", line):
+            headings.append((index, line))
+    if fence:
+        raise SyncError("Release notes contain an unclosed fenced code block")
+    return headings
+
+
+def validate_notes(path: Path) -> str:
+    """Read canonical UTF-8 notes and check their bilingual section structure."""
+    try:
+        body = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise SyncError(f"Cannot read UTF-8 notes: {path}") from exc
+    if body.startswith("\ufeff") or "\r" in body or not body.endswith("\n"):
+        raise SyncError(f"{path}: use UTF-8 without BOM, LF line endings, and a final newline")
+    if "vVERSION" in body or "vPREVIOUS" in body:
+        raise SyncError(f"{path}: replace release-template version placeholders")
+    lines = body.splitlines()
+    headings = markdown_headings(lines)
+    if any(not (heading.startswith("## ") or heading.startswith("### ")) for _, heading in headings):
+        raise SyncError(f"{path}: only unindented H2 and H3 headings are allowed outside code blocks")
+    if [heading for _, heading in headings if heading.startswith("## ")] != HEADINGS:
+        raise SyncError(f"{path}: expected exactly these headings in order: {', '.join(HEADINGS)}")
+    if not body.startswith(HEADINGS[0] + "\n"):
+        raise SyncError(f"{path}: notes must start with {HEADINGS[0]}")
+    positions = [index for index, heading in headings if heading.startswith("## ")] + [len(lines)]
+    sections = [lines[start + 1 : end] for start, end in pairwise(positions)]
+    if any(not any(line.strip() for line in section) for section in sections):
+        raise SyncError(f"{path}: English, Chinese, and links sections must be nonempty")
+    english = [heading[4:] for index, heading in headings if positions[0] < index < positions[1]]
+    chinese = [heading[4:] for index, heading in headings if positions[1] < index < positions[2]]
+    if (
+        not english
+        or english != [section for section in SUBSECTIONS if section in english]
+        or chinese != [SUBSECTIONS.get(section) for section in english]
+        or any(index > positions[2] for index, _ in headings)
+    ):
+        raise SyncError(f"{path}: require matching English/Chinese subsections in canonical order")
+    return body
+
+
+def load_notes(directory: Path, tags: list[str] | None) -> dict[str, str]:
+    """Validate selected version filenames and their contents before contacting GitHub."""
+    selected = tags if tags is not None else [path.stem for path in directory.glob("v*.md")]
+    if not selected:
+        raise SyncError(f"No version notes found in {directory}")
+    if len(selected) != len(set(selected)):
+        raise SyncError("Each --tag must be specified only once")
+    for tag in selected:
+        if not TAG_PATTERN.fullmatch(tag):
+            raise SyncError(f"Invalid version tag: {tag!r}; expected vX.Y.Z")
+    ordered = sorted(selected, key=lambda tag: tuple(int(part) for part in tag[1:].split(".")))
+    return {tag: validate_notes(directory / f"{tag}.md") for tag in ordered}
+
+
+def github_api(endpoint: str, *, payload: dict[str, str] | None = None, paginate: bool = False) -> Any:
+    """Run gh without a shell, withholding stderr because it can contain credentials."""
+    command = ["gh", "api", "--method", "PATCH" if payload is not None else "GET", endpoint]
+    if paginate:
+        command.extend(["--paginate", "--slurp"])
+    if payload is not None:
+        command.extend(["--input", "-"])
+    try:
+        result = subprocess.run(
+            command,
+            input=json.dumps(payload, ensure_ascii=False) if payload is not None else None,
+            encoding="utf-8",
+            capture_output=True,
+            check=False,
+            timeout=120,
+        )
+    except FileNotFoundError as exc:
+        raise SyncError("GitHub CLI (gh) is not installed or is not on PATH") from exc
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise SyncError("GitHub API command could not complete; check connectivity and retry the preview") from exc
+    if result.returncode:
+        raise SyncError(
+            f"GitHub API {command[3]} failed (gh exit {result.returncode}); "
+            "check network access and `gh auth status`. A failed PATCH may already have reached GitHub; "
+            "inspect the release before retrying. CLI stderr was withheld to avoid exposing credentials."
+        )
+    try:
+        return json.loads(result.stdout)
+    except (UnicodeError, ValueError) as exc:
+        raise SyncError("GitHub CLI returned invalid JSON; synchronization stopped") from exc
+
+
+def validate_release(release: Any) -> dict[str, Any]:
+    """Require the API fields used for conflict detection and preservation checks."""
+    required = set(INVARIANT_FIELDS) - {"immutable"} | {"name", "body", "updated_at", "assets"}
+    if not isinstance(release, dict) or not required <= release.keys():
+        raise SyncError("GitHub returned an incomplete release record")
+    if not isinstance(release["id"], int) or not isinstance(release["assets"], list):
+        raise SyncError("GitHub returned an invalid release ID or assets list")
+    if any(not isinstance(asset, dict) or not isinstance(asset.get("id"), int) for asset in release["assets"]):
+        raise SyncError("GitHub returned an invalid asset record")
+    return release
+
+
+def preservation_fields(release: dict[str, Any]) -> dict[str, Any]:
+    """Capture release identity, publication state, target, and attached asset identities."""
+    return {
+        **{field: release.get(field) for field in INVARIANT_FIELDS},
+        "asset_ids": sorted(asset["id"] for asset in release["assets"]),
+    }
+
+
+def select_releases(repo: str, notes: dict[str, str]) -> dict[str, dict[str, Any]]:
+    """Require one existing, published release for every selected local version."""
+    pages = github_api(f"repos/{repo}/releases?per_page=100", paginate=True)
+    if not isinstance(pages, list) or any(not isinstance(page, list) for page in pages):
+        raise SyncError("GitHub CLI returned an invalid paginated release list")
+    releases = [validate_release(release) for page in pages for release in page]
+    selected = {}
+    for tag in notes:
+        matches = [release for release in releases if release["tag_name"] == tag]
+        if len(matches) != 1 or matches[0]["draft"]:
+            raise SyncError(f"{tag}: expected exactly one existing non-draft GitHub release")
+        selected[tag] = matches[0]
+    return selected
+
+
+def preview(notes: dict[str, str], releases: dict[str, dict[str, Any]]) -> None:
+    """Print the proposed name and body differences without performing writes."""
+    for tag, body in notes.items():
+        original = releases[tag]
+        changed = original["name"] != tag or original["body"] != body
+        print(f"{tag}: {'would update' if changed else 'already matches'}")
+        if original["name"] != tag:
+            print(f"  title: {original['name']!r} -> {tag!r}")
+        if original["body"] != body:
+            print(
+                "".join(
+                    difflib.unified_diff(
+                        (original["body"] or "").splitlines(keepends=True),
+                        body.splitlines(keepends=True),
+                        fromfile=f"GitHub/{tag}",
+                        tofile=f"notes/{tag}.md",
+                    )
+                ),
+                end="",
+            )
+
+
+def backup_releases(directory: Path, releases: dict[str, dict[str, Any]]) -> None:
+    """Save every full original JSON record before the first remote mutation."""
+    directory.mkdir(parents=True, exist_ok=True)
+    paths = {tag: directory / f"{tag}.json" for tag in releases}
+    if any(path.exists() for path in paths.values()):
+        raise SyncError("Backup files already exist; choose a new --backup-dir to preserve previous originals")
+    for tag, release in releases.items():
+        with paths[tag].open("x", encoding="utf-8", newline="\n") as handle:
+            json.dump(release, handle, ensure_ascii=False, indent=2)
+            handle.write("\n")
+    print(f"Backed up {len(releases)} complete release records to {directory}")
+
+
+def apply_notes(repo: str, notes: dict[str, str], releases: dict[str, dict[str, Any]]) -> None:
+    """Apply only name/body, stopping on concurrent edits or failed preservation checks."""
+    for tag, body in notes.items():
+        original = releases[tag]
+        if original["name"] == tag and original["body"] == body:
+            print(f"{tag}: already matches")
+            continue
+        endpoint = f"repos/{repo}/releases/{original['id']}"
+        fresh = validate_release(github_api(endpoint))
+        if any(fresh[key] != original[key] for key in ("name", "body", "updated_at")) or preservation_fields(
+            fresh
+        ) != preservation_fields(original):
+            raise SyncError(f"{tag}: release changed after preview; no update applied to this release")
+        # Intentionally omit every other API parameter, including make_latest.
+        github_api(endpoint, payload={"name": tag, "body": body})
+        updated = validate_release(github_api(endpoint))
+        if (
+            updated["name"] != tag
+            or updated["body"] != body
+            or preservation_fields(updated) != preservation_fields(original)
+        ):
+            raise SyncError(f"{tag}: verification failed after PATCH; inspect the release and its original backup")
+        print(f"{tag}: updated and verified")
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run offline validation, default preview, or an explicitly requested update."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--check", action="store_true", help="validate local notes without invoking gh")
+    mode.add_argument("--apply", action="store_true", help="update existing release titles and bodies")
+    parser.add_argument("--tag", action="append", help="select vX.Y.Z; repeat to select several versions")
+    parser.add_argument("--repo", default="sunbos/sqlseed", help="GitHub owner/repository")
+    parser.add_argument("--notes-dir", type=Path, default=DEFAULT_NOTES_DIR)
+    parser.add_argument("--backup-dir", type=Path, help="required for --apply; outside --notes-dir")
+    args = parser.parse_args(argv)
+    if args.apply and args.backup_dir is None:
+        parser.error("--apply requires --backup-dir")
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", args.repo):
+        parser.error("--repo must be owner/repository")
+    if args.backup_dir is not None and args.backup_dir.resolve().is_relative_to(args.notes_dir.resolve()):
+        parser.error("--backup-dir must be outside --notes-dir")
+    try:
+        notes = load_notes(args.notes_dir, args.tag)
+        if args.check:
+            print(f"Validated {len(notes)} local release notes; no GitHub access")
+            return 0
+        releases = select_releases(args.repo, notes)
+        preview(notes, releases)
+        if args.apply:
+            backup_releases(args.backup_dir, releases)
+            apply_notes(args.repo, notes, releases)
+        else:
+            print("Preview only; no releases changed. Use --apply --backup-dir PATH to update.")
+    except (SyncError, OSError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        if args.apply:
+            print(
+                f"Stopped without automatic rollback. Inspect remote state and backups in {args.backup_dir} "
+                "before retrying; earlier updates, if any, remain applied.",
+                file=sys.stderr,
+            )
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

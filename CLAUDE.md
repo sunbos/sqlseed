@@ -268,13 +268,13 @@ When preparing a new version release:
 
    Run `uv lock` in each directory after any `pyproject.toml` dependency change.
 
-2. **Changelog** — Update both `CHANGELOG.md` and `CHANGELOG.zh-CN.md` with the new version number.
+2. **Changelog and release notes** — Update both `CHANGELOG.md` and `CHANGELOG.zh-CN.md` with the new version number. Prepare `.github/release-notes/v<version>.md` from the [bilingual template](.github/release-notes/TEMPLATE.md), remove unused subsections in both languages, and run `python scripts/sync_release_notes.py --check`. Keep the title exactly `v<version>` and preserve version-specific compatibility and verification evidence.
 
 3. **Tag & Release** — After pushing all commits:
    ```bash
    git tag v<version>
    git push origin v<version>
-   gh release create v<version> --title "v<version>" --generate-notes
+   gh release create v<version> --title "v<version>" --notes-file .github/release-notes/v<version>.md
    ```
 
 4. **CI publish** — `publish.yml` triggers on release or `workflow_dispatch` with an existing `release_tag`. It resolves the tag to a commit for testing, building and public acceptance. Inspect failed upload logs and PyPI files before retrying. For an uploader compatibility fix, merge the workflow correction and run `gh workflow run publish.yml --ref main -f release_tag=v<version>`; preserve the existing release tag, metadata validation and attestations. Core Metadata 2.5 needs PyPA publish action v1.14.2 or newer. See [the release guide](docs/releasing.md) for recovery details.

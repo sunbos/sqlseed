@@ -79,6 +79,42 @@ validation and attestations enabled. For example, Core Metadata 2.5 requires
 [PyPA publish action v1.14.2 or newer](https://github.com/pypa/gh-action-pypi-publish/releases/tag/v1.14.2);
 rerunning a workflow pinned to the older uploader will repeat its metadata error.
 
+## Maintain GitHub release notes
+
+Use `v<version>` as the release title and keep its reviewed body in
+`.github/release-notes/v<version>.md`. Copy the
+[bilingual template](https://github.com/sunbos/sqlseed/blob/main/.github/release-notes/TEMPLATE.md)
+and remove unused subsections in both languages. The order is English, Chinese,
+then shared links. Within each language, use Added, Changed, Fixed, Removed,
+Compatibility and Verification only when applicable. Both languages describe
+the same changes. Link changelogs and source to the exact version tag; keep
+historical verification evidence and upgrade limits with their own version.
+
+Check the notes before committing and use them when creating an approved release:
+
+```bash
+python scripts/sync_release_notes.py --check
+gh release create v<version> --title "v<version>" --notes-file .github/release-notes/v<version>.md
+```
+
+For existing releases, preview the differences, then apply the reviewed files:
+
+```bash
+python scripts/sync_release_notes.py
+python scripts/sync_release_notes.py --apply --backup-dir /tmp/sqlseed-release-notes-backup
+```
+
+Online commands require GitHub CLI access to `api.github.com`; applying requires
+release-edit permission. The default command only previews. Applying saves the
+original releases in the backup directory before changing titles or bodies,
+checks for concurrent edits and verifies each result. It preserves tags, release
+state and assets. If an update fails partway through, retain the backup, inspect
+the reported versions and preview again before retrying with a new backup
+directory. Updating an existing release's text does not trigger this repository's
+`release: published` PyPI workflow. These commands do not create missing releases
+or republish packages. See the
+[notes maintenance instructions](https://github.com/sunbos/sqlseed/blob/main/.github/release-notes/README.md).
+
 ## Validate installed artifacts before release
 
 Use a fresh virtual environment outside the checkout. Install all five wheel
