@@ -215,11 +215,7 @@ def template_prose(token: Token) -> str:
     """Read rendered prose consistently for Markdown formatting and raw HTML blocks."""
     markdown = MarkdownIt("commonmark")
     parser = TemplateProseDetector()
-    rendered = (
-        token.content
-        if token.type == "html_block"
-        else markdown.renderer.renderInline(token.children or [], markdown.options, {})
-    )
+    rendered = markdown.renderer.render([token], markdown.options, {})
     parser.feed(rendered)
     return "".join(parser.parts)
 
