@@ -32,7 +32,7 @@ BODY = """## English
 
 ## Links / 相关链接
 
-- [Source](https://github.com/sunbos/sqlseed)
+- [Source](https://github.com/sunbos/sqlseed/tree/v0.2.6)
 """
 TEMPLATE = (SCRIPT.parents[1] / ".github" / "release-notes" / "TEMPLATE.md").read_text(encoding="utf-8")
 TEMPLATE_INSTRUCTIONS = [
@@ -135,7 +135,7 @@ def notes_dir(tmp_path: Path) -> Path:
     directory = tmp_path / "notes"
     directory.mkdir()
     for tag in ("v0.2.5", "v0.2.6"):
-        (directory / f"{tag}.md").write_text(BODY, encoding="utf-8", newline="\n")
+        (directory / f"{tag}.md").write_text(BODY.replace("v0.2.6", tag), encoding="utf-8", newline="\n")
     return directory
 
 
@@ -295,7 +295,9 @@ def test_stale_versioned_links_fail_before_network(
     notes_dir: Path, github: GitHubProcess, capsys: pytest.CaptureFixture[str], destination: str
 ) -> None:
     """Copying old source, changelog, migration, or comparison links cannot pass validation."""
-    body = BODY.replace("https://github.com/sunbos/sqlseed", f"https://github.com/sunbos/sqlseed/{destination}")
+    body = BODY.replace(
+        "https://github.com/sunbos/sqlseed/tree/v0.2.6", f"https://github.com/sunbos/sqlseed/{destination}"
+    )
     (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
     assert sync.main(["--notes-dir", str(notes_dir)]) == 1
     assert "release link target 'v0.2.5' must match v0.2.6" in capsys.readouterr().err
@@ -310,7 +312,7 @@ def test_current_links_allow_previous_comparison_base_and_historical_body_refere
         "- Preserve release assets.",
         "- Compare [older behavior](https://github.com/sunbos/sqlseed/blob/v0.2.4/docs/migration.md).",
     ).replace(
-        "- [Source](https://github.com/sunbos/sqlseed)",
+        "- [Source](https://github.com/sunbos/sqlseed/tree/v0.2.6)",
         "- [Source](https://github.com/sunbos/sqlseed/tree/v0.2.6)\n"
         "- [Changelog](https://github.com/sunbos/sqlseed/blob/v0.2.6/CHANGELOG.md#fixed)\n"
         "- [Full diff](https://github.com/sunbos/sqlseed/compare/v0.2.5...v0.2.6)\n"
@@ -324,7 +326,7 @@ def test_current_links_allow_previous_comparison_base_and_historical_body_refere
 
 def test_versioned_links_follow_explicit_repository_selection(notes_dir: Path, github: GitHubProcess) -> None:
     """A custom repository receives the same stale-link validation as the default repository."""
-    body = BODY.replace("https://github.com/sunbos/sqlseed", "https://github.com/owner/fork/tree/v0.2.5")
+    body = BODY.replace("https://github.com/sunbos/sqlseed/tree/v0.2.6", "https://github.com/owner/fork/tree/v0.2.5")
     (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
     assert sync.main(["--check", "--notes-dir", str(notes_dir), "--repo", "owner/fork"]) == 1
     assert github.commands == []
@@ -445,7 +447,7 @@ def test_apply_changes_only_titles_and_bodies_and_saves_full_originals(
         assert updated == {
             **original,
             "name": original["tag_name"],
-            "body": BODY,
+            "body": BODY.replace("v0.2.6", original["tag_name"]),
             "updated_at": "2026-10-12T00:00:00Z",
         }
         assert json.loads((github.backup_dir / f"{original['tag_name']}.json").read_text(encoding="utf-8")) == original
@@ -459,7 +461,7 @@ def test_bulk_apply_waits_one_second_after_previous_patch_completion(
     assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "backups"]) == 0
     assert github.clock.sleeps == [1.0]
     assert github.patch_starts[1] - github.patch_finishes[0] >= 1.0
-    assert [item["body"] for item in github.releases] == [BODY, BODY]
+    assert [item["body"] for item in github.releases] == [BODY.replace("v0.2.6", "v0.2.5"), BODY]
 
 
 def test_slow_verification_reads_count_toward_mutation_interval(
@@ -502,7 +504,7 @@ def test_initially_matching_release_is_revalidated_before_skipping(
 ) -> None:
     """Concurrent edits to an initially matching release cannot produce a successful no-op apply."""
     for item in github.releases:
-        item.update(name=item["tag_name"], body=BODY)
+        item.update(name=item["tag_name"], body=BODY.replace("v0.2.6", item["tag_name"]))
     github.conflict = {"body": "A newer edit"}
     assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "backups"]) == 1
     assert "release changed after preview" in capsys.readouterr().err
@@ -518,7 +520,7 @@ def test_partial_failure_retains_all_backups_and_never_prints_credentials(
     github.backup_dir = sync.BACKUP_ROOT / "backups"
     github.fail_patch = 26
     assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", github.backup_dir.name]) == 1
-    assert github.releases[0]["body"] == BODY
+    assert github.releases[0]["body"] == BODY.replace("v0.2.6", "v0.2.5")
     assert github.releases[1] == github.initial[1]
     assert len(list(github.backup_dir.glob("*.json"))) == 2
     output = capsys.readouterr()

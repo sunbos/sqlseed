@@ -10,6 +10,7 @@ import re
 import subprocess
 import sys
 import time
+from io import TextIOWrapper
 from itertools import pairwise
 from pathlib import Path
 from typing import Any
@@ -153,7 +154,8 @@ def validate_sections(path: Path, lines: list[str], headings: list[tuple[int, st
 
 
 def validate_versioned_links(path: Path, links: str, repo: str) -> None:
-    """Require this repository's final source and comparison links to target the note's tag."""
+    """Require a tagged source root and keep final versioned links on the note's tag."""
+    source_found = False
     for match in re.finditer(r"https?://github\.com/[^\s<>)\"']+", links):
         parts = unquote(urlsplit(match[0]).path).strip("/").split("/")
         if parts[:2] != repo.split("/") or len(parts) < 4 or parts[2] not in {"tree", "blob", "compare"}:
@@ -161,6 +163,12 @@ def validate_versioned_links(path: Path, links: str, repo: str) -> None:
         target = parts[3].rsplit("...", 1)[-1] if parts[2] == "compare" else parts[3]
         if target != path.stem:
             raise SyncError(f"{path}: release link target {target!r} must match {path.stem}")
+        if parts[2] == "tree" and len(parts) == 4:
+            source_found = True
+    if not source_found:
+        raise SyncError(
+            f"{path}: links section must include a source link to https://github.com/{repo}/tree/{path.stem}"
+        )
 
 
 def load_notes(directory: Path, tags: list[str] | None, repo: str = DEFAULT_REPO) -> dict[str, str]:
@@ -335,8 +343,16 @@ def apply_notes(repo: str, notes: dict[str, str], releases: dict[str, dict[str, 
         print(f"{tag}: updated and verified")
 
 
+def configure_output() -> None:
+    """Keep bilingual diffs and error paths readable when a shell defaults to ASCII."""
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, TextIOWrapper):
+            stream.reconfigure(encoding="utf-8", errors="backslashreplace")
+
+
 def main(argv: list[str] | None = None) -> int:
     """Run offline validation, default preview, or an explicitly requested update."""
+    configure_output()
     parser = argparse.ArgumentParser(description=__doc__)
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="validate local notes without invoking gh")

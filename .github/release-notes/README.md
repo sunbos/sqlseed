@@ -13,7 +13,9 @@ older releases. If the original notes were empty, say so and link the tagged
 source; do not infer features from the version number. Comparison links normally
 start at the previous published release. Keep an older comparison as an
 additional link when its range differs. Changelog and source links use fixed
-tags, and historical test counts are labeled as historical records.
+tags, and historical test counts are labeled as historical records. The links
+section must include this repository's `tree/v<version>` source link. Unreplaced
+template instructions are rejected; quotations and code examples may retain them.
 
 The initial set covers all 20 published releases from `v0.1.1` through `v0.2.6`.
 It preserves original release content and uses the matching bilingual changelog
@@ -34,6 +36,7 @@ python scripts/sync_release_notes.py
 python scripts/sync_release_notes.py --apply --backup-name release-notes-20261012
 ```
 
+The tool writes UTF-8 output, including when a shell redirects a bilingual preview.
 Both commands require GitHub CLI access to `api.github.com`; applying also
 requires repository write access. Historical targets that change workflow files
 relative to the default branch additionally need the classic PAT/OAuth `workflow`
@@ -66,7 +69,10 @@ See the [release guide](../../docs/releasing.md).
 已发布版本开始；原有比较范围不同时另行保留。变更日志与源码链接固定到标签，历史测试
 数量明确标为历史记录。本次初始文件覆盖 `v0.1.1` 至 `v0.2.6` 的全部 20 个已发布版本，
 以原发布说明及对应中英文变更日志为依据，不为跳过的版本号新建 Release。
+链接章节必须包含本仓库的 `tree/v<version>` 源码链接。未替换的模板指引会被拒绝，
+引用和代码示例中可以保留这些文字。
 
+工具统一输出 UTF-8，包括重定向到文件的双语预览。
 以上命令分别执行离线格式校验、线上差异预览与实际同步。线上操作要求 GitHub CLI 能
 访问 `api.github.com`，同步还需仓库写入权限。历史目标相对默认分支修改 workflow 文件时，
 还需在 token/App 设置中授权经典 PAT/OAuth 的 `workflow` scope，或细粒度及 GitHub App
