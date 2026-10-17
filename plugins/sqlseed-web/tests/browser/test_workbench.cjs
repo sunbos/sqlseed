@@ -25,7 +25,7 @@ async function until(check, description, timeout = 20000) {
 }
 
 async function stop(child) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  if (!child || !child.pid || child.exitCode !== null || child.signalCode !== null) return;
   const exited = once(child, 'exit');
   child.kill('SIGTERM');
   const forced = setTimeout(() => child.kill('SIGKILL'), 5000);
@@ -89,6 +89,8 @@ test('browser workbench: connect, preview, cancel, generate and restore', {timeo
   const database = path.join(temporary, 'synthetic.sqlite3');
   const environment = {
     PATH: process.env.PATH,
+    // setup-python's toolcache runtime can require its shared-library path.
+    ...(process.env.LD_LIBRARY_PATH ? {LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH} : {}),
     HOME: temporary,
     TMPDIR: temporary,
     LANG: 'C.UTF-8',
@@ -164,7 +166,7 @@ test('browser workbench: connect, preview, cancel, generate and restore', {timeo
     await call('Runtime.enable');
     await call('Page.enable');
     await call('Page.addScriptToEvaluateOnNewDocument', {source:
-      "localStorage.setItem('sqlseed.ui.language', 'en');"});
+      "localStorage.setItem('sqlseed.ui.language', 'en'); window.__smokeDocument = crypto.randomUUID();"});
     await call('Page.navigate', {url: baseURL});
     await wait("document.querySelector('.wb-welcome')", 'workbench ES modules and empty state');
     await click('#connection-button');
@@ -194,7 +196,16 @@ test('browser workbench: connect, preview, cancel, generate and restore', {timeo
     await wait("document.querySelector('.run-detail .run-status.done')", 'successful persisted run');
     assert.equal(sql('SELECT count(*) FROM smoke_items'), '[[3]]');
     assert.equal(sql('SELECT count(*) FROM smoke_items WHERE quantity BETWEEN 1 AND 9'), '[[3]]');
+    const previousDocument = await evaluate('window.__smokeDocument');
     await call('Page.reload');
+    await until(async () => {
+      try {
+        return await evaluate(`Boolean(window.__smokeDocument) && window.__smokeDocument !== ${JSON.stringify(previousDocument)}`);
+      } catch (error) {
+        if (/execution context|Cannot find context/i.test(error.message)) return false;
+        throw error;
+      }
+    }, 'a new document after reload');
     await wait("document.querySelector('.run-detail .run-status.done')", 'run restored after browser reload');
     await click('#nav [data-page="workbench"]');
     await wait("document.querySelector('[data-table=\"smoke_items\"]')", 'restored connection on workbench');
