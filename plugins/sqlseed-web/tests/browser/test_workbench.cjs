@@ -66,13 +66,13 @@ function protocol(child) {
   });
   return {
     errors,
-    call(method, params = {}, sessionId) {
+    call(method, params = {}, sessionId, timeout = 10000) {
       return new Promise((resolve, reject) => {
         const requestId = ++id;
         const timer = setTimeout(() => {
           pending.delete(requestId);
           reject(new Error(`Chrome command timed out: ${method}`));
-        }, 10000);
+        }, timeout);
         pending.set(requestId, {
           resolve: value => { clearTimeout(timer); resolve(value); },
           reject: error => { clearTimeout(timer); reject(error); }
@@ -109,8 +109,8 @@ test('browser workbench: connect, preview, cancel, generate and restore', {timeo
   const sql = statement => execFileSync(python, ['-c',
     'import sqlite3,sys,json; c=sqlite3.connect(sys.argv[1]); print(json.dumps(c.execute(sys.argv[2]).fetchall())); c.commit(); c.close()',
     database, statement], {env: environment, encoding: 'utf8', timeout: 10000}).trim();
-  sql('CREATE TABLE smoke_items (id INTEGER PRIMARY KEY, quantity INTEGER NOT NULL CHECK (quantity BETWEEN 1 AND 9))');
   try {
+    sql('CREATE TABLE smoke_items (id INTEGER PRIMARY KEY, quantity INTEGER NOT NULL CHECK (quantity BETWEEN 1 AND 9))');
     // Port 0 lets the OS allocate a free loopback port. Uvicorn reports it only
     // after binding, avoiding a find-free-port / bind race.
     server = spawn(python, ['-m', 'uvicorn', 'sqlseed_web.app:create_app', '--factory',
@@ -123,12 +123,12 @@ test('browser workbench: connect, preview, cancel, generate and restore', {timeo
     }, 'HTTP server startup');
     browser = spawn(chrome, ['--headless=new', '--remote-debugging-pipe',
       `--user-data-dir=${path.join(temporary, 'chrome')}`, '--no-first-run',
-      '--no-default-browser-check', '--disable-background-networking', '--disable-component-update',
+      '--no-default-browser-check', '--password-store=basic', '--disable-background-networking', '--disable-component-update',
       '--window-size=1440,900', 'about:blank'],
     {env: environment, stdio: ['ignore', 'ignore', 'pipe', 'pipe', 'pipe']});
     browser.stderr.on('data', chunk => { browserLog += chunk; });
     cdp = protocol(browser);
-    const version = await cdp.call('Browser.getVersion');
+    const version = await cdp.call('Browser.getVersion', {}, undefined, 60000);
     console.log(`Browser: ${version.product}; Node: ${process.version}`);
     const {targetId} = await cdp.call('Target.createTarget', {url: 'about:blank'});
     ({sessionId: session} = await cdp.call('Target.attachToTarget', {targetId, flatten: true}));
