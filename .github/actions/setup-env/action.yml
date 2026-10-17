@@ -20,6 +20,23 @@ runs:
           .github/requirements-bootstrap.txt
           .github/requirements-macos-build.txt
 
+    # Hosted Windows Python also contains runner tools such as pipx. Their
+    # evolving requirements must not contaminate the project's locked install.
+    - name: Isolate Windows Python dependencies
+      if: runner.os == 'Windows'
+      shell: python
+      run: |
+        import os
+        from pathlib import Path
+        import venv
+
+        environment = Path(os.environ["RUNNER_TEMP"]) / "sqlseed-ci-venv"
+        venv.EnvBuilder(with_pip=True, clear=True).create(environment)
+        with open(os.environ["GITHUB_PATH"], "a", encoding="utf-8") as stream:
+            stream.write(str(environment / "Scripts") + "\n")
+        with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as stream:
+            stream.write(f"VIRTUAL_ENV={environment}\n")
+
     - uses: ./.github/actions/install-ci-deps
 
     - name: Install dependencies

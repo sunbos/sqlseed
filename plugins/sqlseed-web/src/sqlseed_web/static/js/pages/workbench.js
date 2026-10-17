@@ -1385,7 +1385,7 @@ function generationCountControl(table) {
     min: 1,
     max: Number.MAX_SAFE_INTEGER,
     step: 1,
-    value: m.view.invalidCounts?.[table.name] ?? m.table(table.name).count,
+    value: m.countInput(table.name),
     disabled: !m.selected(table.name) && !m.errors.has(`count:${table.name}`),
     title: m.errors.get(`count:${table.name}`) || countHelp,
     'aria-invalid': m.errors.has(`count:${table.name}`) ? 'true' : 'false',
@@ -3796,3 +3796,4 @@ async function summary() {
   }
   await inspectExecution();
 }
+
