@@ -22,7 +22,7 @@ export function remainingRun(run) {
     names.add(table.name);committed+=result.rows_inserted;
     const copy=structuredClone(table);copy.clear_before=false;
     if(table.count>result.rows_inserted)remaining.push({...copy,count:table.count-result.rows_inserted});
-    else tableDrafts[table.name]=copy;
+    else Object.defineProperty(tableDrafts,table.name,{value:copy,enumerable:true,writable:true,configurable:true});
   }
   if(!count(run.rows_inserted)||committed!==run.rows_inserted)return blocked(tr('recovery.inconsistentTotal'));
   if(!remaining.length)return blocked(tr('recovery.complete'));

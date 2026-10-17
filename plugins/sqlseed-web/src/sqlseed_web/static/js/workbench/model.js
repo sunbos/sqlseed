@@ -2,6 +2,7 @@ import {tr, UserFacingError, joinText} from '../i18n.js';
 import '../i18n/messages/flow.js';
 // 唯一可执行文档；视图和未勾选表的编辑草稿单独持久化。
 const copy = value => structuredClone(value);
+const own = (object, key) => Object.hasOwn(object || {}, key) ? object[key] : undefined;
 export const MAX_GENERATION_COUNT = Number.MAX_SAFE_INTEGER;
 export function generationCountErrorKey(value) {
   const text = String(value);
@@ -45,13 +46,13 @@ export class WorkbenchDocument {
   }
   table(name) {
     return this.document.tables.find(t=>t.name===name)
-      || this.view.tableDrafts[name] || {name,count:this.newTableCount,columns:[], ...(this.newTableSeed !== null ? {seed:this.newTableSeed} : {})};
+      || own(this.view.tableDrafts,name) || {name,count:this.newTableCount,columns:[], ...(this.newTableSeed !== null ? {seed:this.newTableSeed} : {})};
   }
   selected(name) { return this.document.tables.some(t=>t.name===name); }
   putTable(table) {
     const index=this.document.tables.findIndex(t=>t.name===table.name);
     if(index>=0) this.document.tables[index]=copy(table);
-    else this.view.tableDrafts[table.name]=copy(table);
+    else this.view.tableDrafts={...this.view.tableDrafts,[table.name]:copy(table)};
     this.touch();
   }
   toggleTable(name,selected) {
@@ -59,14 +60,14 @@ export class WorkbenchDocument {
     const table=copy(this.table(name));
     this.document.tables=this.document.tables.filter(t=>t.name!==name);
     if(selected) { this.document.tables.push(table); delete this.view.tableDrafts[name]; }
-    else this.view.tableDrafts[name]=table;
+    else this.view.tableDrafts={...this.view.tableDrafts,[name]:table};
     this.touch();
   }
   setCount(name,text) {
     const key=`count:${name}`, problem=generationCountErrorKey(text);
     this.view.invalidCounts ||= {};
     if(problem) {
-      this.view.invalidCounts[name]=String(text);
+      this.view.invalidCounts={...this.view.invalidCounts,[name]:String(text)};
       this.setError(key,tr("flow.count.invalid", {table: name, problem: tr(problem)})); return false;
     }
     delete this.view.invalidCounts[name];
@@ -95,8 +96,11 @@ export class WorkbenchDocument {
   inputIssues() {
     return [...this.errors].map(([key,message]) => key.startsWith('count:')
       ? {key, kind:'generation-count', table:key.slice(6), message,
-        value:String(this.view.invalidCounts?.[key.slice(6)] ?? this.table(key.slice(6)).count)}
+        value:String(this.countInput(key.slice(6)))}
       : {key, kind:'configuration', message});
+  }
+  countInput(name) {
+    return own(this.view.invalidCounts,name) ?? this.table(name).count;
   }
   setError(key,error) {
     if(error) this.errors.set(key,error); else this.errors.delete(key);
@@ -117,10 +121,10 @@ export class WorkbenchDocument {
         throw new UserFacingError(tr("flow.suggestion.stale"));
       seen.add(key);
       const index=tables.findIndex(t=>t.name===patch.table);
-      const table=copy(index>=0?tables[index]:drafts[patch.table] || this.table(patch.table));
+      const table=copy(index>=0?tables[index]:own(drafts,patch.table) || this.table(patch.table));
       table.columns=(table.columns || []).filter(c=>c.name!==patch.column);
       if(patch.after)table.columns.push({...copy(patch.after),name:patch.column});
-      if(index>=0)tables[index]=table;else drafts[patch.table]=table;
+      if(index>=0)tables[index]=table;else Object.defineProperty(drafts,patch.table,{value:table,enumerable:true,writable:true,configurable:true});
     }
     this.document.tables=tables;this.view.tableDrafts=drafts;
     for(const key of seen)this.errors.delete(`column:${key}`);
@@ -129,8 +133,8 @@ export class WorkbenchDocument {
   rule(tableName,column) {
     const override=this.table(tableName).columns?.find(c=>c.name===column);
     if(override) return copy(override);
-    const inferred=copy(this.check?.effective_rules?.[tableName]?.[column]
-      || this.schema.tables.find(t=>t.name===tableName)?.mapping?.[column] || {});
+    const inferred=copy(own(own(this.check?.effective_rules,tableName),column)
+      || own(this.schema.tables.find(t=>t.name===tableName)?.mapping,column) || {});
     // Reflected/resolved specs may contain sampled parent values. They are
     // runtime evidence, not editable generator parameters or saved rules.
     if(inferred.params) inferred.params=Object.fromEntries(Object.entries(inferred.params).filter(([key])=>!key.startsWith('_')));
