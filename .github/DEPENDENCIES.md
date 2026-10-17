@@ -11,6 +11,12 @@ installed together with `--no-deps --no-build-isolation`, followed by `pip check
 This keeps an unpublished candidate requirement out of the public index and
 fails when package metadata needs a dependency absent from the lock.
 
+The shared setup action creates a fresh virtualenv on Windows before installing
+these locks. Hosted Windows Python also contains runner-managed tools such as
+pipx, whose evolving requirements can conflict with the project's pinned
+filelock/platformdirs. The virtualenv isolates those unrelated packages without
+uninstalling runner tools, relaxing `pip check`, or changing locked versions.
+
 The full CI matrix targets Linux x86_64, native macOS ARM64 and Intel x86_64,
 and Windows x86_64. The universal resolution does not guarantee wheel
 availability on every architecture. On Intel macOS, cryptography 49 and later
