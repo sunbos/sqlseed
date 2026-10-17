@@ -186,12 +186,12 @@ test('browser workbench: connect, preview, cancel, generate and restore', {timeo
     await wait("document.querySelectorAll('.wb-preview-data tbody tr').length > 0", 'generated sample rows');
     assert.equal(sql('SELECT count(*) FROM smoke_items'), '[[0]]', 'preview must not write rows');
     assert.match(await evaluate("document.querySelector('.wb-preview-data').innerText"), /quantity/);
-    await click('[data-plan-entry]');
+    await click('[data-guide-action="stage-3"]');
     await wait("document.querySelector('.wb-execution-actions .primary:not(:disabled)')", 'validated generation plan');
     await key('Escape', 'Escape');
     await wait("!document.querySelector('.wb-execution-actions')", 'cancelled generation plan');
     assert.equal(sql('SELECT count(*) FROM smoke_items'), '[[0]]', 'cancel must not write rows');
-    await click('[data-plan-entry]');
+    await click('[data-guide-action="stage-3"]');
     await click('.wb-execution-actions .primary');
     await wait("document.querySelector('.run-detail .run-status.done')", 'successful persisted run');
     assert.equal(sql('SELECT count(*) FROM smoke_items'), '[[3]]');
