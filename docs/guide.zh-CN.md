@@ -254,6 +254,8 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 如果 `--config` 指定的文件无法读取、解析或通过配置校验，`fill` 会显示原因，并在生成或清表前以状态码 2 退出。请修正文件路径、UTF-8 YAML/JSON 语法或提示的字段，再重试同一命令。
 每次命令只读取一次配置；加载完成后的文件修改将在后续调用中生效。
 
+直接或配置驱动的 `fill` 发生数据库异常时，会显示 `Database fill failed:`，以状态码 1 退出，隐藏 URL 凭据且不打印 Python 堆栈。SQLite `mode=rw` 目标不存在时不会创建文件；修正目标后可重试。此诊断并不表示此前已提交的批次被回滚。
+
 ### `preview`
 
 预览生成数据，不写入数据库。
@@ -985,3 +987,4 @@ python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai
 - [API 参考](api.md)：完整 Python API 文档。
 - [架构说明](architecture.md)：内部设计与模块结构。
 - [Gemma 4 集成](gemma4-integration.md)：AI 结构分析配置。
+
