@@ -79,3 +79,42 @@ class TestSnapshotManager:
         Replay logic now lives in the CLI layer. Verify the method no longer exists."""
         manager = self._make_manager(tmp_path)
         assert not hasattr(manager, "replay"), "replay() should have been removed from SnapshotManager"
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        "metadata: &node {self: *node}\n",
+        "config: {tables: [{columns: [{params: {schema: &node {type: array, items: *node}}}]}]}\n",
+        "metadata: &items [*items]\n",
+        "metadata: &items !!pairs [{self: *items}]\n",
+    ],
+    ids=["metadata-mapping", "config-schema", "metadata-list", "metadata-pairs"],
+)
+def test_snapshot_rejects_cycles_in_parsed_data(tmp_path: Path, contents: str) -> None:
+    path = tmp_path / "cyclic.yaml"
+    path.write_text(contents, encoding="utf-8")
+
+    with pytest.raises(ValueError, match="cyclic YAML alias"):
+        SnapshotManager(str(tmp_path / "cache")).load(str(path))
+
+    assert path.read_text(encoding="utf-8") == contents
+
+
+def test_snapshot_accepts_shared_aliases_and_merge_keys(tmp_path: Path) -> None:
+    path = tmp_path / "shared.yaml"
+    path.write_text("left: &leaf {type: boolean}\nright: *leaf\nmerged: {<<: *leaf, title: flag}\n", encoding="utf-8")
+
+    data = SnapshotManager(str(tmp_path / "cache")).load(str(path))
+
+    assert data["left"] is data["right"]
+    assert data["merged"] == {"type": "boolean", "title": "flag"}
+
+
+def test_snapshot_accepts_self_merge_flattened_by_parser(tmp_path: Path) -> None:
+    path = tmp_path / "self-merge.yaml"
+    path.write_text("metadata: &node {<<: *node, label: safe}\n", encoding="utf-8")
+
+    data = SnapshotManager(str(tmp_path / "cache")).load(str(path))
+
+    assert data == {"metadata": {"label": "safe"}}

@@ -164,8 +164,8 @@ class TestFetchIndexInfo:
         assert unique_flags["idx_a"] is True
         assert unique_flags["idx_b"] is False
 
-    def test_none_column_values_filtered(self) -> None:
-        """When ``cr[2]`` is None, it should be excluded from the columns tuple."""
+    def test_expression_item_does_not_leave_partial_key(self) -> None:
+        """An expression item prevents treating the residual columns as a full key."""
         execute_fn, _ = self._make_execute_fn(
             index_list_rows=[(1, "idx_x", 0)],
             index_info_map={
@@ -176,7 +176,7 @@ class TestFetchIndexInfo:
             },
         )
         result = fetch_index_info(execute_fn, "users")
-        assert result[0].columns == ("col1",)
+        assert result[0].columns == ()
 
     def test_returns_index_info_instances(self) -> None:
         execute_fn, _ = self._make_execute_fn(

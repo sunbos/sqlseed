@@ -392,6 +392,8 @@ classDiagram
 
 adapter 明确报告 `ColumnInfo.is_rowid_alias`，默认 `None` 兼容旧构造。SQLite 区分真实 rowid 别名与显式 AUTOINCREMENT，并保留普通主键的可空语义。`IndexInfo.is_partial` 防止将条件唯一性误当作无条件 UNIQUE；SQLAlchemy 在 `predicate` 保留反射出的 WHERE SQL，RawSQLite 可不提供条件原文。谓词由数据库在写入时执行。FK 元数据保留表内约束身份和反射出的父 schema。
 
+SQLite 表达式索引不代表其中普通列子集本身唯一。PRAGMA 索引辅助函数保留索引身份和标志，但只要任一索引项是表达式，就返回空列键。表达式唯一性仍由 SQLite 执行；这不提供表达式感知的候选值生成。
+
 ## 6. 列依赖 DAG 与约束回溯
 
 ```mermaid

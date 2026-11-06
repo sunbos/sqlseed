@@ -36,7 +36,9 @@ def fetch_index_info(
         idx_name = row[1]
         is_unique = bool(row[2])
         col_rows = execute_fn(f"PRAGMA index_info({quote_identifier(idx_name)})").fetchall()
-        columns = tuple(cr[2] for cr in col_rows if cr[2] is not None)
+        # An expression item makes the whole key non-column-based. Dropping only
+        # that item would falsely make the remaining ordinary columns unique.
+        columns = tuple(cr[2] for cr in col_rows) if all(cr[2] is not None for cr in col_rows) else ()
         result.append(
             IndexInfo(
                 name=idx_name,

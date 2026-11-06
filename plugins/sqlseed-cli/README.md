@@ -53,6 +53,8 @@ sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_HHMMSS_ffffff_users.yaml
 | `init` | Write a YAML configuration template |
 | `replay` | Run a saved configuration snapshot |
 
+`init` rejects an output path that aliases its source SQLite file, including symbolic and hard links. Use a separate configuration path; replacing an existing configuration remains supported. The check covers existing ordinary local files, not concurrent path changes or custom SQLite VFS targets.
+
 For PostgreSQL, install the Core `postgres` extra and use `--url`:
 
 ```bash
@@ -90,6 +92,10 @@ If any table reports generation errors, the command prints those errors and exit
 with status 1. `count` reports rows actually committed; a later batch failure can
 leave earlier commits. A snapshot retains a supplied transform script path and replay
 runs that script again; the script itself is not embedded in the snapshot.
+
+Snapshots also retain `--enrich`. Enriched replay reads the current table distribution,
+not a frozen copy of the original rows. Older snapshots without this setting
+retain the default (`false`).
 
 `replay` reports missing, unreadable, or malformed snapshot files with exit status 2
 before generation starts. Check the path, read permissions, and UTF-8 YAML syntax.

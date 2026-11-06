@@ -299,7 +299,7 @@ class GenerationMixin:
 
         Args:
             table_name: Target table name.
-            count: Number of rows to generate, must be greater than 0.
+            count: Positive integer number of rows to generate; booleans are not accepted.
             columns: Optional simple column config dict (column name -> string/dict).
             seed: Optional random seed, for reproducible results.
             batch_size: Batch size, default 5000.
@@ -319,10 +319,14 @@ class GenerationMixin:
         validate_table_name(table_name)
         if not has_exact_type(batch_size, int) or batch_size <= 0:
             raise ValueError("batch_size must be a positive integer")
-        if count <= 0:
-            raise ValueError(f"count must be greater than 0, got {count}")
+        if not has_exact_type(count, int) or count <= 0:
+            raise ValueError("count must be a positive integer")
         committed = FillSession()
         with committed:
+            # Validate stdlib seed compatibility before preparation can clear rows.
+            # Use a disposable local RNG; provider seeding remains in DataStream.
+            if seed is not None:
+                random.Random(seed)
             table_name = self._preflight_generation([table_name])[table_name]
             own_progress = progress is None
             if progress is None:
@@ -516,6 +520,8 @@ class GenerationMixin:
         """
         self._ensure_connected()
         validate_table_name(table_name)
+        if not has_exact_type(count, int) or count <= 0:
+            raise ValueError("count must be a positive integer")
 
         table_name = self._preflight_generation([table_name])[table_name]
         generator_specs, user_configs, unique_columns, composite_unique = self._resolve_specs(
