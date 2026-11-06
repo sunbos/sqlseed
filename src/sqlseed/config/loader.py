@@ -136,10 +136,6 @@ def _reject_database_destination(config: GeneratorConfig, destination: Path) -> 
         url = connection_url(target)
         if url.get_backend_name() != "sqlite":
             return
-        # Repeated URL options have dialect/version-dependent serialization.
-        # Do not infer a filesystem identity for that ambiguous URI form.
-        if any(isinstance(value, tuple) for value in url.query.values()):
-            return
         args, options = SQLiteDialect_pysqlite().create_connect_args(url)
     except (ArgumentError, ValueError, TypeError):
         # Saving is not connection validation. Preserve editable configurations
@@ -147,6 +143,11 @@ def _reject_database_destination(config: GeneratorConfig, destination: Path) -> 
         return
     filename = str(args[0])
     if options.get("uri") and filename.startswith("file:"):
+        # Repeated mode values cannot distinguish file-backed from in-memory
+        # targets after dialect serialization. Other repeated options, including
+        # unknown options ignored by SQLite, must not bypass the identity check.
+        if isinstance(url.query.get("mode"), tuple):
+            return
         # urlsplit removes raw whitespace controls; escape them before parsing
         # so that SQLite's literal filename semantics are retained.
         uri = urlsplit(filename.replace("\t", "%09").replace("\r", "%0D").replace("\n", "%0A"))

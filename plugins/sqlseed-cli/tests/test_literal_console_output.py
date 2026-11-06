@@ -69,7 +69,7 @@ def test_literal_console_output(tmp_path: Path, command: str, style: str) -> Non
         COLUMNS="240",
         SQLSEED_LOG_LEVEL="ERROR",
     )
-    result = subprocess.run(args, env=env, capture_output=True, timeout=30)
+    result = subprocess.run(args, env=env, capture_output=True, timeout=30, check=False)
     stdout = result.stdout.decode("utf-8")
     stderr = result.stderr.decode("utf-8")
     (tmp_path / "stdout.txt").write_text(stdout, encoding="utf-8")

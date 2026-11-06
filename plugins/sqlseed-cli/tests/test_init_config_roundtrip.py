@@ -51,9 +51,7 @@ def test_init_config_roundtrip(tmp_path: Path, kind: str, suffix: str) -> None:
             connection.execute('INSERT INTO "其他 表" VALUES (900, ?)', ("旁边的文件",))
             connection.commit()
     before = {
-        path: hashlib.sha256(path.read_bytes()).hexdigest()
-        for path in (database, other_database)
-        if path.is_file()
+        path: hashlib.sha256(path.read_bytes()).hexdigest() for path in (database, other_database) if path.is_file()
     }
     observations = {
         "before_sha256": {str(path): digest for path, digest in before.items()},
@@ -93,7 +91,7 @@ def test_init_config_roundtrip(tmp_path: Path, kind: str, suffix: str) -> None:
 
     def invoke(label: str, arguments: list[str]) -> None:
         args = [launcher, *arguments]
-        result = subprocess.run(args, cwd=tmp_path, env=env, capture_output=True, timeout=30)
+        result = subprocess.run(args, cwd=tmp_path, env=env, capture_output=True, timeout=30, check=False)
         (tmp_path / f"{label}.stdout").write_bytes(result.stdout)
         (tmp_path / f"{label}.stderr").write_bytes(result.stderr)
         (tmp_path / f"{label}.json").write_text(
@@ -123,9 +121,7 @@ def test_init_config_roundtrip(tmp_path: Path, kind: str, suffix: str) -> None:
     config.provider = ProviderType.BASE
     config.tables[0].count = 2
     config.tables[0].seed = 42
-    config.tables[0].columns = [
-        ColumnConfig(name="payload", generator="choice", params={"choices": [generated_value]})
-    ]
+    config.tables[0].columns = [ColumnConfig(name="payload", generator="choice", params={"choices": [generated_value]})]
     save_config(config, str(config_path))
     invoke("fill", ["fill", "--config", str(config_path), "--no-ai"])
     observe("after_fill")

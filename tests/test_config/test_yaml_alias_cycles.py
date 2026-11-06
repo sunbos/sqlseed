@@ -106,7 +106,7 @@ def test_shared_schema_aliases_remain_valid_for_generation(tmp_path: Path) -> No
         assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
     assert rows[0] == ("marker",)
     assert len(rows) == 3
-    for value, in rows[1:]:
+    for (value,) in rows[1:]:
         parsed = json.loads(value)
         assert set(parsed) == {"left", "right"}
         assert all(isinstance(item, bool) for item in parsed.values())

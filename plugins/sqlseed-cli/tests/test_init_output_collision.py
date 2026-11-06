@@ -1,4 +1,5 @@
 """A configuration destination must not truncate its referenced SQLite data."""
+
 from __future__ import annotations
 
 import json
@@ -32,28 +33,40 @@ def unchanged(path: Path, before: bytes) -> None:
 
 
 def target_args(kind: str, db: Path) -> list[str]:
-    if kind == "uri":
-        return ["--url", f'sqlite:///file:{quote(str(db))}?mode=ro&uri=true']
-    if kind == "url":
-        return ["--url", f'sqlite:///{db}']
+    if kind in {"uri", "uri-repeated"}:
+        query = "mode=ro&uri=true"
+        if kind == "uri-repeated":
+            query += "&foo=one&foo=two"
+        return ["--url", f"sqlite:///file:{quote(str(db))}?{query}"]
+    if kind in {"url", "url-repeated", "url-repeated-mode"}:
+        query = {"url-repeated": "?foo=one&foo=two", "url-repeated-mode": "?mode=memory&mode=memory"}.get(kind, "")
+        return ["--url", f"sqlite:///{db}{query}"]
     return ["--db", str(db)]
 
 
-def run_console(
-    tmp_path: Path, label: str, output: Path, args: list[str]
-) -> subprocess.CompletedProcess[str]:
+def run_console(tmp_path: Path, label: str, output: Path, args: list[str]) -> subprocess.CompletedProcess[str]:
     argv = [str(Path(sys.executable).parent / "sqlseed"), "init", str(output), *args]
-    result = subprocess.run(argv, capture_output=True, text=True, timeout=30, env=os.environ.copy())
+    result = subprocess.run(argv, capture_output=True, text=True, timeout=30, env=os.environ.copy(), check=False)
     record = {"argv": argv, "exit": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
-    (tmp_path / f'{label}.json').write_text(json.dumps(record, indent=2))
+    (tmp_path / f"{label}.json").write_text(json.dumps(record, indent=2))
     return result
 
 
 @pytest.mark.parametrize(
     "kind",
     [
-        "literal", "url", "uri", "normalized", "symlink", "hardlink",
-        "literal-question", "literal-percent", "url-percent",
+        "literal",
+        "url",
+        "uri",
+        "normalized",
+        "symlink",
+        "hardlink",
+        "literal-question",
+        "literal-percent",
+        "url-percent",
+        "url-repeated",
+        "uri-repeated",
+        "url-repeated-mode",
     ],
 )
 def test_console_rejects_collision_then_accepts_distinct_retry(tmp_path: Path, kind: str) -> None:
@@ -76,7 +89,7 @@ def test_console_rejects_collision_then_accepts_distinct_retry(tmp_path: Path, k
             else:
                 os.link(db, output)
         except OSError as exc:
-            pytest.skip(f'Filesystem link unavailable: {exc}')
+            pytest.skip(f"Filesystem link unavailable: {exc}")
         assert output.samefile(db)
     if kind == "normalized":
         (tmp_path / "sub").mkdir()
@@ -95,12 +108,13 @@ def test_console_rejects_collision_then_accepts_distinct_retry(tmp_path: Path, k
     unchanged(db, before)
 
 
-@pytest.mark.parametrize("kind", ["literal", "url", "uri"])
+@pytest.mark.parametrize("kind", ["literal", "url", "uri", "url-repeated", "uri-repeated", "url-repeated-mode"])
 def test_save_api_preserves_database(tmp_path: Path, kind: str) -> None:
     db = tmp_path / "source.json"
     before = fixture_db(db)
     args = target_args(kind, db)
     config = generate_template(**({"url": args[1]} if args[0] == "--url" else {"db_path": args[1]}))
+    assert [table.name for table in config.tables] == ["sentinel"]
     with pytest.raises(ValueError, match="choose a different output path"):
         save_config(config, str(db))
     unchanged(db, before)
@@ -131,7 +145,7 @@ def test_non_uri_percent_filename_does_not_alias_decoded_file(tmp_path: Path) ->
     before = fixture_db(database)
     destination = tmp_path / "data file.json"
     destination.write_text("old config")
-    config = generate_template(url=f'sqlite:///{database}?uri=false')
+    config = generate_template(url=f"sqlite:///{database}?uri=false")
     save_config(config, str(destination))
     assert [table.name for table in load_config(str(destination)).tables] == ["sentinel"]
     unchanged(database, before)
@@ -141,7 +155,7 @@ def test_non_uri_percent_filename_does_not_alias_decoded_file(tmp_path: Path) ->
 def test_memory_or_ambiguous_uri_does_not_claim_existing_file(tmp_path: Path, query: str) -> None:
     destination = tmp_path / "existing.json"
     destination.write_text("old config")
-    config = GeneratorConfig(url=f'sqlite:///file:{quote(str(destination))}?{query}&uri=true')
+    config = GeneratorConfig(url=f"sqlite:///file:{quote(str(destination))}?{query}&uri=true")
     save_config(config, str(destination))
     assert load_config(str(destination)) == config
 
