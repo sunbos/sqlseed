@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 _INVALID_SEEDS = [[], {}, (1,), object(), Decimal(2), Fraction(2)]
-_VALID_SEEDS = [None, 0, -2, 10**50, True, 2.5, "seed", b"seed", bytearray(b"seed")]
+_COMPATIBILITY_SEEDS = [None, 0, -2, 10**50, True, 2.5, "seed", b"seed", bytearray(b"seed")]
 
 
 def _require_unsupported_seed(seed: Any) -> str:
@@ -160,12 +160,31 @@ def test_preview_retains_type_error_and_database(tmp_path: Path, connected: bool
 
 
 @pytest.mark.parametrize("provider", ["base", "faker"])
-@pytest.mark.parametrize("seed", _VALID_SEEDS)
+@pytest.mark.parametrize("seed", _COMPATIBILITY_SEEDS)
 def test_compatible_seeds_keep_generation_and_reproducibility(tmp_path: Path, provider: str, seed: Any) -> None:
     path = tmp_path / "compatible.db"
     _prepare(path)
+    before = path.read_bytes()
     state = random.getstate()
+    # Random(bytearray(...)) rejects the seed on Python 3.10, although calling
+    # Random().seed(...) directly accepts it. Follow the constructor used by
+    # generation and verify both runtime outcomes without skipping coverage.
+    constructor_error = None
+    try:
+        random.Random(seed)
+    except TypeError as error:
+        constructor_error = str(error)
+
     first = fill(str(path), table="items", count=3, provider=provider, seed=seed, clear_before=True)
+    if constructor_error is not None:
+        _failed(first, constructor_error)
+        _preserved(path, before)
+        _success(fill(str(path), table="items", count=3, provider=provider, seed=42, clear_before=True))
+        assert len(_rows(path)) == 3
+        assert _rows(path, "other") == [(999, 111)]
+        assert random.getstate() == state
+        return
+
     _success(first)
     rows = _rows(path)
     second = fill(str(path), table="items", count=3, provider=provider, seed=seed, clear_before=True)
