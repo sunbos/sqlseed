@@ -16,6 +16,7 @@ import yaml
 
 from sqlseed._utils.logger import get_logger
 from sqlseed._utils.paths import get_cache_dir
+from sqlseed.config.loader import _validate_acyclic_config
 
 if TYPE_CHECKING:
     from sqlseed.config.models import GeneratorConfig
@@ -99,7 +100,7 @@ class SnapshotManager:
 
         Raises:
             FileNotFoundError: Snapshot file does not exist
-            ValueError: Snapshot contents are not a mapping
+            ValueError: Snapshot contents are not a mapping or contain cycles in parsed data
         """
         path = Path(snapshot_path)
         if not path.exists():
@@ -110,6 +111,7 @@ class SnapshotManager:
 
         if not isinstance(data, dict):
             raise ValueError("Snapshot must contain a YAML mapping")
+        _validate_acyclic_config(data)
         result: dict[str, Any] = data
         return result
 

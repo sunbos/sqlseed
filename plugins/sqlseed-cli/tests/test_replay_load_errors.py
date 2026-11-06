@@ -181,3 +181,50 @@ def test_replay_missing_metadata_is_rejected_before_database_creation(
     assert "Invalid snapshot file format:" in result.output
     assert field in result.output
     assert not database.exists()
+
+
+@pytest.mark.parametrize("clear", [False, True], ids=["append", "clear"])
+@pytest.mark.parametrize("cycle_location", ["config", "metadata"])
+def test_replay_cyclic_snapshot_preserves_database_and_allows_retry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear: bool, cycle_location: str
+) -> None:
+    monkeypatch.setenv("SQLSEED_CACHE_DIR", str(tmp_path / "cache"))
+    database = tmp_path / "synthetic.db"
+    with sqlite_connection(database) as connection:
+        connection.execute("CREATE TABLE items (value INTEGER NOT NULL)")
+        connection.execute("INSERT INTO items VALUES (99)")
+    before = database.read_bytes()
+    snapshot = tmp_path / "snapshot.yaml"
+    valid = _snapshot_for_database(database)
+    valid["config"]["tables"][0]["clear_before"] = clear
+    cyclic: dict[str, Any] = {}
+    cyclic["self"] = cyclic
+    if cycle_location == "metadata":
+        valid["extra_metadata"] = cyclic
+    else:
+        valid["config"]["tables"][0]["columns"][0]["params"]["extra"] = cyclic
+    contents = yaml.safe_dump(valid)
+    snapshot.write_text(contents, encoding="utf-8")
+    runner = CliRunner()
+
+    failed = runner.invoke(cli, ["replay", str(snapshot)])
+
+    assert failed.exit_code == 2, repr(failed.exception)
+    assert "Invalid snapshot file format:" in failed.output
+    assert "cyclic YAML alias" in failed.output
+    assert "Traceback" not in failed.output
+    assert database.read_bytes() == before
+    assert snapshot.read_text(encoding="utf-8") == contents
+    with sqlite_connection(database) as connection:
+        assert connection.execute("SELECT value FROM items").fetchall() == [(99,)]
+        assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+
+    corrected = _snapshot_for_database(database)
+    corrected["config"]["tables"][0]["clear_before"] = clear
+    snapshot.write_text(yaml.safe_dump(corrected), encoding="utf-8")
+    recovered = runner.invoke(cli, ["replay", str(snapshot)])
+
+    assert recovered.exit_code == 0, recovered.output
+    with sqlite_connection(database) as connection:
+        expected = [(7,), (7,)] if clear else [(99,), (7,), (7,)]
+        assert connection.execute("SELECT value FROM items ORDER BY rowid").fetchall() == expected

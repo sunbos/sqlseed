@@ -254,6 +254,8 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 如果 `--config` 指定的文件无法读取、解析或通过配置校验，`fill` 会显示原因，并在生成或清表前以状态码 2 退出。请修正文件路径、UTF-8 YAML/JSON 语法或提示的字段，再重试同一命令。
 每次命令只读取一次配置；加载完成后的文件修改将在后续调用中生效。
 
+直接或配置驱动的 `fill` 发生数据库异常时，会显示 `Database fill failed:`，以状态码 1 退出，隐藏 URL 凭据且不打印 Python 堆栈。SQLite `mode=rw` 目标不存在时不会创建文件；修正目标后可重试。此诊断并不表示此前已提交的批次被回滚。
+
 ### `preview`
 
 预览生成数据，不写入数据库。
@@ -307,10 +309,18 @@ sqlseed init generate.yaml --db app.db
 
 模板包含发现的表名、默认生成数量和空的 `columns` 列表。按需添加显式字段规则；未提供的规则会在生成时推断。`--url` 接受数据库 URL，与 `--db` 互斥。两个选项都不提供时，默认目标为 `test.db`。
 
+输出不得指向源 SQLite 文件（包括符号链接或硬链接）。请选择独立的配置路径；已有的配置文件仍可覆盖。此检查仅针对已存在的普通本地文件，不防范并发路径变化或自定义 SQLite VFS 目标。
+
 ### `replay`
+
+快照保留 `--enrich` 设置。启用该设置的重放会读取表中当前的数据，
+不会保存原有的数据分布；已有行变化时，生成结果也可能变化。
+缺少此设置的旧快照继续使用默认值（`false`）。
+
 
 快照文件不存在、无法读取或格式损坏时，命令会在开始生成前显示诊断信息并以状态码 2 退出。请检查文件路径、读取权限和 UTF-8 YAML 语法。
 快照元数据要求 `table_name` 为非空白字符串、`count` 为正整数、`seed` 为整数或 null（也可省略）。布尔值不能作为整数使用。
+解析后的快照数据（包括元数据）中仍存在的循环引用，会在数据库连接、清表或生成前作为格式错误拒绝，并以状态码 2 退出。普通共享别名和 YAML 合并键仍受支持。
 
 重放快照中保存的生成配置。比较生成值时，应使用表结构、生成引擎和依赖版本、随机种子、固定时间范围、初始父表数据均一致的新数据库。向已有数据的数据库重放可能遇到 UNIQUE 冲突；配置快照不是数据库备份。详见[复现条件](maintainable-release.md#reproduction-conditions)。
 
@@ -411,6 +421,8 @@ sqlseed auto-heal --db app.db --config rules.yaml -o rules_healed.yaml
 ## YAML 配置 {#yaml-configuration}
 
 复杂的多表场景可以使用 YAML 配置文件，这是 sqlseed 功能最完整的配置方式。
+
+配置文件解析后的数据不能含有循环引用。普通 YAML 别名和合并键仍可使用。如果别名导致解析后的数据中存在循环引用（包括生成参数或额外元数据内的循环引用），配置会在连接数据库或写入数据前被拒绝。`sqlseed fill --config` 会将其报告为配置错误（退出码 2）。此文件加载检查不验证直接用 Python 构造的配置，也不保证后续生成失败时整次事务回滚。
 
 ### 基本结构 {#basic-structure}
 
@@ -985,3 +997,4 @@ python -m pip install -e . -e ./plugins/sqlseed-cli -e ./plugins/sqlseed-ai
 - [API 参考](api.md)：完整 Python API 文档。
 - [架构说明](architecture.md)：内部设计与模块结构。
 - [Gemma 4 集成](gemma4-integration.md)：AI 结构分析配置。
+

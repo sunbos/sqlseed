@@ -289,6 +289,12 @@ UTF-8 YAML/JSON syntax, or reported fields and retry the same command.
 Each invocation reads the configuration once; changes made after loading take
 effect on a later invocation.
 
+Database exceptions during direct or configuration-driven `fill` are reported as
+`Database fill failed:` with exit status 1 and URL credentials redacted, without a
+Python traceback. For a missing SQLite `mode=rw` target, no file is created;
+correct the target and retry. This diagnostic does not imply rollback of earlier
+committed batches.
+
 ### `preview`
 
 Preview generated data without writing to the database.
@@ -345,6 +351,8 @@ and empty `columns` lists. Add explicit column rules as needed; omitted rules
 are inferred during generation. `--url` accepts a database URL and is mutually
 exclusive with `--db`. Without either option, the target defaults to `test.db`.
 
+The output must not refer to the source SQLite file, including symbolic or hard links. Choose a separate configuration path; existing configuration files can still be replaced. This is a check of existing ordinary local files, not protection against concurrent path changes or custom SQLite VFS targets.
+
 ### `replay`
 
 Missing, unreadable, or malformed snapshot files produce a diagnostic and exit
@@ -352,6 +360,13 @@ status 2 before generation starts. Check the file path, read permissions, and
 UTF-8 YAML syntax. Snapshot metadata requires a nonblank string `table_name`, a
 positive integer `count`, and an integer or null `seed` (which may be omitted).
 Boolean values are not accepted as integers.
+Cycles remaining in parsed snapshot data, including metadata, are rejected as a
+format error with exit status 2 before database connection, clearing, or generation.
+Ordinary shared aliases and YAML merge keys remain supported.
+
+Snapshots retain `--enrich`. Replay with enrichment uses the current table data,
+not a saved copy of its distribution; changed rows can change generated values.
+Older snapshots without an enrichment setting keep the default (`false`).
 
 Replay the generation configuration saved in a snapshot. To compare generated
 values, use a fresh database with the same schema, provider and dependency
@@ -495,6 +510,13 @@ Review the resulting rules and run a preview before executing them.
 
 For complex multi-table scenarios, use a YAML config file. This is the most
 powerful way to drive sqlseed.
+
+Configuration files must produce acyclic data when parsed. Ordinary YAML aliases
+and merge keys are supported. Aliases that leave a cycle in parsed data,
+including inside generator parameters or extra metadata, are rejected before any
+database connection or write. `sqlseed fill --config` reports this as a
+configuration error (exit 2). This file-loading check does not validate
+Python-created configurations or make later generation failures transactional.
 
 ### Basic Structure
 
@@ -1130,3 +1152,4 @@ CLI emits a `WARNING` log instead.
 - [API Reference](api.md) — Full Python API documentation
 - [Architecture](architecture.md) — Internal design and module structure
 - [Gemma 4 Integration](gemma4-integration.md) — AI schema analysis setup
+

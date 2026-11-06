@@ -306,9 +306,46 @@ jobs:
       - name: Run property-based tests
         run: pytest plugins/sqlseed-ai/tests/property/ -v --maxfail=1 --tb=short
 
+  # Real browser smoke; separate from the dependency-free DOM regression suite.
+  web-browser:
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: ./.github/actions/setup-env
+        with:
+          python-version: "3.12"
+      - name: Exercise the real Web workbench in Chrome
+        uses: actions/github-script@d746ffe35508b1917358783b479e04febd2b8f71 # v9.0.0, Node 24
+        env:
+          BROWSER_ARTIFACTS: ${{ runner.temp }}/sqlseed-browser-artifacts
+        with:
+          retries: 0
+          debug: false
+          script: |
+            const {execFileSync} = require('node:child_process');
+            execFileSync(process.execPath, ['--test', 'plugins/sqlseed-web/tests/browser/test_workbench.cjs'], {
+              stdio: 'inherit',
+              timeout: 240000
+            });
+      - name: Upload browser failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: web-browser-failure-${{ github.sha }}
+          path: ${{ runner.temp }}/sqlseed-browser-artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+
   docs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: [lint, test, test-compat, macos-compat-gate, integration, property-tests, packages]
+    needs: [lint, test, test-compat, macos-compat-gate, integration, property-tests, packages, web-browser]
     permissions:
       actions: read
       contents: read

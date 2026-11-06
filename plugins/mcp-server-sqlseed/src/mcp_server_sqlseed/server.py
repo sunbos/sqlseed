@@ -35,6 +35,29 @@ mcp = FastMCP("sqlseed", host=_server_config.host, port=_server_config.port)
 _MAX_YAML_CONFIG_SIZE = 256 * 1024
 
 
+def _validate_acyclic_yaml(value: object) -> None:
+    """Reject cycles in parsed data without rejecting or expanding shared YAML data."""
+    # This protocol boundary must also work with Core versions lacking its private loader guard.
+    active: set[int] = set()
+    completed: set[int] = set()
+    pending: list[tuple[object, bool]] = [(value, False)]
+    while pending:
+        node, exiting = pending.pop()
+        if not isinstance(node, (dict, list, tuple)):
+            continue
+        identity = id(node)
+        if exiting:
+            active.remove(identity)
+            completed.add(identity)
+        elif identity in active:
+            raise ValueError("Configuration contains a cyclic YAML alias reference")
+        elif identity not in completed:
+            active.add(identity)
+            pending.append((node, True))
+            children = node.values() if isinstance(node, dict) else node
+            pending.extend((child, False) for child in children)
+
+
 def _convert_spec_to_column_entry(col_name: str, spec: GeneratorSpec) -> dict[str, Any]:
     """Convert a rule-driven GeneratorSpec into a YAML column config entry."""
     entry: dict[str, Any] = {"name": col_name, "generator": spec.generator_name}
@@ -109,6 +132,7 @@ def sqlseed_execute_fill(
                     raise ValueError("yaml_config must contain a YAML mapping")
                 if any(not isinstance(key, str) for key in data):
                     raise ValueError("yaml_config mapping keys must be strings")
+                _validate_acyclic_yaml(data)
                 config = GeneratorConfig(**data)
                 for t in config.tables:
                     if t.name == table_name:

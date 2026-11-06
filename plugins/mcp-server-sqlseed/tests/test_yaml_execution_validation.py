@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 import yaml
-from mcp_server_sqlseed.server import sqlseed_execute_fill
+from mcp_server_sqlseed.server import _validate_acyclic_yaml, sqlseed_execute_fill
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -129,3 +130,125 @@ def test_invalid_date_range_returns_tool_error_without_appending(tmp_path: Path)
     assert "date" in result["error"]
     with closing(sqlite3.connect(database)) as connection:
         assert connection.execute("SELECT * FROM events").fetchall() == [("2020-01-01",)]
+
+
+@pytest.mark.parametrize("clear_before", [False, True], ids=["append", "clear"])
+@pytest.mark.parametrize(
+    "parameters",
+    [
+        "schema: &node {type: object, properties: {self: *node}}",
+        "schema: &node {type: array, items: *node}",
+        "schema: &node {type: object, properties: {children: {type: array, items: *node}}}",
+        "choices: &items [*items]",
+        "choices: &items !!pairs [{self: *items}]",
+    ],
+    ids=["object", "array", "indirect", "list", "pairs-tuple"],
+)
+def test_cyclic_yaml_preserves_database_and_shared_alias_retry_succeeds(
+    tmp_path: Path, parameters: str, clear_before: bool
+) -> None:
+    database = tmp_path / "cyclic.db"
+    with closing(sqlite3.connect(database)) as connection:
+        connection.executescript("CREATE TABLE items(payload TEXT NOT NULL); INSERT INTO items VALUES ('marker');")
+    before = database.read_bytes()
+    prefix = (
+        f"db_path: {json.dumps(str(database))}\ntables:\n  - name: items\n    count: 99\n"
+        f"    clear_before: {str(clear_before).lower()}\n    seed: 51\n    columns:\n"
+        "      - name: payload\n        generator: json\n        params:\n          "
+    )
+
+    result = sqlseed_execute_fill(str(database), "items", count=2, yaml_config=prefix + parameters + "\n")
+
+    assert set(result) == {"error"}
+    assert "cyclic YAML alias" in result["error"]
+    assert "recursion" not in result["error"].lower()
+    assert "traceback" not in result["error"].lower()
+    assert database.read_bytes() == before
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("SELECT payload FROM items").fetchall() == [("marker",)]
+        assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+
+    corrected = prefix + "schema: {type: object, properties: {left: &leaf {type: boolean}, right: *leaf}}\n"
+    retry = sqlseed_execute_fill(str(database), "items", count=2, yaml_config=corrected)
+
+    assert retry["count"] == 2
+    assert retry["errors"] == []
+    with closing(sqlite3.connect(database)) as connection:
+        rows = connection.execute("SELECT payload FROM items ORDER BY rowid").fetchall()
+        assert connection.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
+    if not clear_before:
+        assert rows.pop(0) == ("marker",)
+    assert len(rows) == 2
+    for (payload,) in rows:
+        value = json.loads(payload)
+        assert set(value) == {"left", "right"}
+        assert all(isinstance(item, bool) for item in value.values())
+
+
+def test_none_yaml_retains_default_generation(tmp_path: Path) -> None:
+    database = tmp_path / "default.db"
+    create_database(database)
+
+    result = sqlseed_execute_fill(str(database), "users", count=2, yaml_config=None)
+
+    assert result["count"] == 2
+    assert result["errors"] == []
+    with closing(sqlite3.connect(database)) as connection:
+        rows = connection.execute("SELECT value FROM users ORDER BY rowid").fetchall()
+        assert len(rows) == 3
+        assert rows[0] == (91,)
+        assert connection.execute("SELECT value FROM orders").fetchall() == [(92,)]
+
+
+@pytest.mark.parametrize("document", ["1: invalid", "#" + "界" * 90000], ids=["root-key", "utf8-size"])
+def test_yaml_boundary_errors_preserve_database_bytes(tmp_path: Path, document: str) -> None:
+    database = tmp_path / "boundary.db"
+    create_database(database)
+    before = database.read_bytes()
+
+    result = sqlseed_execute_fill(str(database), "users", count=2, yaml_config=document)
+
+    assert set(result) == {"error"}
+    assert "keys must be strings" in result["error"] or "maximum allowed size" in result["error"]
+    assert database.read_bytes() == before
+    assert_unchanged(database)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    ["ignored: &node {self: *node}\n", "  - name: orders\n    columns: []\n    ignored: &node {self: *node}\n"],
+    ids=["ignored-root", "non-target-table"],
+)
+def test_cycles_outside_target_columns_are_rejected(tmp_path: Path, extra: str) -> None:
+    database = tmp_path / "outside-target.db"
+    create_database(database)
+    before = database.read_bytes()
+    document = (
+        f"db_path: {json.dumps(str(database))}\ntables:\n"
+        "  - name: users\n    count: 2\n    clear_before: true\n" + extra
+    )
+
+    result = sqlseed_execute_fill(str(database), "users", count=2, yaml_config=document)
+
+    assert set(result) == {"error"}
+    assert "cyclic YAML alias" in result["error"]
+    assert database.read_bytes() == before
+    assert_unchanged(database)
+
+
+@pytest.mark.parametrize("cyclic", [False, True], ids=["shared-dag", "deep-cycle"])
+def test_yaml_graph_guard_is_iterative_and_preserves_shared_nodes(cyclic: bool) -> None:
+    nodes: list[list[object]] = [[] for _ in range(5001)]
+    for current, following in zip(nodes, nodes[1:], strict=False):
+        current.extend([following, following])
+    if cyclic:
+        nodes[-1].append(nodes[0])
+    before = [[id(child) for child in node] for node in nodes]
+
+    if cyclic:
+        with pytest.raises(ValueError, match="cyclic YAML alias"):
+            _validate_acyclic_yaml(nodes[0])
+    else:
+        _validate_acyclic_yaml(nodes[0])
+
+    assert [[id(child) for child in node] for node in nodes] == before

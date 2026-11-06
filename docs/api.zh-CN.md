@@ -12,6 +12,8 @@ print(sqlseed.__version__)
 
 ## 公共 API {#public-api}
 
+Python 入口 `fill()`、`fill_table()`（含其 `fill` 别名）及 `preview()` / `preview_table()` 的 `count` 参数必须是内置 `int` 类型的正整数。布尔值和非整数（含整数值浮点数及 NaN）会在生成或清表前抛出 `ValueError`。`fill_from_config(count=...)` 填充已配置的表时遵循同一规则；`None` 保留各表配置中的行数。`tables` 列表为空时仍不执行生成。这项输入检查不代表后续生成失败或多表填充具有原子性。
+
 ### `fill()`
 
 向单张表中填充生成的测试数据。
@@ -59,6 +61,11 @@ sqlseed.fill(
 - `ValueError`：既未提供 `db_path` 也未提供 `url`，或同时提供了两者。
 - 连接、配置和参数校验错误可能向调用方传播。
 - 执行失败也可能以带有 `errors` 的 `GenerationResult` 返回。始终检查 `errors` 和 `count`；函数正常返回并不证明所有计划行都已写入。详见[失败语义](maintainable-release.md#write-semantics)。
+
+当前 Python 版本的 `random.Random` 不支持的种子会在清表前被拒绝，返回的
+`GenerationResult` 行数为零，`errors` 保留原有错误信息。此预检保留运行时
+兼容的种子值，不新增仅限整数的限制；它不保证后续 provider、transform
+或插件失败可以回滚。
 
 **示例**
 

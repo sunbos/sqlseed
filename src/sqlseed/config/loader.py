@@ -8,14 +8,19 @@ database URLs (multi-database).
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+from urllib.parse import parse_qsl, unquote_to_bytes, urlsplit
+from urllib.request import url2pathname
 
 import yaml
 from sqlalchemy import create_engine, inspect
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.dialects.sqlite.pysqlite import SQLiteDialect_pysqlite
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
 from sqlseed._utils.logger import get_logger
 from sqlseed.config.models import GeneratorConfig, TableConfig
+from sqlseed.database._connection_url import connection_url
 
 logger = get_logger(__name__)
 
@@ -41,9 +46,8 @@ def _read_table_names(target: str) -> list[str]:
         RuntimeError: Database driver not installed or connection failed
         ValueError: Invalid URL
     """
-    # A plain file path is automatically converted to a SQLite URL
-    db_url = target if "://" in target else f"sqlite:///{target}"
-    engine = create_engine(db_url)
+    # Match execution semantics: bare SQLite filenames are literal, not URLs.
+    engine = create_engine(connection_url(target))
     try:
         inspector = inspect(engine)
         table_names = inspector.get_table_names()
@@ -54,8 +58,33 @@ def _read_table_names(target: str) -> list[str]:
         engine.dispose()
 
 
+def _validate_acyclic_config(value: object) -> None:
+    """Reject cycles in parsed data without rejecting or expanding shared YAML data."""
+    active: set[int] = set()
+    completed: set[int] = set()
+    pending: list[tuple[object, bool]] = [(value, False)]
+    while pending:
+        node, exiting = pending.pop()
+        if not isinstance(node, (dict, list, tuple)):
+            continue
+        identity = id(node)
+        if exiting:
+            active.remove(identity)
+            completed.add(identity)
+        elif identity in active:
+            raise ValueError("Configuration contains a cyclic YAML alias reference")
+        elif identity not in completed:
+            active.add(identity)
+            pending.append((node, True))
+            children = node.values() if isinstance(node, dict) else node
+            pending.extend((child, False) for child in children)
+
+
 def load_config(path: str) -> GeneratorConfig:
     """Load a YAML or JSON configuration file.
+
+    Shared YAML aliases are supported; cycles in parsed data are rejected before
+    model validation or database access.
 
     Selects the parser automatically based on the file extension:
     - .yaml/.yml → YAML parsing
@@ -69,7 +98,7 @@ def load_config(path: str) -> GeneratorConfig:
 
     Raises:
         FileNotFoundError: File does not exist
-        ValueError: Unsupported format or content is not an object
+        ValueError: Unsupported format, non-object content, or cycles in parsed data
     """
     config_path = Path(path)
     if not config_path.exists():
@@ -87,7 +116,59 @@ def load_config(path: str) -> GeneratorConfig:
     if not isinstance(raw, dict):
         raise ValueError("Configuration file must contain a YAML/JSON object")
 
+    _validate_acyclic_config(raw)
     return GeneratorConfig(**raw)
+
+
+def _reject_database_destination(config: GeneratorConfig, destination: Path) -> None:
+    """Prevent a configuration write from truncating its referenced SQLite file.
+
+    Resolve the DBAPI filename without opening a connection. URI decoding belongs
+    only to SQLite file: URIs, not to ordinary URL database components or paths.
+    This identity check is not a guarantee against concurrent filesystem changes.
+    """
+    if not destination.exists():
+        return
+    target = config.connection_target
+    if "://" in target and target.partition("://")[0].partition("+")[0] != "sqlite":
+        return
+    try:
+        url = connection_url(target)
+        if url.get_backend_name() != "sqlite":
+            return
+        args, options = SQLiteDialect_pysqlite().create_connect_args(url)
+    except (ArgumentError, ValueError, TypeError):
+        # Saving is not connection validation. Preserve editable configurations
+        # whose connection options cannot yet be resolved.
+        return
+    filename = str(args[0])
+    if options.get("uri") and filename.startswith("file:"):
+        # Repeated mode values cannot distinguish file-backed from in-memory
+        # targets after dialect serialization. Other repeated options, including
+        # unknown options ignored by SQLite, must not bypass the identity check.
+        if isinstance(url.query.get("mode"), tuple):
+            return
+        # urlsplit removes raw whitespace controls; escape them before parsing
+        # so that SQLite's literal filename semantics are retained.
+        uri = urlsplit(filename.replace("\t", "%09").replace("\r", "%0D").replace("\n", "%0A"))
+        # Nonlocal authorities and custom VFS have no portable local-file
+        # identity. Leave their validation to the connection layer.
+        if uri.netloc not in {"", "localhost"}:
+            return
+        query = [
+            (key.split("\x00", 1)[0], value.split("\x00", 1)[0])
+            for key, value in parse_qsl(uri.query, keep_blank_values=True)
+        ]
+        if any(key == "vfs" or (key == "mode" and value == "memory") for key, value in query):
+            return
+        filename = os.fsdecode(unquote_to_bytes(uri.path).split(b"\x00", 1)[0])
+        if os.name == "nt":
+            filename = url2pathname(uri.path).split("\x00", 1)[0]
+    if filename in {"", ":memory:"}:
+        return
+    database = Path(filename)
+    if database.exists() and destination.samefile(database):
+        raise ValueError("Configuration output refers to the SQLite database file; choose a different output path")
 
 
 def save_config(config: GeneratorConfig, path: str) -> None:
@@ -102,7 +183,7 @@ def save_config(config: GeneratorConfig, path: str) -> None:
         path: Target file path
 
     Raises:
-        ValueError: Unsupported format
+        ValueError: Unsupported format or destination aliases the SQLite database
     """
     config_path = Path(path)
     if (suffix := config_path.suffix.lower()) not in _CONFIG_SUFFIXES:
@@ -117,6 +198,7 @@ def save_config(config: GeneratorConfig, path: str) -> None:
         serialized = json.dumps(data, indent=2, ensure_ascii=False)
     encoded = serialized.encode("utf-8")
 
+    _reject_database_destination(config, config_path)
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_bytes(encoded)
 
