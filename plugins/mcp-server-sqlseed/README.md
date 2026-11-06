@@ -62,6 +62,11 @@ table, row count, and enrichment; YAML contributes only the matching table's col
 rules, seed, and `clear_before` setting. Top-level YAML `provider` and `locale`
 settings do not change this server's engine or locale.
 
+Shared YAML aliases are supported. Cyclic aliases anywhere in the supplied document
+return an `error` before clearing or inserting rows, including when `clear_before` is
+true. This validation does not precede opening the database connection. The check
+is owned by MCP and does not rely on private Core loader helpers.
+
 A typical client workflow is:
 
 1. Call `sqlseed_generate_yaml` for an existing table.

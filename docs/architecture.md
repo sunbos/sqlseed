@@ -395,6 +395,8 @@ classDiagram
 
 `ColumnInfo.is_rowid_alias` is explicit for adapter metadata; its `None` default preserves legacy constructors. SQLite detects real rowid aliases separately from explicit AUTOINCREMENT and preserves ordinary nullable primary keys. `IndexInfo.is_partial` prevents treating conditional uniqueness as unconditional. SQLAlchemy retains the reflected WHERE SQL in `predicate`; raw SQLite metadata may omit its text. The database evaluates predicates during writes. FK metadata retains per-table constraint identity and reflected parent schema.
 
+SQLite expression indexes do not imply uniqueness of their ordinary-column subset. The PRAGMA index helper retains the index identity and flags but returns an empty column key when any index item is an expression. Expression uniqueness remains enforced by SQLite; this does not provide expression-aware candidate generation.
+
 ## 6. Column Dependency DAG & Constraint Backtracking
 
 ```mermaid

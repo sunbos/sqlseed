@@ -87,6 +87,7 @@ def _save_snapshot_cmd(
     *,
     url: str | None = None,
     transform: str | None = None,
+    enrich: bool = False,
 ) -> None:
     config = GeneratorConfig(
         db_path=db_path,
@@ -101,6 +102,7 @@ def _save_snapshot_cmd(
                 clear_before=clear,
                 seed=seed,
                 transform=transform,
+                enrich=enrich,
             )
         ],
     )
@@ -364,6 +366,7 @@ def _execute_fill(options: FillOptions) -> None:
             clear=options.flags.clear,
             url=fill_url,
             transform=options.transform_path,
+            enrich=options.flags.enrich,
         )
 
     # Generation completed with errors: exit non-zero so callers/scripts can detect partial failure.
@@ -427,7 +430,7 @@ def preview(
         click.echo("No data generated.")
         return
 
-    console = Console()
+    console = Console(markup=False, emoji=False)
     rich_table = RichTable(title=f"Preview: {table} ({count} rows)")
 
     for col_name in rows[0]:
@@ -511,7 +514,7 @@ def inspect(db_path: str | None, table: str | None, show_mapping: bool, db_url: 
         raise click.UsageError("db_path or --url is required.")
     try:
         with DataOrchestrator(target) as orch:
-            console = Console()
+            console = Console(markup=False, emoji=False)
 
             tables = [table] if table else orch.get_table_names()
 
@@ -630,6 +633,7 @@ def replay(snapshot_path: str) -> None:
                 clear_before=table_config.clear_before if table_config else False,
                 column_configs=table_config.columns if table_config else None,
                 transform=table_config.transform if table_config else None,
+                enrich=table_config.enrich if table_config else False,
             )
     except (ValueError, RuntimeError, OSError, ConfigurationError) as exc:
         raise click.UsageError(_redact_credentials(str(exc))) from None

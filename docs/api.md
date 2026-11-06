@@ -18,6 +18,8 @@ print(sqlseed.__version__)
 
 ## Public API
 
+The Python `count` argument to `fill()`, `fill_table()` (including its `fill` alias), and `preview()` / `preview_table()` must be a positive built-in `int`. Booleans and non-integers (including integral floats and NaN) raise `ValueError` before generation or table clearing. The same rule applies when `fill_from_config(count=...)` fills configured tables; `None` keeps the configured table counts. An empty `tables` list remains a no-op. This input check does not make later generation failures or multi-table fills atomic.
+
 ### `fill()`
 
 Fill a single table with generated test data.
@@ -71,6 +73,13 @@ A [`GenerationResult`](#generationresult) dataclass with table name, row count, 
 - Operational failures can instead return a `GenerationResult` with `errors`.
   Always inspect `errors` and `count`; returning normally does not prove that all
   planned rows were written. See [failure semantics](maintainable-release.md#write-semantics).
+
+Seeds unsupported by the running Python version's `random.Random` are rejected
+before table clearing,
+with zero rows and the existing error message in `GenerationResult.errors`.
+This preflight retains runtime-compatible seed values rather than imposing a
+new integer-only restriction. It does not guarantee rollback of later provider,
+transform, or plugin failures.
 
 **Example**
 
