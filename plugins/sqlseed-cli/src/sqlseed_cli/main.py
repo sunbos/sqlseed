@@ -18,6 +18,7 @@ import pydantic
 import yaml
 from rich.console import Console
 from rich.table import Table as RichTable
+from sqlalchemy.exc import SQLAlchemyError
 
 from sqlseed import fill as api_fill
 from sqlseed import fill_from_config
@@ -281,6 +282,8 @@ def fill(**kwargs: Any) -> None:
         _execute_fill(options)
     except ConfigurationError as exc:
         raise click.UsageError(_redact_credentials(str(exc))) from None
+    except SQLAlchemyError as exc:
+        raise click.ClickException(_redact_credentials(f"Database fill failed: {exc}")) from None
 
 
 def _execute_config_fill(options: FillOptions, config_path: str) -> None:

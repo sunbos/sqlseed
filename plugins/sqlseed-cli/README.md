@@ -80,6 +80,12 @@ file path, UTF-8 YAML/JSON syntax, or reported fields and retry.
 Each invocation reads the configuration once; changes made after loading take
 effect on a later invocation.
 
+Database exceptions during direct or configuration-driven `fill` are reported as
+`Database fill failed:` with exit status 1 and URL credentials redacted, without a
+Python traceback. For a missing SQLite `mode=rw` target, no file is created;
+correct the target and retry. This diagnostic does not imply rollback of earlier
+committed batches.
+
 If any table reports generation errors, the command prints those errors and exits
 with status 1. `count` reports rows actually committed; a later batch failure can
 leave earlier commits. A snapshot retains a supplied transform script path and replay
@@ -110,3 +116,4 @@ See the [user guide](https://sunbos.github.io/sqlseed/guide/),
 
 License: [AGPL-3.0-or-later](https://github.com/sunbos/sqlseed/blob/main/LICENSE).
 The distribution includes the full LICENSE text.
+

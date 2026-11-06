@@ -289,6 +289,12 @@ UTF-8 YAML/JSON syntax, or reported fields and retry the same command.
 Each invocation reads the configuration once; changes made after loading take
 effect on a later invocation.
 
+Database exceptions during direct or configuration-driven `fill` are reported as
+`Database fill failed:` with exit status 1 and URL credentials redacted, without a
+Python traceback. For a missing SQLite `mode=rw` target, no file is created;
+correct the target and retry. This diagnostic does not imply rollback of earlier
+committed batches.
+
 ### `preview`
 
 Preview generated data without writing to the database.
@@ -1130,3 +1136,4 @@ CLI emits a `WARNING` log instead.
 - [API Reference](api.md) — Full Python API documentation
 - [Architecture](architecture.md) — Internal design and module structure
 - [Gemma 4 Integration](gemma4-integration.md) — AI schema analysis setup
+
