@@ -8,19 +8,24 @@ Python 3.10+ declarative multi-database test data generation toolkit. Single API
 
 **Stack**: hatchling + hatch-vcs build, ruff lint, mypy strict, pytest. License: AGPL-3.0-or-later.
 
-**Architecture**: 5 independent packages — `sqlseed` (core, offline Python API), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin), and `sqlseed-web` (Web plugin). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference.
+**Architecture**: 5 independent packages — `sqlseed` (core, offline Python API), `sqlseed-cli` (CLI plugin), `sqlseed-ai` (AI plugin), `mcp-server-sqlseed` (MCP plugin), and `sqlseed-web` (Web plugin). See [ARCHITECTURE.md](./ARCHITECTURE.md) for the authoritative architecture reference (package boundaries and decisions every change must conform to); `docs/architecture.md` is the separate Mermaid-diagram page of the docs site, kept current via [Doc Sync Rules](#doc-sync-rules).
 
 ## Quick Start Commands
 
 ```bash
-# Resolve Core and all local plugins from this checkout together
-python -m pip install -e ".[dev,all]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+# Resolve Core and all local plugins from this checkout together (= make dev-install; the docs extra is needed for mkdocs)
+python -m pip install -e ".[dev,all,docs]" -e "./plugins/sqlseed-cli" -e "./plugins/sqlseed-ai[dev]" -e "./plugins/mcp-server-sqlseed" -e "./plugins/sqlseed-web[dev]"
+python -m pip check
 
 # Run all tests (core + all plugin tests)
 pytest
 
-# Run a single test file
+# CI parity: CI turns leaked resources (unclosed connections/files) into errors; plain `pytest` does not fail on them
+pytest -W error::ResourceWarning -W error::pytest.PytestUnraisableExceptionWarning -q
+
+# Run a single test file / a single test
 pytest tests/test_orchestrator.py -v
+pytest tests/test_orchestrator.py::TestOrchestratorBasic::test_fill_basic -v
 
 # Run tests matching a pattern
 pytest -k "test_fill" -v
@@ -31,7 +36,7 @@ pytest --cov=sqlseed.core.orchestrator --cov-report=term-missing
 # Lint and auto-fix
 ruff check --fix src/ tests/ plugins/
 
-# Format
+# Format (CI runs `ruff format --check src/ tests/ plugins/`)
 ruff format src/ tests/ plugins/
 
 # Type check (uses pyproject.toml config — strict on src/ and plugins/, excludes tests/)
@@ -40,9 +45,18 @@ mypy
 # Architecture layer contracts (CI gate; [tool.importlinter] in pyproject.toml)
 make lint-imports
 
+# Web frontend + Pages regressions (Node 24 built-in runner, no npm install; pytest does not collect .cjs)
+node --test plugins/sqlseed-web/tests/test_*.cjs
+node --test tests/test_deploy_pages.cjs
+node --test plugins/sqlseed-web/tests/browser/test_workbench.cjs  # real Chrome smoke; CHROME_BIN / PYTHON override
+
+# Docs site (the CI lint job builds it strict)
+make docs-build          # mkdocs build --strict
+
 # Subsets
-make test-core           # tests/test_core, test_config, test_database, test_generators, test_plugins
-make test-integration    # tests/integration/ (requires Docker)
+make test-core           # tests/test_core, test_config, test_database, test_generators, test_plugins (skips root-level tests/test_*.py)
+make test-integration    # tests/integration/ — PostgreSQL from PG_TEST_URL, else testcontainers (Docker)
+pytest plugins/sqlseed-ai/tests/property/   # Hypothesis contract-matrix property tests (also a separate CI job)
 
 # Doc sync: refresh AUTO-GENERATED markers (--check exits 1 if stale)
 python scripts/sync_docs.py
@@ -57,7 +71,7 @@ sqlseed preview app.db -t users -n 5
 sqlseed inspect app.db --table users --show-mapping  # View column mapping strategies
 sqlseed init generate.yaml --db app.db               # Generate config template
 sqlseed fill app.db -t users -n 10000 --snapshot      # Save snapshot for replay
-sqlseed replay <cache_dir>/snapshots/YYYY-MM-DD_users.yaml  # Replay from snapshot
+sqlseed replay <cache_dir>/snapshots/<timestamp>_users.yaml  # Replay the path printed as "Snapshot saved: ..."
 SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10  # Debug logging
 SQLSEED_CACHE_DIR=./my_cache sqlseed fill app.db -t users -n 100 --snapshot  # Custom cache dir
 
@@ -98,6 +112,7 @@ Core (`sqlseed`) has **no CLI, AI, MCP or Web application code** — these are a
 - **`core/schema.py`** — `SchemaInferrer` reads database schema via adapter. Methods: `get_column_info()`, `detect_unique_columns()`, `get_index_info()`, `get_sample_data()`, `profile_column_distribution()`.
 - **`core/relation.py`** — `RelationResolver` + `SharedPool` for cross-table FK integrity. Implicit associations via name matching, explicit via `ColumnAssociation` config. `topological_sort()` for multi-table fill ordering — uses Kahn's algorithm with graceful cycle-breaking (logs a warning and picks the first table in input order to break circular FK dependencies, e.g., `branches↔employees`; does NOT raise `ValueError`).
 - **`core/column_dag.py`** — Topological sort for `derive_from` column dependencies.
+- **`core/check_parser.py`**, **`core/check_adapt.py`**, **`core/schema_fallback.py`** — Deterministic CHECK handling. `CheckConstraintParser` (sqlglot AST) extracts only single-column literal bounds/enums/lengths and returns `None` for anything it cannot map with certainty (cross-column, most `OR` forms, `LIKE`, `IS NULL`, function calls); cross-column comparisons are extracted separately by `_build_stream()`. `CheckAdapter` runs inside `_resolve_specs()` and clamps user YAML `params` to the CHECK domain (empty intersection → `ConfigurationError`). `SchemaFallbackGenerator` is the L9+ schema-only fallback (type, length, NOT NULL, DEFAULT, CHECK, UNIQUE, FK — no column-name semantics).
 - **`core/expression.py`** — `ExpressionEngine` using `simpleeval`. Timeout via thread (5s default). `ExpressionTimeoutError` on timeout. Whitelisted functions live in `SAFE_FUNCTIONS` (reference list in docs/guide.md).
 - **`core/constraints.py`** — `ConstraintSolver` for UNIQUE enforcement with backtracking. Supports probabilistic mode (SHA256 hash-based) for >100K rows.
 - **`core/stream.py`** — `DataStream` for batch data generation with constraint backtracking. Generates data column-by-column following the DAG node order. `composite_unique_constraints` enforces multi-column UNIQUE at row level. `inequality_constraints` (list of `(col1, col2, op)` tuples where op ∈ `!=`, `>`, `<`, `>=`, `<=`) enforces cross-column comparison CHECK constraints at row-generation time — when violated, the row is rolled back and retried. This prevents batch-level `IntegrityError` when both columns are independently sampled (e.g., `start_time`/`end_time` with LIKE constraints that block `derive_from`, or `origin_wh_id`/`dest_wh_id` with `CHECK(origin != dest)`). 2-tuple `(col1, col2)` form is backwards-compatible (defaults to `!=`).
@@ -115,7 +130,7 @@ Core (`sqlseed`) has **no CLI, AI, MCP or Web application code** — these are a
 - **`_utils/progress.py`** — Progress bar abstraction (`ProgressBackend` protocol) with Rich and tqdm backends, factory `create_progress()`.
 - **`_utils/metrics.py`** — `MetricsCollector` for performance metrics.
 - **`_utils/logger.py`** — Structured logging via `structlog`. `get_logger()`, `configure_logging()`.
-- **`plugins/sqlseed-ai/{contracts,validator,repair,healer,auto_heal}/`** — v4 contract-driven self-healing architecture (6 layers, default path). Replaced the legacy `Stage3Validator` (36 numbered rules) and `SchemaSemanticAnalyzer`/`StagedSchemaAnalyzer` (deleted in Phase 4 zero-rot cleanup). See [v4 Contract-Driven Self-Healing (sqlseed-ai)](#v4-contract-driven-self-healing-sqlseed-ai) below.
+- **`_utils/redaction.py`** — `redact_url_credentials()` masks URL credentials in messages without changing connection targets; adapters, CLI, MCP and Web route user-visible errors that may contain a database URL through it.
 
 > **Note**: The `cli/` directory no longer exists in `src/sqlseed/` — CLI code moved to `plugins/sqlseed-cli/` (Phase B). Core `pyproject.toml` has no `[project.scripts]` entry.
 
@@ -171,7 +186,7 @@ v4 is a 6-layer pipeline built on the open-closed principle: core code (Registry
 
 - **Layer 1 — `contracts/`**: Sparse contract matrix + resolver. `ContractViolation` defines a single bad generator/type/constraints combination; `ContractResolver` merges builtin + learned violations with specificity-priority matching. The matrix is a *closed set* — only known-bad combinations are listed; unlisted combinations default to COMPATIBLE. `builtin_violations.py` ships the seed violations; `registry.py` exposes the lookup API.
 - **Layer 2 — `validator/`**: `FastValidator` (in `main.py`) orchestrates five components: `SingleColumnValidator` (2a: per-column contract + cardinality), `CrossColumnValidator` (2b: FK integrity + derive_from DAG cycle detection), `DialectErrorParser` (Defense 3: normalize DBAPI exceptions to `ViolationReport`), `ShadowFKScanner` (Section 14.3: localize SQLite FK violation column), and `CompositeFKCoordinator` (multi-column FK). `schema_snapshot.py` records `schema_hash` at startup for optimistic-lock re-check at write time (Defense 8). `models.py` defines `ConstraintType`, `ViolationReport`, `ValidationResult`.
-- **Layer 3 — `repair/`**: Stateless repair engine. Each strategy is a pure function `RepairFn = Callable[[dict, ViolationReport, dict], dict]` registered in `REPAIR_STRATEGIES`. `strategies.py` ships the canonical strategies — notably `normalize_params` (v4 replacement for legacy Rule #14: strips params not in `_GENERATOR_PARAM_WHITELIST` for ALL generators, 36 entries aligned with `base_provider.py` signatures), `coerce_float_to_int` (legacy Rule #26: `random_float` → `random_int` for INTEGER columns), plus derive_from cleanup, date-column generator fixes, and CHECK-chain mirroring. `executor.py` applies strategies by `fix_hint` dispatch; `pipeline.py` chains them.
+- **Layer 3 — `repair/`**: Stateless repair engine. Each strategy is a pure function `RepairFn = Callable[[dict, ViolationReport, dict], dict]` registered in `REPAIR_STRATEGIES`. `strategies.py` ships the canonical strategies — notably `normalize_params` (v4 replacement for legacy Rule #14: strips params not in `_GENERATOR_PARAM_WHITELIST` for ALL generators; keep its entries aligned with `base_provider.py` signatures), `coerce_float_to_int` (legacy Rule #26: `random_float` → `random_int` for INTEGER columns), plus derive_from cleanup, date-column generator fixes, and CHECK-chain mirroring. `executor.py` applies strategies by `fix_hint` dispatch; `pipeline.py` chains them.
 - **Layer 4 — `healer/`**: 4-level LLM heal architecture with failure-type-aware routing. `orchestrator.py` (`HealOrchestrator`) coordinates 4-level degradation: Level 1 (subgraph) → Level 2 (column) → Level 3 (compact) → Level 4 (deterministic degrade). `context_detector.py` (`ContextWindowDetector`) dynamically detects model context window size (priority: `AIConfig.max_context_tokens` → model map → default 4096) and pre-judges whether to skip Level 1 (skip if token estimate > 60% of context window). `failure_classifier.py` (`FailureClassifier`) classifies LLM failures into 6 types (`CONTEXT_OVERFLOW`, `EMPTY_RESPONSE`, `JSON_FORMAT`, `SEMANTIC`, `NETWORK`, `UNKNOWN`) for routing decisions. `level1_subgraph_healer.py` (`Level1SubgraphHealer`) sends the entire subgraph to the LLM (default path). `level2_column_healer.py` (`Level2ColumnHealer`) sends only the target column + complete dependency set (CHECK constraints, derive_from sources, cross-column refs, FK info) — information boundary optimization for context overflow. `level3_compact_healer.py` (`Level3CompactHealer`) uses compact/ultra-compact prompts + JSON repair for format errors. `degrader.py` (`ProgressiveDegrader`) is the deterministic fallback (unchanged). `oscillation.py` detects repeated failures (same error type reset on type change). `subgraph.py` (`SubgraphSplitter`) does Tarjan SCC + megacluster breaking (Defenses 2 + 6). `post_repair.py` (`BrokenEdgeAligner`) repairs broken FK edges. `diff_learner.py` persists learned violations back to Layer 1. `_client.py` provides the shared `LLMClient` protocol + `OpenAICompatAdapter`. Routing: `CONTEXT_OVERFLOW`/`EMPTY_RESPONSE` → Level 2; `JSON_FORMAT` → Level 3 (skip Level 2); `SEMANTIC` → Level 4 (skip Level 2/3); `NETWORK` → raise exception. `Layer4Coordinator` and `LLMHealer` were deleted (replaced by the 4-level architecture).
 - **Layer 5 — `auto_heal/`**: `AutoHealOrchestrator` (`orchestrator.py`) is the top-level entry point for `ai-analyze` (default v4 path), `ai-suggest --auto-heal`, and the standalone `auto-heal` command. Pipeline: SchemaSnapshot → SubgraphSplitter → per-subgraph (Layer 2 validate → Layer 3 repair → Layer 4 heal) → BrokenEdgeAligner → optimistic-lock schema_hash re-check → emit YAML. `time_budget.py` (`TimeBudgetController`) enforces a wall-clock budget. Before any LLM call, `_build_subgraph_config()` infers column configs deterministically from CHECK constraints: single-column patterns (LENGTH/IN/BETWEEN/ranges/LIKE→regex, `col IS NULL OR …` prefix stripping, multi-CHECK bound merging) live in `_check_inference.py`; the large cross-column pattern catalog (`_infer_cross_column_config()` — comparisons, arithmetic chains, conditional NULL/enum/range, reverse sums, self-ref FK conditions; each pattern is documented inline) lives in `_cross_column_checks.py`. After the LLM responds, "Step 5.5" in `run()` applies safety nets (hallucinated/`?` generator repair, param re-inference from CHECKs, cross-column `derive_from` restoration, `_strip_invalid_params`). Non-obvious invariants to preserve when adding patterns: float comparisons use addition/subtraction, never multiplication (negative source values would reverse the inequality); exact-sum addends use `random_int` so `=` CHECKs hold exactly in IEEE 754; FK columns get `None`, not `0`, in conditional-NULL branches; columns (or sources) with a LIKE constraint never get arithmetic `derive_from` and are forced to the `pattern` generator.
 - **Layer 6 — `analyzer/`**: LLM table-level analysis with streaming/tool-calling submodules (`_caller.py`, `_streaming.py`, `_tool_calling.py` [protocol-based: `gemma4`/`openai`/`none`], `_context.py`, `_json_parser.py`). Used by the non-auto-heal `ai-suggest` path.
@@ -189,7 +204,7 @@ The legacy `Stage3Validator` rules are migrated to v4 strategies as follows (non
 - New providers/adapters: must satisfy existing `Protocol` definitions
 - Optional deps (mimesis): always lazy import with try/except
 - Register new providers via `pyproject.toml` `[project.entry-points."sqlseed"]`
-- **Ruff config**: Line length 120, isort `known-first-party=["sqlseed"]`, `known-third-party=["sqlseed_ai", "sqlseed_cli"]`
+- **Ruff config**: Line length 120, isort `known-first-party=["sqlseed"]`, `known-third-party=["sqlseed_ai", "sqlseed_cli", "mcp_server_sqlseed"]`. Pydocstyle D100–D104/D106 apply to production code (`src/`, `plugins/*/src/`): new public modules, classes, functions and methods need docstrings; tests are exempt
 - **Mypy scope**: Strict on `src/` and `plugins/` source code; test directories (`tests/`, `plugins/*/tests/`) are excluded from mypy (relaxed)
 
 ### Import Style
@@ -220,7 +235,7 @@ When modifying these source files, update the corresponding docs in the same com
 | `plugins/sqlseed-ai/src/sqlseed_ai/cli/ai_commands.py` | docs/guide.md, AI package READMEs | Full AI CLI reference; root READMEs retain command purposes |
 | `src/sqlseed/__init__.py` | docs/api.md, README.md, README.zh-CN.md | Full API reference, entry-point table, and examples |
 
-Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Automated count verification uses paired HTML comments named `BEGIN:AUTO-GENERATED:<name>` and `END:AUTO-GENERATED:<name>`, with the generated value between them.
+Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Automated count verification uses paired HTML comments named `BEGIN:AUTO-GENERATED:<name>` and `END:AUTO-GENERATED:<name>`, with the generated value between them. Outside markers, the same test fails on any number written directly before `hook`, `rule`, `generator`, `regex`/`pattern match`, `enum name`/`enum pattern`, or (in files that mention expressions) `function` if it differs from the code count, so avoid counts in prose. `tests/test_architecture.py` cites Critical Pitfalls by number (#8, #10); keep that numbering stable.
 
 ## Testing
 
@@ -230,8 +245,8 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Automated 
   - `plugins/sqlseed-ai/tests/` — AI plugin tests (moved from `tests/` in Phase F)
   - `plugins/mcp-server-sqlseed/tests/` — MCP server tests
   - `plugins/sqlseed-web/tests/` — Web workbench tests (all five dirs are in `pyproject.toml` `testpaths`, so bare `pytest` runs them)
-  - Plugin conftest files re-export root `tests/conftest.py` fixtures via `from tests.conftest import ...`
-- Fixtures in `tests/conftest.py`:
+  - Web frontend tests are Node `.cjs` files in `plugins/sqlseed-web/tests/` (run with `node --test`, see Quick Start); `tests/browser/` holds the real-Chrome smoke, which saves failure screenshots/logs to `BROWSER_ARTIFACTS`
+- Fixtures live in the **rootdir `conftest.py`** (next to `pyproject.toml`), auto-discovered by `tests/` and every `plugins/*/tests/`. Don't add `pytest_plugins = ["tests.conftest"]` (it caused "Plugin already registered" errors); `tests/conftest.py` keeps only helper functions, imported explicitly via `from tests.conftest import ...`:
   - `tmp_db_simple` — simple single-table database (id + name)
   - `tmp_db_full` — full multi-table database (users + orders with FK)
   - `tmp_db` — backward-compatible alias for `tmp_db_full`
@@ -239,13 +254,13 @@ Run `pytest tests/test_doc_sync.py` to verify doc sync after changes. Automated 
   - `unique_test_db` — projects table with unique indexes
   - `raw_adapter` / `raw_adapter_with_data` — `RawSQLiteAdapter` instances
   - `gc_between_tests` — opt-in garbage collection for memory-sensitive tests
-  - `pg_url` (session-scoped) — testcontainers PostgreSQL, requires Docker
-  - `available_llm_backend` (session-scoped) — auto-detects Ollama/LM Studio/Google AI Studio
-  - Helper functions: `make_column_info()` factory, `create_project_info_db()`, `create_simple_db()`, `apply_enrichment()`
+  - `pg_url` (session-scoped) — uses `PG_TEST_URL` when set (CI does), otherwise starts a disposable testcontainers PostgreSQL (Docker); never point it at a real database
+  - `available_llm_backend` (session-scoped) — auto-detects Ollama/LM Studio/Google AI Studio (`GOOGLE_API_KEY`); `pytest --require-llm` turns a missing backend into a failure instead of a skip (real-LLM commands: CONTRIBUTING.md)
+  - Helpers in `tests/conftest.py`: `make_col()`, `make_column_info()`, `make_col_info_varchar()`, `create_simple_db()`, `create_project_info_db()`, `apply_enrichment()`
 - Use real SQLite via `tmp_path` fixture, never mock the database layer
 - CLI tests: use `click.testing.CliRunner`, never subprocess
 - AI plugin tests: `pytest.importorskip("sqlseed_ai")`
-- Integration tests: `tests/integration/` directory with `test_pg_integration.py` (requires Docker + testcontainers) and `test_url_e2e.py`
+- Integration tests: `tests/integration/` — `test_pg_*.py` (PostgreSQL via `pg_url`), `test_url_e2e.py`, and `test_ai_real_llm.py` (real LLM; skipped without a backend unless `--require-llm`)
 - Benchmarks: `tests/benchmarks/` with `pytest-benchmark`
 - Integration test marker: `@pytest.mark.integration`
 - Architecture guard tests: `tests/test_architecture.py` (invariant tests verifying module boundaries, production isolation, count contracts, public API surface) — complement `lint-imports` and the `[tool.importlinter]` contracts in `pyproject.toml`.
@@ -283,7 +298,7 @@ When preparing a new version release:
    - `./plugins/sqlseed-ai/uv.lock`
    - `./plugins/mcp-server-sqlseed/uv.lock`
 
-   Run `uv lock` in each directory after any `pyproject.toml` dependency change.
+   Run `uv lock` in each directory after any `pyproject.toml` dependency change. CI does not read these: it installs from hash-locked `.github/requirements-*.txt` exports (`--require-hashes`, local packages with `--no-deps`, then `pip check`), so a dependency change must also regenerate them with the `uv pip compile` commands in [`.github/DEPENDENCIES.md`](.github/DEPENDENCIES.md), or CI fails.
 
 2. **Changelog and release notes** — Update both `CHANGELOG.md` and `CHANGELOG.zh-CN.md` with the new version number. Prepare `.github/release-notes/v<version>.md` from the [bilingual template](.github/release-notes/TEMPLATE.md), remove unused subsections in both languages, and run `python scripts/sync_release_notes.py --check`. Keep the title exactly `v<version>` and preserve version-specific compatibility and verification evidence.
 
@@ -301,14 +316,14 @@ When preparing a new version release:
 
 ## Sibling Agent Files
 
-`AGENTS.md` and `GEMINI.md` exist at the repo root — same project context for other AI coding tools. `GEMINI.md` is a pointer to `CLAUDE.md` (single source of truth). Module-level `AGENTS.md` files exist in each package subdirectory under `src/sqlseed/` and under each plugin's `src/` directory.
+`AGENTS.md` and `GEMINI.md` exist at the repo root — same project context for other AI coding tools. `GEMINI.md` is a pointer to `CLAUDE.md` (single source of truth). Directory-level `AGENTS.md` files (in Chinese) exist throughout `src/sqlseed/`, every plugin (package root, `src/`, and some `tests/`), the `tests/` subdirectories, `docs/`, `scripts/` and `.github/`. Each lists that directory's entry points, boundaries and regression requirements — read the one for the directory you are about to change.
 
 ## Plugins (separate packages)
 
 - `plugins/sqlseed-cli/` — CLI plugin (Click commands: `fill`, `preview`, `inspect`, `init`, `replay`). Has its own `pyproject.toml` and `[project.scripts] sqlseed = sqlseed_cli:main`. Contains: `main.py` (Click commands), `_utils.py` (`sanitize_table_config()`). Core `sqlseed` package has NO `[project.scripts]` — install `sqlseed-cli` to get the `sqlseed` command. Install: `pip install sqlseed-cli` (auto-pulls `sqlseed` core).
-- `plugins/sqlseed-ai/` — LLM-powered schema analysis with long-term Gemma 4 model and protocol support through configured backends. Has its own `pyproject.toml`. Contains: `analyzer/` (Layer 6 package: LLM table-level analysis with streaming/tool-calling submodules — `_caller.py`, `_streaming.py`, `_tool_calling.py` [protocol-based: `gemma4`/`openai`/`none`], `_context.py`, `_json_parser.py`), `contracts/` + `validator/` + `repair/` + `healer/` + `auto_heal/` (Layers 1-5 of the v4 contract-driven self-healing architecture — see [v4 Contract-Driven Self-Healing (sqlseed-ai)](#v4-contract-driven-self-healing-sqlseed-ai) above), `refiner.py` (self-correction loop; delegates Rule #14 param stripping to v4 `REPAIR_STRATEGIES["normalize_params"]`), `ai_mediator.py` (AI-specific mediation — `apply_ai_suggestions()` moved from core in Phase C), `config.py` (`AIConfig` with `tool_calling_protocol: Literal["gemma4", "openai", "none"]` field added in Phase E, multi-backend support; `use_staged_pipeline` field removed in Phase 4 zero-rot cleanup), `errors.py` (error summary), `exceptions.py` (structured exception types), `examples.py` (few-shot), `_client.py` (API client), `_json_utils.py` (JSON parsing), `_model_selector.py` (Gemma 4 model selection), `_hardware.py` (cross-platform RAM/GPU detection), `_prompts.py` (3-tier prompt system), `_tools.py` (`GEMMA_TOOLS` for native function calling), `cli/` (`ai_commands.py` — 3 commands injected into `sqlseed` CLI via entry_points: `ai-suggest` [per-table LLM analysis with `--auto-heal` flag], `ai-analyze` [default v4 AutoHealOrchestrator path for full/partial DB], `auto-heal` [standalone repair of existing YAML configs]; `--staged-pipeline` flag removed in Phase 4), `mcp.py` (AI MCP server: `sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`; install with `pip install "sqlseed-ai[mcp]"`). Deleted in Phase 4 zero-rot cleanup: `staged_analyzer.py`, `schema_analyzer.py`, `stage_relevance.py`, `dependency_resolver.py`, `_stage_prompts.py`, `repair/legacy_bridge.py`. Install: `pip install sqlseed-ai` (depends on `sqlseed-cli`).
+- `plugins/sqlseed-ai/` — LLM-powered schema analysis with long-term Gemma 4 model and protocol support through configured backends (`AIConfig` in `config.py`; `tool_calling_protocol` is `gemma4`/`openai`/`none`). Layers 1-6 are described in [v4 Contract-Driven Self-Healing (sqlseed-ai)](#v4-contract-driven-self-healing-sqlseed-ai) above. Other entry points: `ai_mediator.py` (AI suggestion mediation behind the `sqlseed_apply_ai_suggestions` hook; moved from core in Phase C), `refiner.py` (self-correction loop; param stripping delegates to `REPAIR_STRATEGIES["normalize_params"]`), `cli/ai_commands.py` (`ai-suggest [--auto-heal]`, `ai-analyze` [default v4 `AutoHealOrchestrator` path], `auto-heal` [repairs existing YAML]; injected into `sqlseed` through the `sqlseed.cli_commands` entry point), `mcp.py` (`mcp-server-sqlseed-ai` script, `pip install "sqlseed-ai[mcp]"`: `sqlseed_ai_generate_yaml`, `sqlseed_gemma4_analyze`, `sqlseed_gemma4_agent_fill`, `sqlseed_list_gemma_models`). The staged pipeline (`staged_analyzer.py`, `schema_analyzer.py`, `stage_relevance.py`, `dependency_resolver.py`, `_stage_prompts.py`, `repair/legacy_bridge.py`, `use_staged_pipeline`, `--staged-pipeline`) was deleted in Phase 4 — don't reintroduce it. Install: `pip install sqlseed-ai` (depends on `sqlseed-cli`).
 - `plugins/sqlseed-web/` — Standalone FastAPI workbench with wheel-bundled static assets and optional AI services. `sqlseed-web` starts its supervisor; core has no Web dependency. Installation and support boundaries: [Web guide](docs/web-workbench.md).
-- `plugins/mcp-server-sqlseed/` — MCP server (FastMCP) exposing **core capabilities only** (no LLM dependency). 2 Tools (`sqlseed_generate_yaml` rule-driven via `ColumnMapper`, `sqlseed_execute_fill`). No Resources. Schema inspection delegated to third-party MCPs; AI tools moved to `sqlseed-ai[mcp]` (Phase D). Install: `pip install mcp-server-sqlseed`.
+- `plugins/mcp-server-sqlseed/` — MCP server (FastMCP) exposing **core capabilities only** (no LLM dependency). 2 Tools (`sqlseed_generate_yaml` rule-driven via `ColumnMapper`, `sqlseed_execute_fill`), served by the `mcp-server-sqlseed` script. No Resources. Schema inspection delegated to third-party MCPs; AI tools moved to `sqlseed-ai[mcp]` (Phase D). Install: `pip install mcp-server-sqlseed`.
 
 ## Dependencies
 
@@ -318,4 +333,4 @@ When preparing a new version release:
 **Plugin: sqlseed-ai**: openai, httpx, networkx (depends on Core and `sqlseed-cli` for CLI entry point injection)
 **Plugin: mcp-server-sqlseed**: mcp (depends on `sqlseed` core)
 **App: sqlseed-web**: fastapi, uvicorn, pyyaml, packaging (depends on Core; optional `[ai]` extra adds `sqlseed-ai`)
-**Dev**: pytest, pytest-cov, pytest-asyncio, pytest-benchmark, ruff, mypy, pre-commit, testcontainers, tqdm, psycopg, sqlseed-cli
+**Dev** (`.[dev]`): pytest, pytest-cov, pytest-asyncio, pytest-benchmark, ruff, mypy, import-linter, mutmut (pinned `<3`), pre-commit, testcontainers, tqdm, psycopg, sqlseed-cli. **Docs** (`.[docs]`): mkdocs-material, mkdocs-static-i18n, mkdocstrings. `sqlseed-ai[dev]` adds hypothesis for the property tests.
