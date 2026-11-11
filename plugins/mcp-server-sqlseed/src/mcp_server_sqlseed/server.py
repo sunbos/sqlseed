@@ -27,6 +27,8 @@ from sqlseed.generators import ConfigurationError
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from sqlseed.core.mapper import GeneratorSpec
 
 _server_config = MCPServerConfig()
@@ -38,24 +40,29 @@ _MAX_YAML_CONFIG_SIZE = 256 * 1024
 def _validate_acyclic_yaml(value: object) -> None:
     """Reject cycles in parsed data without rejecting or expanding shared YAML data."""
     # This protocol boundary must also work with Core versions lacking its private loader guard.
+    # Iterator frames retain only the current DFS path, even for wide sequences.
+    # Completed identities keep shared alias DAGs linear in their actual size.
     active: set[int] = set()
     completed: set[int] = set()
-    pending: list[tuple[object, bool]] = [(value, False)]
-    while pending:
-        node, exiting = pending.pop()
-        if not isinstance(node, (dict, list, tuple)):
+    frames: list[tuple[int, Iterator[object]]] = [(0, iter((value,)))]
+    while frames:
+        identity, children = frames[-1]
+        try:
+            child = next(children)
+        except StopIteration:
+            frames.pop()
+            if identity:
+                active.remove(identity)
+                completed.add(identity)
             continue
-        identity = id(node)
-        if exiting:
-            active.remove(identity)
-            completed.add(identity)
-        elif identity in active:
-            raise ValueError("Configuration contains a cyclic YAML alias reference")
-        elif identity not in completed:
-            active.add(identity)
-            pending.append((node, True))
-            children = node.values() if isinstance(node, dict) else node
-            pending.extend((child, False) for child in children)
+        if isinstance(child, (dict, list, tuple)):
+            child_id = id(child)
+            if child_id in active:
+                raise ValueError("Configuration contains a cyclic YAML alias reference")
+            if child_id not in completed:
+                active.add(child_id)
+                members = child.values() if isinstance(child, dict) else child
+                frames.append((child_id, iter(members)))
 
 
 def _convert_spec_to_column_entry(col_name: str, spec: GeneratorSpec) -> dict[str, Any]:

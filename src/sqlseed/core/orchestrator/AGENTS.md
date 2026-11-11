@@ -19,6 +19,7 @@
 
 ## 生命周期与写入
 
+- 成功关闭连接后清除 RelationResolver 的单列与复合 FK metadata cache；再次进入同一 orchestrator 时重新读取结构。保留显式 associations 与 shared pools；不要把此行为扩大为连接期间的自动 DDL 检测。adapter 拒绝 close 时不得提前清缓存。
 - 共享状态存放在 `self._core` / `self._ext`，经 `_connection.py` 的属性访问。新 mixin 依赖同步维护 `TYPE_CHECKING` 下的 host interface 声明。
 - DB 操作前确保 `_ensure_connected()`，使用 adapter 而非旁路创建连接；表操作保留 `validate_table_name()`。
 - `_preflight_generation(table_names)` 在任何请求表清空/写入前验证所有名称、表存在性及 FK 支持边界；不得把缺表的空 FK metadata 当作可执行表。`fill_table` 单表和 `fill_from_config` 全表调用它，preview 在 spec 解析前校验 FK。不支持的 FK 抛 `ConfigurationError`；单表缺表/运行时 DB 错误仍进入 `GenerationResult.errors`，多表预检失败直接抛出并阻止整个循环。多表插件若自行清空/循环写入，也必须在首次副作用前调用该预检。预检不代表整个生成事务原子提交。

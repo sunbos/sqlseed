@@ -11,6 +11,8 @@ from typing import Any
 
 import pytest
 
+from tests.assertions import assert_empty
+
 SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "sync_release_notes.py"
 SPEC = importlib.util.spec_from_file_location("sync_release_notes", SCRIPT)
 if SPEC is None or SPEC.loader is None:
@@ -129,8 +131,15 @@ class GitHubProcess:
         return subprocess.CompletedProcess(command, 0, json.dumps(current), "")
 
 
-@pytest.fixture
-def notes_dir(tmp_path: Path) -> Path:
+def assert_valid_offline_body(directory: Path, process: GitHubProcess, body: str) -> None:
+    """Validate replacement notes through the CLI and require no external requests."""
+    (directory / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
+    assert sync.main(["--check", "--notes-dir", str(directory)]) == 0
+    assert_empty(process.commands, list)
+
+
+@pytest.fixture(name="notes_dir")
+def fixture_notes_dir(tmp_path: Path) -> Path:
     """Create two complete bilingual notes files for end-to-end CLI validation."""
     directory = tmp_path / "notes"
     directory.mkdir()
@@ -145,8 +154,8 @@ def isolated_backup_root(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Non
     monkeypatch.setattr(sync, "BACKUP_ROOT", tmp_path.resolve() / ".release-backups")
 
 
-@pytest.fixture
-def github(monkeypatch: pytest.MonkeyPatch) -> GitHubProcess:
+@pytest.fixture(name="github")
+def fixture_github(monkeypatch: pytest.MonkeyPatch) -> GitHubProcess:
     """Intercept only the external process boundary, retaining actual script behavior."""
     process = GitHubProcess([release(25, "v0.2.5"), release(26, "v0.2.6")])
     monkeypatch.setattr(sync.subprocess, "run", process.run)
@@ -161,7 +170,7 @@ def test_default_preview_reads_all_pages_without_writes(
     assert sync.main(["--notes-dir", str(notes_dir)]) == 0
     assert github.releases == github.initial
     assert [command[3] for command in github.commands] == ["GET"]
-    assert github.clock.sleeps == []
+    assert_empty(github.clock.sleeps, list)
     output = capsys.readouterr().out
     assert "v0.2.5: would update" in output
     assert "v0.2.6: would update" in output
@@ -172,8 +181,8 @@ def test_default_preview_reads_all_pages_without_writes(
 def test_offline_check_does_not_invoke_gh(notes_dir: Path, github: GitHubProcess) -> None:
     """Local validation succeeds without starting a GitHub CLI process."""
     assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
-    assert github.commands == []
-    assert github.clock.sleeps == []
+    assert_empty(github.commands, list)
+    assert_empty(github.clock.sleeps, list)
 
 
 @pytest.mark.parametrize("apply", [False, True], ids=["preview", "apply"])
@@ -216,7 +225,7 @@ def test_template_instructions_stop_before_network(
     assert not (notes_dir / "TEMPLATE.md").exists()
     assert sync.main([*arguments, "--notes-dir", str(notes_dir)]) == 1
     assert "template instructions" in capsys.readouterr().err
-    assert github.commands == []
+    assert_empty(github.commands, list)
     assert not sync.BACKUP_ROOT.exists()
 
 
@@ -237,9 +246,7 @@ def test_template_instructions_stop_before_network(
 def test_template_instruction_examples_are_valid(notes_dir: Path, github: GitHubProcess, example: str) -> None:
     """Quoted explanations and code examples are content rather than unfinished template prose."""
     body = BODY.replace("- Preserve release assets.", example)
-    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
-    assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
-    assert github.commands == []
+    assert_valid_offline_body(notes_dir, github, body)
 
 
 @pytest.mark.parametrize("instruction", [TEMPLATE_INSTRUCTIONS[0], TEMPLATE_INSTRUCTIONS[-1]])
@@ -253,7 +260,7 @@ def test_fenced_example_does_not_hide_remaining_template_instruction(
     (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
     assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 1
     assert "template instructions" in capsys.readouterr().err
-    assert github.commands == []
+    assert_empty(github.commands, list)
 
 
 @pytest.mark.parametrize(
@@ -268,7 +275,7 @@ def test_fenced_example_does_not_hide_remaining_template_instruction(
 def test_bad_selectors_fail_before_github(notes_dir: Path, github: GitHubProcess, arguments: list[str]) -> None:
     """Unknown, malformed, and repeated tags cannot trigger remote requests."""
     assert sync.main(["--notes-dir", str(notes_dir), *arguments]) == 1
-    assert github.commands == []
+    assert_empty(github.commands, list)
 
 
 @pytest.mark.parametrize(
@@ -294,7 +301,7 @@ def test_malformed_notes_stop_before_network(notes_dir: Path, github: GitHubProc
     """Encoding and structural errors are rejected before contacting GitHub."""
     (notes_dir / "v0.2.6.md").write_bytes(body)
     assert sync.main(["--notes-dir", str(notes_dir)]) == 1
-    assert github.commands == []
+    assert_empty(github.commands, list)
 
 
 @pytest.mark.parametrize(
@@ -317,7 +324,7 @@ def test_stale_versioned_links_fail_before_network(
     (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
     assert sync.main(["--notes-dir", str(notes_dir)]) == 1
     assert "release link target 'v0.2.5' must match v0.2.6" in capsys.readouterr().err
-    assert github.commands == []
+    assert_empty(github.commands, list)
 
 
 def test_current_links_allow_previous_comparison_base_and_historical_body_references(
@@ -335,9 +342,7 @@ def test_current_links_allow_previous_comparison_base_and_historical_body_refere
         "- [Original comparison](https://github.com/sunbos/sqlseed/compare/v0.2.3...v0.2.6)\n"
         "- [Dependency](https://github.com/example/dependency/tree/v1.0.0)",
     )
-    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
-    assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
-    assert github.commands == []
+    assert_valid_offline_body(notes_dir, github, body)
 
 
 def test_versioned_links_follow_explicit_repository_selection(notes_dir: Path, github: GitHubProcess) -> None:
@@ -345,7 +350,7 @@ def test_versioned_links_follow_explicit_repository_selection(notes_dir: Path, g
     body = BODY.replace("https://github.com/sunbos/sqlseed/tree/v0.2.6", "https://github.com/owner/fork/tree/v0.2.5")
     (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
     assert sync.main(["--check", "--notes-dir", str(notes_dir), "--repo", "owner/fork"]) == 1
-    assert github.commands == []
+    assert_empty(github.commands, list)
 
 
 def test_code_fence_headings_are_content(notes_dir: Path, github: GitHubProcess) -> None:
@@ -354,9 +359,7 @@ def test_code_fence_headings_are_content(notes_dir: Path, github: GitHubProcess)
         "- Preserve release assets.",
         "- Preserve release assets.\n\n```markdown\n## Heading in example\n#### Other heading\n```",
     )
-    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
-    assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
-    assert github.commands == []
+    assert_valid_offline_body(notes_dir, github, body)
 
 
 @pytest.mark.parametrize("empty_content", ["", " \n\t", "```python\n \n```", "~~~text\n~~~"])
@@ -375,16 +378,14 @@ def test_empty_subsection_is_rejected_even_with_other_nonempty_subsections(
     body = body.replace(f"{empty_heading}\n\nAdded content.", f"{empty_heading}\n\n{empty_content}")
     (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
     assert sync.main(["--notes-dir", str(notes_dir)]) == 1
-    assert github.commands == []
+    assert_empty(github.commands, list)
     assert f"{empty_heading} must contain nonwhitespace content" in capsys.readouterr().err
 
 
 def test_fenced_code_alone_is_valid_subsection_content(notes_dir: Path, github: GitHubProcess) -> None:
     """Actual code counts as content even when the subsection has no surrounding prose."""
     body = BODY.replace("- Preserve release assets.", "```markdown\n### Example code\n```")
-    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
-    assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
-    assert github.commands == []
+    assert_valid_offline_body(notes_dir, github, body)
 
 
 def test_long_fences_preserve_content_and_ignore_shorter_delimiters(notes_dir: Path, github: GitHubProcess) -> None:
@@ -392,9 +393,7 @@ def test_long_fences_preserve_content_and_ignore_shorter_delimiters(notes_dir: P
     fence = "~" * 100_000
     example = f"   {fence}markdown\n~~~\n## Code heading\n   {fence}\n"
     body = BODY.replace("- Preserve release assets.", example)
-    (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
-    assert sync.main(["--check", "--notes-dir", str(notes_dir)]) == 0
-    assert github.commands == []
+    assert_valid_offline_body(notes_dir, github, body)
 
 
 def test_unclosed_fence_fails_before_network(notes_dir: Path, github: GitHubProcess) -> None:
@@ -402,7 +401,7 @@ def test_unclosed_fence_fails_before_network(notes_dir: Path, github: GitHubProc
     body = BODY.replace("- Preserve release assets.", "````markdown\nExample\n```")
     (notes_dir / "v0.2.6.md").write_text(body, encoding="utf-8", newline="\n")
     assert sync.main(["--notes-dir", str(notes_dir)]) == 1
-    assert github.commands == []
+    assert_empty(github.commands, list)
 
 
 @pytest.mark.parametrize("condition", ["missing", "duplicate", "draft"])
@@ -438,7 +437,7 @@ def test_apply_requires_explicit_backup_name(notes_dir: Path, github: GitHubProc
     with pytest.raises(SystemExit) as error:
         sync.main(["--notes-dir", str(notes_dir), "--apply"])
     assert error.value.code == 2
-    assert github.commands == []
+    assert_empty(github.commands, list)
 
 
 @pytest.mark.parametrize("name", ["", ".", "..", "../outside", "/outside", r"C:\outside", "a/b", r"a\b", "a b", "中文"])
@@ -447,7 +446,7 @@ def test_unsafe_backup_names_fail_before_network(notes_dir: Path, github: GitHub
     with pytest.raises(SystemExit) as error:
         sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", name])
     assert error.value.code == 2
-    assert github.commands == []
+    assert_empty(github.commands, list)
     assert not sync.BACKUP_ROOT.exists()
 
 
@@ -486,7 +485,7 @@ def test_slow_verification_reads_count_toward_mutation_interval(
     """Reads that already consume the required interval do not add redundant waiting."""
     github.read_duration = 1.1
     assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "backups"]) == 0
-    assert github.clock.sleeps == []
+    assert_empty(github.clock.sleeps, list)
     assert github.patch_starts[1] - github.patch_finishes[0] >= 1.0
 
 
@@ -526,7 +525,7 @@ def test_initially_matching_release_is_revalidated_before_skipping(
     assert "release changed after preview" in capsys.readouterr().err
     assert github.releases[0]["body"] == "A newer edit"
     assert all(command[3] == "GET" for command in github.commands)
-    assert github.clock.sleeps == []
+    assert_empty(github.clock.sleeps, list)
 
 
 def test_partial_failure_retains_all_backups_and_never_prints_credentials(
@@ -564,7 +563,7 @@ def test_backup_helper_rejects_traversal_before_creating_any_files(tmp_path: Pat
     with pytest.raises(sync.SyncError, match="Invalid backup tag"):
         sync.backup_releases(backups.name, originals)
     assert not backups.exists()
-    assert list(tmp_path.iterdir()) == []
+    assert_empty(list(tmp_path.iterdir()), list)
 
 
 def test_existing_empty_backup_directory_is_rejected(notes_dir: Path, github: GitHubProcess, tmp_path: Path) -> None:
@@ -572,7 +571,7 @@ def test_existing_empty_backup_directory_is_rejected(notes_dir: Path, github: Gi
     backups = sync.BACKUP_ROOT / "backups"
     backups.mkdir(parents=True)
     assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", backups.name]) == 1
-    assert list(backups.iterdir()) == []
+    assert_empty(list(backups.iterdir()), list)
     assert github.releases == github.initial
 
 
@@ -594,7 +593,7 @@ def test_backup_directory_symlink_is_rejected(
     assert backups.is_symlink()
     assert target.exists() == target_exists
     if target_exists:
-        assert list(target.iterdir()) == []
+        assert_empty(list(target.iterdir()), list)
     assert github.releases == github.initial
 
 
@@ -613,7 +612,7 @@ def test_backup_helper_rejects_unsafe_names_without_filesystem_changes(tmp_path:
     originals = {"v0.2.6": release(26, "v0.2.6")}
     with pytest.raises(sync.SyncError, match="Backup name"):
         sync.backup_releases(name, originals)
-    assert list(tmp_path.iterdir()) == []
+    assert_empty(list(tmp_path.iterdir()), list)
 
 
 @pytest.mark.parametrize("target_exists", [True, False])
@@ -632,7 +631,7 @@ def test_fixed_backup_root_symlink_never_writes_outside_repository(
     assert sync.BACKUP_ROOT.is_symlink()
     assert outside.exists() == target_exists
     if target_exists:
-        assert list(outside.iterdir()) == []
+        assert_empty(list(outside.iterdir()), list)
     assert github.releases == github.initial
 
 
@@ -653,4 +652,4 @@ def test_second_apply_is_idempotent(notes_dir: Path, github: GitHubProcess, tmp_
     github.clock.sleeps.clear()
     assert sync.main(["--notes-dir", str(notes_dir), "--apply", "--backup-name", "second"]) == 0
     assert all(command[3] == "GET" for command in github.commands)
-    assert github.clock.sleeps == []
+    assert_empty(github.clock.sleeps, list)

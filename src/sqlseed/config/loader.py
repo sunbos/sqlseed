@@ -120,6 +120,32 @@ def load_config(path: str) -> GeneratorConfig:
     return GeneratorConfig(**raw)
 
 
+def _sqlite_uri_filename(filename: str, mode: object) -> str | None:
+    """Resolve a local SQLite URI filename without opening the database."""
+    # Repeated mode values cannot distinguish file-backed from in-memory
+    # targets after dialect serialization. Other repeated options, including
+    # unknown options ignored by SQLite, must not bypass the identity check.
+    if isinstance(mode, tuple):
+        return None
+    # urlsplit removes raw whitespace controls; escape them before parsing
+    # so that SQLite's literal filename semantics are retained.
+    uri = urlsplit(filename.replace("\t", "%09").replace("\r", "%0D").replace("\n", "%0A"))
+    # Nonlocal authorities and custom VFS have no portable local-file
+    # identity. Leave their validation to the connection layer.
+    if uri.netloc not in {"", "localhost"}:
+        return None
+    query = [
+        (key.split("\x00", 1)[0], value.split("\x00", 1)[0])
+        for key, value in parse_qsl(uri.query, keep_blank_values=True)
+    ]
+    if any(key == "vfs" or (key == "mode" and value == "memory") for key, value in query):
+        return None
+    filename = os.fsdecode(unquote_to_bytes(uri.path).split(b"\x00", 1)[0])
+    if os.name == "nt":
+        filename = url2pathname(uri.path).split("\x00", 1)[0]
+    return filename
+
+
 def _reject_database_destination(config: GeneratorConfig, destination: Path) -> None:
     """Prevent a configuration write from truncating its referenced SQLite file.
 
@@ -141,30 +167,11 @@ def _reject_database_destination(config: GeneratorConfig, destination: Path) -> 
         # Saving is not connection validation. Preserve editable configurations
         # whose connection options cannot yet be resolved.
         return
-    filename = str(args[0])
-    if options.get("uri") and filename.startswith("file:"):
-        # Repeated mode values cannot distinguish file-backed from in-memory
-        # targets after dialect serialization. Other repeated options, including
-        # unknown options ignored by SQLite, must not bypass the identity check.
-        if isinstance(url.query.get("mode"), tuple):
-            return
-        # urlsplit removes raw whitespace controls; escape them before parsing
-        # so that SQLite's literal filename semantics are retained.
-        uri = urlsplit(filename.replace("\t", "%09").replace("\r", "%0D").replace("\n", "%0A"))
-        # Nonlocal authorities and custom VFS have no portable local-file
-        # identity. Leave their validation to the connection layer.
-        if uri.netloc not in {"", "localhost"}:
-            return
-        query = [
-            (key.split("\x00", 1)[0], value.split("\x00", 1)[0])
-            for key, value in parse_qsl(uri.query, keep_blank_values=True)
-        ]
-        if any(key == "vfs" or (key == "mode" and value == "memory") for key, value in query):
-            return
-        filename = os.fsdecode(unquote_to_bytes(uri.path).split(b"\x00", 1)[0])
-        if os.name == "nt":
-            filename = url2pathname(uri.path).split("\x00", 1)[0]
-    if filename in {"", ":memory:"}:
+    raw_filename = str(args[0])
+    filename: str | None = raw_filename
+    if options.get("uri") and raw_filename.startswith("file:"):
+        filename = _sqlite_uri_filename(raw_filename, url.query.get("mode"))
+    if filename is None or filename in {"", ":memory:"}:
         return
     database = Path(filename)
     if database.exists() and destination.samefile(database):

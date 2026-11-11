@@ -284,7 +284,10 @@ def test_existing_key_checks_remain_bounded_by_consumed_batch(tmp_path: Path, ex
         assert len(first_batch) == 3
         assert len(probes) == (4 if existing else 1)
         assert all("LIMIT" in statement for statement in probes)
-        assert all("WHERE items.a =" in statement for statement in probes[1:])
+        assert all(
+            "WHERE items.a =" in statement or 'WHERE (items.a COLLATE "BINARY") =' in statement
+            for statement in probes[1:]
+        )
         # Previewing a batch must not write it or materialize future batches.
         assert orch.get_row_count("items") == int(existing)
         batches.close()

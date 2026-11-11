@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
@@ -11,6 +10,7 @@ import yaml
 from click.testing import CliRunner
 from sqlseed_cli.main import cli
 
+from tests.cli_helpers import fixed_items_config, retry_items_document
 from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
@@ -54,26 +54,7 @@ def test_config_load_error_preserves_rows_and_allows_retry(
         assert connection.execute("SELECT value FROM items").fetchall() == [(99,)]
 
     # Correct the file and retry through the same CLI, with real SQLite writes.
-    document = {
-        "db_path": str(database),
-        "provider": "base",
-        "tables": [
-            {
-                "name": "items",
-                "count": 2,
-                "columns": [{"name": "value", "generator": "integer", "params": {"min_value": 7, "max_value": 7}}],
-            }
-        ],
-    }
-    if config.suffix == ".json":
-        config.write_text(json.dumps(document), encoding="utf-8")
-    else:
-        config.write_text(yaml.safe_dump(document), encoding="utf-8")
-    recovered = runner.invoke(cli, args)
-
-    assert recovered.exit_code == 0, recovered.output
-    with sqlite_connection(database) as connection:
-        assert connection.execute("SELECT value FROM items").fetchall() == [(7,), (7,)]
+    retry_items_document(config, fixed_items_config(database), runner, args, database)
 
 
 def test_config_directory_reports_actionable_error(tmp_path: Path) -> None:
@@ -95,17 +76,7 @@ def test_config_file_change_after_read_cannot_redirect_fill(
         with sqlite_connection(target) as connection:
             connection.execute("CREATE TABLE items (value INTEGER NOT NULL)")
             connection.execute("INSERT INTO items VALUES (99)")
-    document = {
-        "db_path": str(database),
-        "provider": "base",
-        "tables": [
-            {
-                "name": "items",
-                "count": 2,
-                "columns": [{"name": "value", "generator": "integer", "params": {"min_value": 7, "max_value": 7}}],
-            }
-        ],
-    }
+    document = fixed_items_config(database)
     config = tmp_path / "generate.yaml"
     config.write_text(yaml.safe_dump(document), encoding="utf-8")
     original_open = open

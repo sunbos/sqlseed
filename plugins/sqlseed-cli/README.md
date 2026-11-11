@@ -93,6 +93,12 @@ with status 1. `count` reports rows actually committed; a later batch failure ca
 leave earlier commits. A snapshot retains a supplied transform script path and replay
 runs that script again; the script itself is not embedded in the snapshot.
 
+Replay matches saved table settings using SQLite's ASCII-only case-insensitive
+name rules; non-ASCII names and PostgreSQL names remain distinct. Multiple saved
+configurations matching the replay table are rejected before generation rather
+than choosing one silently. Snapshots without matching table settings retain the
+legacy defaults.
+
 Snapshots also retain `--enrich`. Enriched replay reads the current table distribution,
 not a frozen copy of the original rows. Older snapshots without this setting
 retain the default (`false`).

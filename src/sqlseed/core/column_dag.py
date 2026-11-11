@@ -12,19 +12,16 @@ via ``row['...']`` are generated before the derived column, preventing
 
 from __future__ import annotations
 
-import re
+import ast
 from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from sqlseed.core.mapper import GeneratorSpec
+from sqlseed.generators._protocol import ConfigurationError
 
 if TYPE_CHECKING:
     from sqlseed.database._protocol import ColumnInfo
-
-# Matches row['col_name'] references in derive_from expressions.
-# Used to extract implicit dependencies that the DAG must track.
-_ROW_REF_RE = re.compile(r"row\[\s*['\"]([^'\"]+)['\"]\s*\]")
 
 
 @dataclass
@@ -106,6 +103,7 @@ class ColumnDAG:
             Topologically sorted list of ColumnNode, with derived columns placed after their source columns.
 
         Raises:
+            ConfigurationError: When an explicit derive source is absent from the column graph.
             ValueError: When a circular dependency is detected among columns.
         """
         nodes: dict[str, ColumnNode] = {}
@@ -133,6 +131,11 @@ class ColumnDAG:
                 col_name in unique_columns,
                 nullable=nullable_map.get(col_name, True),
             )
+
+        for node in nodes.values():
+            for source in node.derive_from_sources:
+                if source not in nodes:
+                    raise ConfigurationError(f"Column '{node.name}' derives from unknown source column '{source}'")
 
         return self._topological_sort(nodes)
 
@@ -209,10 +212,26 @@ class ColumnDAG:
     @staticmethod
     def _append_row_references(depends_on: list[str], expression: str | None) -> None:
         """Add implicit row references after explicit dependencies, without duplicates."""
-        if expression:
-            for reference in _ROW_REF_RE.findall(expression):
-                if reference not in depends_on:
-                    depends_on.append(reference)
+        if not expression:
+            return
+        try:
+            parsed = ast.parse(expression.strip())
+        except SyntaxError:
+            # Leave invalid-expression diagnostics to ExpressionEngine.
+            return
+        if not parsed.body:
+            return
+        # Match simpleeval: only the first statement is evaluated.
+        for node in ast.walk(parsed.body[0]):
+            if (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.value, ast.Name)
+                and node.value.id == "row"
+                and isinstance(node.slice, ast.Constant)
+                and isinstance(node.slice.value, str)
+                and node.slice.value not in depends_on
+            ):
+                depends_on.append(node.slice.value)
 
     @staticmethod
     def _apply_unique_constraint(constraints: ColumnConstraints | None, is_unique: bool) -> ColumnConstraints | None:

@@ -313,6 +313,8 @@ sqlseed init generate.yaml --db app.db
 
 ### `replay`
 
+重放时按 SQLite 的 ASCII 大小写规则匹配已保存的表配置；非 ASCII 名称和 PostgreSQL 名称保持区分。若多个配置匹配同一重放表，会在生成前拒绝，而不静默选择其中一个。没有匹配表配置的旧快照仍沿用默认设置。
+
 快照保留 `--enrich` 设置。启用该设置的重放会读取表中当前的数据，
 不会保存原有的数据分布；已有行变化时，生成结果也可能变化。
 缺少此设置的旧快照继续使用默认值（`false`）。
@@ -503,6 +505,15 @@ columns:
 ```
 
 sqlseed 会构建列依赖有向无环图（DAG），并在生成前对字段进行拓扑排序。如果派生列的唯一约束失败，会回溯并重新生成来源列。
+`row['later']`、`row ['later']` 和 `(row)["later"]` 这类字符串字面量下标会添加排序依赖，但不会改变传给 `value` 的标量或列表。列名可以含引号；字符串字面量或注释中的文字不算依赖。不会推断 `row[value]` 这类动态下标，请在 `derive_from` 中显式声明所需列。
+
+显式 `derive_from` 来源必须使用准确拼写，指向目标表列依赖图中的列。不存在的来源会在构建数据流时抛出 `ConfigurationError`，而不是静默传入 `None`。已有来源值为 NULL，或为使用数据库默认值而省略时，保留原有行为；外键规则仍优先于派生配置。这项校验不保证 `clear_before` 或多表生成的原子性。
+
+
+表达式函数 `lookup(table, column, key, key_column='id')` 沿用数据库 adapter 的键绑定规则。
+单次生成的缓存会区分内置标量类型，例如 `1` 和 `1.0` 可能匹配不同的 TEXT 键，
+`True` 和 `1` 可能匹配不同的 JSON 键。时间、容器、自定义对象和非有限数值键直接交给
+adapter，不参与缓存；这并不新增所选数据库或 adapter 原本不支持的键类型。
 
 ### 生成器 {#generators}
 
@@ -645,6 +656,14 @@ associations:
       - employees
     strategy: shared_pool          # shared_pool | random
 ```
+
+SQLite 中关联的源表名和目标表名接受 ASCII 大小写别名，配置表的依赖排序也使用相同规则。非 ASCII 名称仍保持区分；PostgreSQL 表名仍精确匹配。此规则不改变配置中的列名匹配，也不修改传入的配置。
+
+显式关联在每次生成时从声明的源表和源列读取最多 10,000 个当前值，不复用其他表的同名键池。重复调用保留覆盖采样参数。数据库外键和显式 `foreign_key` generator 仍然优先。关联源为空或不可读时抛出 `ConfigurationError`，不会改用无关共享值。隐式同名关联仍使用当前会话中已注册的值。
+
+对于 NOT NULL 目标列，显式关联会过滤源池中的 SQL NULL。采样池过滤后没有非空值时，
+生成会抛出 `ConfigurationError`；可空目标列保留现有 NULL 行为。每次调用重新读取源，
+因此补回有效值后，同一会话可以恢复生成。
 
 ### 转换脚本 {#transform-scripts}
 

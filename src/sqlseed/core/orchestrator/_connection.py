@@ -238,6 +238,7 @@ class ConnectionMixin:
         """Close the database connection if it is currently open."""
         if self._connected:
             self._db.close()
+            self._relation.clear_cache()
             self._connected = False
 
     def __enter__(self) -> DataOrchestrator:

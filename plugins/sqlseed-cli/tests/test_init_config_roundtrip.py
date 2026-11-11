@@ -5,17 +5,27 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import sqlite3
 import subprocess
-import sys
 from contextlib import closing
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from sqlseed.config.loader import load_config, save_config
 from sqlseed.config.models import ColumnConfig, ProviderType
+from tests.cli_helpers import installed_sqlseed_launcher
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+
+def _database_filenames(kind: str) -> tuple[str, str]:
+    if "question" in kind:
+        return "项目.sqlite?备份", "项目.sqlite"
+    if "percent" in kind:
+        return "项目%41.sqlite", "项目A.sqlite"
+    return "项目 数据.sqlite", "其他 数据.sqlite"
 
 
 @pytest.mark.parametrize(
@@ -33,19 +43,13 @@ from sqlseed.config.models import ColumnConfig, ProviderType
 def test_init_config_roundtrip(tmp_path: Path, kind: str, suffix: str) -> None:
     if os.name == "nt" and "question" in kind:
         pytest.skip("Question marks in literal filenames require a supporting filesystem")
-    if "question" in kind:
-        filename, other_filename = "项目.sqlite?备份", "项目.sqlite"
-    elif "percent" in kind:
-        filename, other_filename = "项目%41.sqlite", "项目A.sqlite"
-    else:
-        filename, other_filename = "项目 数据.sqlite", "其他 数据.sqlite"
+    filename, other_filename = _database_filenames(kind)
     database, other_database = tmp_path / filename, tmp_path / other_filename
     with closing(sqlite3.connect(database)) as connection:
         connection.execute('CREATE TABLE "真实 表" (id INTEGER PRIMARY KEY AUTOINCREMENT, payload TEXT NOT NULL)')
         connection.execute('INSERT INTO "真实 表" VALUES (700, ?)', ("原始值",))
         connection.commit()
-    has_other = not kind.endswith("-missing")
-    if has_other:
+    if has_other := not kind.endswith("-missing"):
         with closing(sqlite3.connect(other_database)) as connection:
             connection.execute('CREATE TABLE "其他 表" (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
             connection.execute('INSERT INTO "其他 表" VALUES (900, ?)', ("旁边的文件",))
@@ -76,12 +80,7 @@ def test_init_config_roundtrip(tmp_path: Path, kind: str, suffix: str) -> None:
     else:
         target = filename if kind.startswith("relative-") else str(database)
         option = "--db"
-    launcher = shutil.which("sqlseed")
-    if launcher is None:
-        local = Path(sys.executable).with_name("sqlseed.exe" if os.name == "nt" else "sqlseed")
-        if not local.is_file():
-            pytest.skip("An installed SQLSeed console entry point is required")
-        launcher = str(local)
+    launcher = installed_sqlseed_launcher()
     env = dict(
         os.environ,
         SQLSEED_CACHE_DIR=str(tmp_path / "cache"),

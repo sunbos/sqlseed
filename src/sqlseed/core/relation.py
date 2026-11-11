@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import re
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import OperationalError as SAOperationalError
@@ -17,6 +18,7 @@ from sqlseed._utils.logger import get_logger
 from sqlseed._utils.sql_safe import quote_identifier
 from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.schema_metadata import SchemaMetadataError, SchemaMetadataReader
+from sqlseed.database._sqlite_schema import resolve_sqlite_table_name
 from sqlseed.generators._protocol import ConfigurationError
 
 if TYPE_CHECKING:
@@ -150,12 +152,24 @@ class RelationResolver:
                     "for two-column SQLite foreign keys. No rows were changed by this preflight."
                 )
 
+    def _resolve_table_identity(self, table_name: str, candidates: list[str]) -> str:
+        """Match SQLite ASCII aliases without querying metadata or changing configuration."""
+        dialect_name = getattr(getattr(self._db, "dialect", None), "name", "sqlite")
+        if dialect_name == "sqlite":
+            return resolve_sqlite_table_name(table_name, candidates)
+        return table_name
+
+    def _association_targets_table(self, table_name: str, target_tables: list[str]) -> bool:
+        return self._resolve_table_identity(table_name, target_tables) in target_tables
+
     def get_dependencies(self, table_name: str) -> set[str]:
         """Return the set of tables the given table depends on (FK targets and association sources)."""
         fks = self.get_foreign_keys(table_name)
         deps = {fk.ref_table for fk in fks if fk.ref_table != table_name}
         for assoc in self._associations:
-            if table_name in assoc.target_tables and assoc.source_table != table_name:
+            if self._association_targets_table(table_name, assoc.target_tables) and (
+                self._resolve_table_identity(assoc.source_table, [table_name]) != table_name
+            ):
                 deps.add(assoc.source_table)
         return deps
 
@@ -175,7 +189,7 @@ class RelationResolver:
         graph: dict[str, set[str]] = {}
         for table in table_names:
             deps = self.get_dependencies(table)
-            graph[table] = deps & set(table_names)
+            graph[table] = {self._resolve_table_identity(dep, table_names) for dep in deps} & set(table_names)
 
         # Kahn's algorithm with cycle-breaking. pending_deps tracks the
         # set of unprocessed dependencies for each table. A table is
@@ -281,9 +295,10 @@ class RelationResolver:
     def clear_cache(self) -> None:
         """Clear the FK resolution cache.
 
-        The cache is bound to the DataOrchestrator lifecycle and does not
-        auto-invalidate on schema changes. Call this method if the database
-        schema is modified at runtime.
+        DataOrchestrator clears this metadata when its connection closes.
+        Schema changes within an open connection do not auto-invalidate it;
+        close and reopen the orchestrator to refresh adapter and FK metadata.
+        Explicit associations and shared pools are preserved.
         """
         self._fk_cache.clear()
         self._composite_fk_cache.clear()
@@ -780,9 +795,18 @@ class RelationResolver:
         fks = self.get_foreign_keys(table_name)
         fk_columns = {fk.column for fk in fks}
 
+        association_columns = {
+            assoc.column_name
+            for assoc in self._associations
+            if self._association_targets_table(table_name, assoc.target_tables)
+        }
         column_types: dict[str, str] | None = None
         for col_name, spec in specs.items():
             if spec.generator_name == "foreign_key_or_integer":
+                # Preserve source parameters until the explicit association is
+                # applied. Actual database FKs retain priority over associations.
+                if col_name in association_columns and col_name not in fk_columns:
+                    continue
                 if column_types is None:
                     column_types = {c.name: c.type.upper() for c in self._db.get_column_info(table_name)}
                 specs[col_name] = self._resolve_fk_or_integer_spec(
@@ -797,7 +821,8 @@ class RelationResolver:
                     spec.params["ref_table"],
                     spec.params["ref_column"],
                 )
-                spec.params["_ref_values"] = ref_values
+                # Explicit source params may still belong to the caller's ColumnConfig.
+                specs[col_name] = replace(spec, params={**spec.params, "_ref_values": ref_values})
 
         self._upgrade_fk_constrained_columns(table_name, specs, fk_columns)
 
@@ -815,25 +840,35 @@ class RelationResolver:
         source_col = assoc.source_column or assoc.column_name
         target_tables = assoc.target_tables
 
-        if table_name not in target_tables:
+        if not self._association_targets_table(table_name, target_tables):
             return
         if col_name not in specs:
             return
         spec = specs[col_name]
-        if spec.generator_name == "foreign_key":
+        if spec.generator_name == "foreign_key" and spec.params.get("ref_table") != "__shared_pool__":
             return
 
-        if not self._shared_pool.has(col_name):
-            if self._shared_pool.has(source_col):
-                if pool_values := self._shared_pool.get(source_col):
-                    self._shared_pool.merge(col_name, pool_values)
-            else:
-                with contextlib.suppress(ValueError, OSError, RuntimeError, SAOperationalError):
-                    if values := self._db.get_column_values(source_table, source_col, limit=10000):
-                        self._shared_pool.merge(col_name, values)
+        # An explicit source is table-scoped. The shared pool is keyed only by
+        # column name, so it may contain unrelated tables or an older alias copy.
+        # Read the current source for each generation, including repeated fills.
+        try:
+            pool_values = self._db.get_column_values(source_table, source_col, limit=10000)
+        except (ValueError, OSError, RuntimeError, SAOperationalError) as exc:
+            raise ConfigurationError(
+                f"Association {table_name}.{col_name} has no readable source values from {source_table}.{source_col}"
+            ) from exc
+        if not pool_values:
+            raise ConfigurationError(
+                f"Association {table_name}.{col_name} has no readable source values from {source_table}.{source_col}"
+            )
 
-        if not (pool_values := self._shared_pool.get(col_name)):
-            return
+        if not self._column_allows_null(table_name, col_name):
+            pool_values = [value for value in pool_values if value is not None]
+            if not pool_values:
+                raise ConfigurationError(
+                    f"Association {table_name}.{col_name} has no non-NULL source values "
+                    f"from {source_table}.{source_col} for NOT NULL target"
+                )
 
         specs[col_name] = _make_fk_pool_spec(col_name, pool_values, spec)
         logger.debug(

@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sqlseed._utils.sql_safe import quote_identifier, validate_table_name
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from sqlseed.database._protocol import DatabaseAdapter
 
 
@@ -64,3 +66,33 @@ def _sqlite_unique_keys(db: DatabaseAdapter, table_name: str) -> list[UniqueKey]
         if parts and all(part[2] is not None for part in parts):
             keys.append(UniqueKey(tuple(part[2] for part in parts), tuple(part[4] for part in parts)))
     return list(dict.fromkeys(keys))
+
+
+def sqlite_key_normalizer(key: UniqueKey) -> Callable[[tuple[Any, ...]], tuple[Any, ...]] | None:
+    """Normalize strings for SQLite's built-in index collations, not affinity.
+
+    Custom collations, partial indexes and expression indexes remain database
+    enforced. Non-string values retain the solver's existing equality rules.
+    """
+    collations = tuple(collation.upper() for collation in key.collations)
+    if not collations or any(c not in {"BINARY", "NOCASE", "RTRIM"} for c in collations):
+        return None
+    if all(c == "BINARY" for c in collations):
+        return None
+    ascii_lower = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+    def normalize(values: tuple[Any, ...]) -> tuple[Any, ...]:
+        result = []
+        for value, collation in zip(values, collations, strict=True):
+            normalized = value
+            if isinstance(value, str):
+                if collation == "NOCASE":
+                    # SQLite stops case-insensitive comparison at NUL, then
+                    # compares the original UTF-8 byte lengths.
+                    normalized = (value.split("\0", 1)[0].translate(ascii_lower), len(value.encode("utf-8")))
+                elif collation == "RTRIM":
+                    normalized = value.rstrip(" ")
+            result.append(normalized)
+        return tuple(result)
+
+    return normalize

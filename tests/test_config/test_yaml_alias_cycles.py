@@ -64,7 +64,7 @@ def test_file_config_cycle_is_rejected_before_any_table_is_changed(tmp_path: Pat
                 "count": 2,
                 "columns": [{"name": "payload", "generator": "json", "params": {"schema": schema}}],
             }
-            for name, schema in [("a_good", {"type": "boolean"}), ("z_bad", cyclic)]
+            for name, schema in (("a_good", {"type": "boolean"}), ("z_bad", cyclic))
         ],
     }
     config = tmp_path / "generate.yaml"
