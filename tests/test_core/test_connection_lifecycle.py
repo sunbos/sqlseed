@@ -9,6 +9,7 @@ import pytest
 from sqlseed.config.models import ColumnAssociation
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.plugins.hookspecs import hookimpl
+from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
@@ -50,7 +51,7 @@ def test_reopen_refreshes_foreign_key_metadata(tmp_path: Path, composite: bool) 
     old_key, new_key = ((1, 101), (9, 909)) if composite else ((1,), (9,))
     placeholders = "?, ?" if composite else "?"
     with sqlite_connection(path) as db:
-        for name, values in [("old_parent", old_key), ("new_parent", new_key)]:
+        for name, values in (("old_parent", old_key), ("new_parent", new_key)):
             db.execute(f"CREATE TABLE {name} ({definition})")
             db.execute(f"INSERT INTO {name} VALUES ({placeholders})", values)
         db.execute(f"CREATE TABLE child ({child_columns}, FOREIGN KEY {key} REFERENCES old_parent {key})")
@@ -67,7 +68,8 @@ def test_reopen_refreshes_foreign_key_metadata(tmp_path: Path, composite: bool) 
             assert [tuple(row.values()) for row in preview] == [new_key, new_key]
             assert orchestrator.get_topological_table_order(["child", "new_parent"]) == ["new_parent", "child"]
             result = orchestrator.fill_table("child", count=2, batch_size=1, seed=7, skip_ai=True)
-            assert result.count == 2 and result.batch_count == 2 and result.errors == []
+            assert result.count == 2 and result.batch_count == 2
+            assert_empty(result.errors, list)
         with sqlite_connection(path) as db:
             assert db.execute("SELECT * FROM child").fetchall() == [new_key, new_key]
             assert db.execute("PRAGMA foreign_key_check").fetchall() == []

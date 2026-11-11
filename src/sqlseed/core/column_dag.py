@@ -223,14 +223,15 @@ class ColumnDAG:
             return
         # Match simpleeval: only the first statement is evaluated.
         for node in ast.walk(parsed.body[0]):
-            if (
+            if not (
                 isinstance(node, ast.Subscript)
                 and isinstance(node.value, ast.Name)
                 and node.value.id == "row"
                 and isinstance(node.slice, ast.Constant)
                 and isinstance(node.slice.value, str)
-                and node.slice.value not in depends_on
             ):
+                continue
+            if node.slice.value not in depends_on:
                 depends_on.append(node.slice.value)
 
     @staticmethod

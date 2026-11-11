@@ -147,11 +147,11 @@ def test_same_tick_saves_preserve_previous_snapshot(
     assert len({first, second, third}) == 3
     assert manager.list_snapshots() == sorted([first, second, third])
     assert Path(first).read_bytes() == before
-    for path, config, count, seed in [
+    for path, config, count, seed in (
         (first, original, 3, 11),
         (second, replacement, 5, 13),
         (third, original, 7, 17),
-    ]:
+    ):
         loaded = manager.load(path)
         assert loaded["config"] == config.model_dump(mode="json")
         assert (loaded["table_name"], loaded["count"], loaded["seed"]) == (table_name, count, seed)

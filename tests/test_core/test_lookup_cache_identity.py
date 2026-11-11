@@ -103,7 +103,7 @@ def test_builtin_scalar_results_and_missing_results_remain_cached(tmp_path: Path
         try:
             engine = ExpressionEngine(db_adapter=adapter)
             for _ in range(2):
-                for key, expected in [("known", "found"), ("missing", None), ("null", None), (None, None)]:
+                for key, expected in (("known", "found"), ("missing", None), ("null", None), (None, None)):
                     assert engine._lookup("reference", "label", key, "lookup_key") == expected
             assert len(statements) == 4
         finally:

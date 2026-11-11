@@ -12,6 +12,7 @@ from sqlseed_cli.main import _replay_table_config, cli
 from sqlseed.config.models import GeneratorConfig, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 from sqlseed.core.orchestrator import DataOrchestrator
+from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
@@ -94,7 +95,7 @@ def test_replay_non_ascii_names_stay_distinct(tmp_path: Path, monkeypatch: pytes
                         {"name": "amount", "generator": "integer", "params": {"min_value": value, "max_value": value}}
                     ],
                 }
-                for name, value in [("Ä", 7), ("ä", 9)]
+                for name, value in (("Ä", 7), ("ä", 9))
             ],
         }
     )
@@ -135,7 +136,8 @@ def test_replay_without_table_config_preserves_legacy_defaults(tmp_path: Path, m
     config = GeneratorConfig(db_path=str(database), provider="base", optimize_pragma=False)
     with DataOrchestrator.from_config(config) as orchestrator:
         direct = orchestrator.fill_table("Items", count=2, seed=42)
-    assert direct.count == 2 and direct.errors == []
+    assert direct.count == 2
+    assert_empty(direct.errors, list)
     with sqlite_connection(database) as db:
         expected = db.execute("SELECT amount FROM Items ORDER BY id").fetchall()
     snapshot = SnapshotManager(str(tmp_path / "snapshots")).save(config, "Items", 2, 42)

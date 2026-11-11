@@ -164,8 +164,7 @@ class ExpressionEngine:
         # also compare equal while binding differently, so let the adapter
         # handle them without assuming a canonical representation here.
         cache_key = None
-        key_type = type(key)
-        if key_type in (str, bytes, int, bool, type(None)):
+        if (key_type := type(key)) in (str, bytes, int, bool, type(None)):
             cache_key = (table, column, key_type, key, key_column)
         elif key_type is float and math.isfinite(key):
             cache_key = (table, column, key_type, key.hex(), key_column)

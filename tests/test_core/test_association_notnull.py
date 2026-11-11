@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators._protocol import ConfigurationError
-from tests.test_core.test_association_refresh import _association_config, _database_digest
+from tests.test_core.test_association_refresh import _association_config, _association_database, _database_digest
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -21,13 +19,12 @@ if TYPE_CHECKING:
 def test_association_nullability_and_live_recovery(tmp_path: Path, nullable: bool, generator: str) -> None:
     path = tmp_path / "nullability.sqlite"
     declaration = "" if nullable else "NOT NULL"
-    with closing(sqlite3.connect(path)) as db:
-        db.executescript(
-            "CREATE TABLE parent(id INTEGER); INSERT INTO parent VALUES(101), (NULL);"
-            f"CREATE TABLE child(id INTEGER PRIMARY KEY, department_id INTEGER {declaration});"
-            "INSERT INTO child VALUES(1, 123);"
-        )
-        db.commit()
+    schema = (
+        "CREATE TABLE parent(id INTEGER); INSERT INTO parent VALUES(101), (NULL);"
+        f"CREATE TABLE child(id INTEGER PRIMARY KEY, department_id INTEGER {declaration});"
+        "INSERT INTO child VALUES(1, 123);"
+    )
+    with _association_database(path, schema) as db:
         columns = {"department_id": {"generator": generator, "strategy": "coverage", "null_ratio": 0}}
         with DataOrchestrator.from_config(_association_config(path)) as live:
             for stage in range(3):

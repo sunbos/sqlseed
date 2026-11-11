@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from contextlib import closing
+from contextlib import closing, contextmanager
 from typing import TYPE_CHECKING
 
 import pytest
@@ -15,6 +15,7 @@ from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators._protocol import ConfigurationError
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
     from pathlib import Path
 
 
@@ -38,6 +39,25 @@ def _association_config(db_path: Path, *, source_table: str = "parent", source_c
 def _database_digest(db_path: Path) -> str:
     """Hash the database to detect writes during previews or rejected fills."""
     return hashlib.sha256(db_path.read_bytes()).hexdigest()
+
+
+@contextmanager
+def _association_database(db_path: Path, schema: str) -> Iterator[sqlite3.Connection]:
+    """Create committed fixtures and keep the observer connection open for the test."""
+    with closing(sqlite3.connect(db_path)) as conn:
+        conn.executescript(schema)
+        conn.commit()
+        yield conn
+
+
+def _assert_priority_fill(
+    config: GeneratorConfig, columns: dict[str, dict[str, object]], conn: sqlite3.Connection
+) -> None:
+    """Require the explicit or declared FK to override the configured association."""
+    with DataOrchestrator.from_config(config) as live:
+        result = live.fill_table("child", count=8, seed=17, columns=columns, skip_ai=True)
+        assert result.count == 8 and not result.errors
+    assert {row[0] for row in conn.execute("SELECT department_id FROM child")} == {901, 902}
 
 
 @pytest.mark.parametrize("generator", ["integer", "foreign_key_or_integer"])
@@ -114,10 +134,7 @@ def test_real_explicit_foreign_key_override_keeps_priority(tmp_path: Path) -> No
                 "null_ratio": 0,
             },
         }
-        with DataOrchestrator.from_config(config) as live:
-            result = live.fill_table("child", count=8, seed=17, columns=columns, skip_ai=True)
-            assert result.count == 8 and not result.errors
-        assert {row[0] for row in conn.execute("SELECT department_id FROM child")} == {901, 902}
+        _assert_priority_fill(config, columns, conn)
         assert conn.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
 
 
@@ -168,9 +185,6 @@ def test_database_foreign_key_keeps_priority(tmp_path: Path) -> None:
         conn.commit()
         config = _association_config(db_path)
         columns = {"department_id": {"generator": "foreign_key_or_integer", "strategy": "coverage", "null_ratio": 0}}
-        with DataOrchestrator.from_config(config) as live:
-            result = live.fill_table("child", count=8, seed=17, columns=columns, skip_ai=True)
-            assert result.count == 8 and not result.errors
-        assert {row[0] for row in conn.execute("SELECT department_id FROM child")} == {901, 902}
+        _assert_priority_fill(config, columns, conn)
         assert conn.execute("PRAGMA foreign_key_check").fetchall() == []
         assert conn.execute("PRAGMA integrity_check").fetchall() == [("ok",)]

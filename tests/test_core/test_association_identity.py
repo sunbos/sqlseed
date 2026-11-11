@@ -78,7 +78,7 @@ def test_sqlite_non_ascii_sources_stay_distinct(tmp_path: Path) -> None:
             'CREATE TABLE "ä"(code INTEGER NOT NULL); INSERT INTO "ä" VALUES(902);'
             "CREATE TABLE Child(token INTEGER NOT NULL);"
         )
-    for source, expected in [("Ä", 701), ("ä", 902)]:
+    for source, expected in (("Ä", 701), ("ä", 902)):
         with DataOrchestrator.from_config(_config(db_path, source, "Child")) as live:
             columns = {"token": {"generator": "integer", "min_value": -9, "max_value": -9}}
             assert live.preview_table("Child", count=1, columns=columns) == [{"token": expected}]

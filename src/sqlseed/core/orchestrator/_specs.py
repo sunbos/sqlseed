@@ -469,8 +469,7 @@ class SpecResolverMixin:
         key_normalizers: dict[tuple[str, ...], list[Callable[[tuple[Any, ...]], tuple[Any, ...]]]] = {}
         if table_name is not None and getattr(getattr(self._db, "dialect", None), "name", "") == "sqlite":
             for key in get_unique_keys(self._db, table_name=table_name):
-                normalize = sqlite_key_normalizer(key)
-                if normalize is not None:
+                if (normalize := sqlite_key_normalizer(key)) is not None:
                     key_normalizers.setdefault(key.columns, []).append(normalize)
         constraint_solver = ConstraintSolver(existing_value_check=existing_value_check, key_normalizers=key_normalizers)
 

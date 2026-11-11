@@ -8,6 +8,7 @@ from sqlseed import connect
 from sqlseed.config.models import ColumnConfig, ColumnConstraintsConfig
 from sqlseed.core.column_dag import ColumnDAG, ColumnNode
 from sqlseed.core.mapper import GeneratorSpec
+from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
@@ -162,7 +163,7 @@ def test_literal_row_dependencies_follow_expression_syntax(expression: str, refe
 
 
 def test_implicit_dependencies_preserve_explicit_list_sources() -> None:
-    specs = {name: GeneratorSpec(generator_name="integer") for name in ["source", "other", "result", "later"]}
+    specs = {name: GeneratorSpec(generator_name="integer") for name in ("source", "other", "result", "later")}
     configs = [
         ColumnConfig(name="result", derive_from=["source", "other"], expression='sum(value) + row ["later"]'),
         ColumnConfig(name="later", derive_from="source", expression="value * 10"),
@@ -176,7 +177,7 @@ def test_implicit_dependencies_preserve_explicit_list_sources() -> None:
 
 
 def test_genuine_row_reference_cycle_is_still_rejected() -> None:
-    specs = {name: GeneratorSpec(generator_name="integer") for name in ["source", "result"]}
+    specs = {name: GeneratorSpec(generator_name="integer") for name in ("source", "result")}
     configs = [ColumnConfig(name="result", derive_from="source", expression='value + (row) ["result"]')]
     with pytest.raises(ValueError, match="Circular dependency"):
         ColumnDAG().build(specs, configs)
@@ -207,7 +208,7 @@ def test_derived_row_syntax_preview_matches_fill(tmp_path: Path, expression: str
         assert path.read_bytes() == before
         assert preview == [{"source": 7, "result": expected, "later": 70}] * 3
         result = orchestrator.fill_table("samples", count=3, columns=columns, seed=42, batch_size=2, skip_ai=True)
-        assert result.errors == []
+        assert_empty(result.errors, list)
         assert result.count == 3
         assert result.batch_count == 2
     with sqlite_connection(path) as db:

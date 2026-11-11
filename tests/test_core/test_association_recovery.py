@@ -3,15 +3,13 @@
 from __future__ import annotations
 
 import json
-import sqlite3
-from contextlib import closing
 from typing import TYPE_CHECKING
 
 import pytest
 
 from sqlseed.core.orchestrator import DataOrchestrator
 from sqlseed.generators._protocol import ConfigurationError
-from tests.test_core.test_association_refresh import _association_config, _database_digest
+from tests.test_core.test_association_refresh import _association_config, _association_database, _database_digest
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -24,20 +22,17 @@ def test_unavailable_source_recovers_in_same_live_orchestrator(
 ) -> None:
     db_path = tmp_path / "recovery.sqlite"
     audit = {"source_state": source_state, "generator": generator, "refusals": [], "stages": []}
-    with closing(sqlite3.connect(db_path)) as conn:
-        conn.executescript(
-            """
-            CREATE TABLE unrelated(department_id INTEGER PRIMARY KEY);
-            INSERT INTO unrelated VALUES(9001);
-            CREATE TABLE child(id INTEGER PRIMARY KEY, department_id INTEGER NOT NULL);
-            INSERT INTO child VALUES(1, 123);
-            CREATE TABLE sentinel(value TEXT);
-            INSERT INTO sentinel VALUES('original');
-            """
-        )
-        if source_state == "empty":
-            conn.execute("CREATE TABLE source(id INTEGER PRIMARY KEY)")
-        conn.commit()
+    schema = """
+        CREATE TABLE unrelated(department_id INTEGER PRIMARY KEY);
+        INSERT INTO unrelated VALUES(9001);
+        CREATE TABLE child(id INTEGER PRIMARY KEY, department_id INTEGER NOT NULL);
+        INSERT INTO child VALUES(1, 123);
+        CREATE TABLE sentinel(value TEXT);
+        INSERT INTO sentinel VALUES('original');
+    """
+    if source_state == "empty":
+        schema += "CREATE TABLE source(id INTEGER PRIMARY KEY);"
+    with _association_database(db_path, schema) as conn:
         columns = {"department_id": {"generator": generator, "strategy": "coverage", "null_ratio": 0}}
         with DataOrchestrator.from_config(_association_config(db_path, source_table="source")) as live:
             result = live.fill_table("unrelated", count=1, seed=20, skip_ai=True)

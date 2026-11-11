@@ -154,8 +154,7 @@ class RelationResolver:
 
     def _resolve_table_identity(self, table_name: str, candidates: list[str]) -> str:
         """Match SQLite ASCII aliases without querying metadata or changing configuration."""
-        dialect_name = getattr(getattr(self._db, "dialect", None), "name", "sqlite")
-        if dialect_name == "sqlite":
+        if getattr(getattr(self._db, "dialect", None), "name", "sqlite") == "sqlite":
             return resolve_sqlite_table_name(table_name, candidates)
         return table_name
 
@@ -862,13 +861,13 @@ class RelationResolver:
                 f"Association {table_name}.{col_name} has no readable source values from {source_table}.{source_col}"
             )
 
-        if not self._column_allows_null(table_name, col_name):
-            pool_values = [value for value in pool_values if value is not None]
-            if not pool_values:
-                raise ConfigurationError(
-                    f"Association {table_name}.{col_name} has no non-NULL source values "
-                    f"from {source_table}.{source_col} for NOT NULL target"
-                )
+        if not self._column_allows_null(table_name, col_name) and not (
+            pool_values := [value for value in pool_values if value is not None]
+        ):
+            raise ConfigurationError(
+                f"Association {table_name}.{col_name} has no non-NULL source values "
+                f"from {source_table}.{source_col} for NOT NULL target"
+            )
 
         specs[col_name] = _make_fk_pool_spec(col_name, pool_values, spec)
         logger.debug(
