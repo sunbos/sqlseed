@@ -94,6 +94,56 @@ class TestInteractionLogging:
             expected["error"] = error
         assert payload == expected
 
+    @pytest.mark.parametrize("response_kind", ["absolute_path", "relative_path", "windows_path"])
+    def test_path_like_response_is_logged_as_content(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, response_kind: str
+    ) -> None:
+        cache = tmp_path / "cache"
+        outside = tmp_path / "outside.json"
+        outside.write_text("existing data", encoding="utf-8")
+        monkeypatch.setenv("SQLSEED_CACHE_DIR", str(cache))
+        analyzer = SchemaAnalyzer(AIConfig(model="test-model", log_llm_interactions=True))
+        response = {
+            "absolute_path": str(outside),
+            "relative_path": "../../outside.json",
+            "windows_path": r"..\..\outside.json",
+        }[response_kind]
+        messages = [{"role": "user", "content": response}]
+
+        result = analyzer._log_llm_interaction(
+            messages=messages,
+            response=response,
+            model="test-model",
+            stage="../../outside",
+            table_name=r"..\..\outside",
+        )
+
+        assert result is not None
+        assert result.parent == cache / "ai_logs"
+        assert list(cache.rglob("*.json")) == [result]
+        assert outside.read_text(encoding="utf-8") == "existing data"
+        payload = json.loads(result.read_text(encoding="utf-8"))
+        assert payload["response"] == response
+        assert payload["messages"] == messages
+        assert payload["stage"] == "../../outside"
+        assert payload["table_name"] == r"..\..\outside"
+
+    def test_serialization_failure_does_not_create_log_file(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        cache = tmp_path / "cache"
+        monkeypatch.setenv("SQLSEED_CACHE_DIR", str(cache))
+        analyzer = SchemaAnalyzer(AIConfig(model="test-model", log_llm_interactions=True))
+
+        result = analyzer._log_llm_interaction(
+            messages=[{"role": "user", "content": object()}],
+            response="completed",
+            model="test-model",
+        )
+
+        assert result is None
+        assert not list(cache.rglob("*.json"))
+
     def test_cache_failure_does_not_replace_interaction_result(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:

@@ -98,9 +98,11 @@ class TestSnapshotManager:
 def test_snapshot_rejects_cycles_in_parsed_data(tmp_path: Path, contents: str) -> None:
     path = tmp_path / "cyclic.yaml"
     path.write_text(contents, encoding="utf-8")
+    manager = SnapshotManager(str(tmp_path / "cache"))
+    path_string = str(path)
 
     with pytest.raises(ValueError, match="cyclic YAML alias"):
-        SnapshotManager(str(tmp_path / "cache")).load(str(path))
+        manager.load(path_string)
 
     assert path.read_text(encoding="utf-8") == contents
 

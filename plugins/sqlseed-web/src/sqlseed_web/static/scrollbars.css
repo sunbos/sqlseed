@@ -86,7 +86,7 @@
 
 /* The stable root gutter remains reserved while a dialog owns scrolling. */
 html.wb-scroll-locked {
-  overflow: hidden !important;
+  overflow: hidden;
 }
 
 .overlay,

@@ -94,9 +94,6 @@ input[type="checkbox"] {
     cursor: pointer;
     flex-shrink: 0;
     box-shadow: inset 0 1px 0 #ffffff80;
-    transition:
-        background 0.15s,
-        border-color 0.15s;
 }
 input[type="checkbox"]::before {
     content: "";
@@ -161,9 +158,6 @@ h2,
 h3,
 p {
     margin: 0;
-}
-[hidden] {
-    display: none !important;
 }
 .muted {
     color: var(--muted);
@@ -633,9 +627,6 @@ h1 {
     font-size: 12px;
     min-height: 35px;
     white-space: nowrap;
-    transition: transform 0.16s,
-        box-shadow 0.16s,
-        background 0.16s;
 }
 .button:hover:not(:disabled) {
     background: #fff;
@@ -1505,7 +1496,6 @@ dialog::backdrop {
     box-shadow: 0 1px 3px #203b3533;
     transform: none;
     opacity: 1;
-    transition: transform 0.15s;
 }
 .switch-row input:checked::before {
     transform: translateX(16px);
@@ -1614,7 +1604,6 @@ dialog::backdrop {
     background: #699356;
     height: 100%;
     width: 0;
-    transition: width 0.25s;
 }
 .toast {
     position: fixed;
@@ -1637,12 +1626,6 @@ dialog::backdrop {
 .toast svg {
     width: 15px;
     height: 15px;
-}
-.field-dialog[open] {
-    animation: drawer-in 0.22s ease-out;
-}
-.compact-dialog[open] {
-    animation: modal-in 0.16s ease-out;
 }
 @keyframes drawer-in {
     from {
@@ -1696,13 +1679,6 @@ body[data-material="solid"] dialog {
 body[data-material="solid"] dialog::backdrop {
     backdrop-filter: none;
     background: #203a294d;
-}
-body.reduce-motion *,
-body.reduce-motion *:before,
-body.reduce-motion *:after {
-    animation: none !important;
-    transition: none !important;
-    scroll-behavior: auto !important;
 }
 @media (min-width: 1500px) {
     .workspace {
@@ -2126,13 +2102,38 @@ body.reduce-motion *:after {
     }
 
 }
-@media (prefers-reduced-motion: reduce) {
-    *,
-    *:before,
-    *:after {
-        animation: none !important;
-        transition: none !important;
-        scroll-behavior: auto !important;
+/* 动态效果仅在系统和页面设置均允许时启用。 */
+@media (prefers-reduced-motion: no-preference) {
+    body:not(.reduce-motion) input[type="checkbox"] {
+        transition:
+            background 0.15s,
+            border-color 0.15s;
+    }
+    body:not(.reduce-motion) .button {
+        transition: transform 0.16s,
+            box-shadow 0.16s,
+            background 0.16s;
+    }
+    body:not(.reduce-motion) .switch-row input::before {
+        transition: transform 0.15s;
+    }
+    body:not(.reduce-motion) .progress-fill {
+        transition: width 0.25s;
+    }
+    body:not(.reduce-motion) .field-dialog[open] {
+        animation: drawer-in 0.22s ease-out;
+    }
+    body:not(.reduce-motion) .compact-dialog[open] {
+        animation: modal-in 0.16s ease-out;
+    }
+    body:not(.reduce-motion) .config-options :is(select, input),
+    body:not(.reduce-motion) .form-label :is(select, input),
+    body:not(.reduce-motion) .row-count input,
+    body:not(.reduce-motion) .search-box {
+        transition:
+            border-color 0.15s,
+            background-color 0.15s,
+            box-shadow 0.15s;
     }
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -2429,10 +2430,6 @@ body.reduce-motion *:after {
 .row-count input,
 .search-box {
     box-shadow: inset 0 1px 0 #ffffff80;
-    transition:
-        border-color 0.15s,
-        background-color 0.15s,
-        box-shadow 0.15s;
 }
 .config-options :is(select, input):hover:not(:disabled),
 .form-label :is(select, input):hover:not(:disabled),
@@ -2679,4 +2676,9 @@ h1,
     .form-label select {
         font-size: 16px;
     }
+}
+
+/* 隐藏状态优先于组件布局，包括后续的响应式样式。 */
+:root body [hidden] {
+    display: none;
 }
