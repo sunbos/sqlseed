@@ -79,10 +79,10 @@ class _InteractionLoggingMixin:
             }
             if error:
                 log_data["error"] = error
-            log_path.write_text(
-                json.dumps(log_data, ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
+            # Serialize before opening so invalid diagnostics cannot truncate a file.
+            serialized = json.dumps(log_data, ensure_ascii=False, indent=2)
+            with log_path.open("w", encoding="utf-8") as log_file:
+                log_file.write(serialized)
             return log_path
         except (OSError, TypeError, ValueError) as e:
             logger.warning("Failed to log LLM interaction", error=str(e))

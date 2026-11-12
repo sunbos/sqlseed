@@ -1,3 +1,4 @@
+@layer components {
 /* 仅安排样板页面的布局；材质、字体、状态与控件均来自正式 style.css。 */
 .ds-header { gap: 24px; }
 .ds-brand { text-decoration: none; }
@@ -44,4 +45,5 @@
   .ds-grid,.ds-grid-three { grid-template-columns: minmax(0,1fr); gap: 18px; }
   .ds-section { padding: 18px 14px; }
   .ds-surface { min-height: 0; }
+}
 }

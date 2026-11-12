@@ -66,7 +66,7 @@ html input[type=radio]:checked::before { opacity:1; transform:scale(1); }
   .segment-motion[data-segment-ready] button:is([aria-current=step],[aria-pressed=true],.active):not(:disabled):hover {
     forced-color-adjust:none; background:Highlight; color:HighlightText; border-color:Highlight;
   }
-  html input:is([type=checkbox],[type=radio]) { display:inline-block; appearance:auto; -webkit-appearance:auto; }
+  html input:is([type=checkbox],[type=radio]) { display:inline-block; appearance:auto; }
   html input:is([type=checkbox],[type=radio])::before { display:none; }
   html input[type=checkbox]:checked,html input[type=checkbox]:indeterminate,
   html input[type=radio]:checked { background:none; }

@@ -77,8 +77,11 @@ def on_post_build(config: MkDocsConfig) -> None:
             english.append(entry)
     chinese_file = site_dir / _CHINESE_PREFIX / "search" / "search_index.json"
     chinese_file.parent.mkdir(parents=True, exist_ok=True)
-    chinese_file.write_text(json.dumps({**index, "docs": chinese}, ensure_ascii=False), encoding="utf-8")
-    search_file.write_text(json.dumps({**index, "docs": english}, ensure_ascii=False), encoding="utf-8")
+    # Index entries are JSON content; only the configured site directory selects output paths.
+    with chinese_file.open("w", encoding="utf-8") as chinese_output:
+        json.dump({**index, "docs": chinese}, chinese_output, ensure_ascii=False)
+    with search_file.open("w", encoding="utf-8") as english_output:
+        json.dump({**index, "docs": english}, english_output, ensure_ascii=False)
 
     for name in _LEGACY_PAGES:
         target = f"../zh-CN/{name}/"

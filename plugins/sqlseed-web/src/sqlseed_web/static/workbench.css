@@ -18,7 +18,6 @@
 .wb-rule-button:hover .rule-line { color:var(--teal); }
 .wb-rule-button .rule-meta { overflow-wrap:anywhere; }
 .wb-notice { overflow-wrap:anywhere; }
-.wb-error { color:var(--danger)!important; }
 .wb-success { color:var(--teal); }
 .wb-preview-notice { font-size:11px; padding:0 27px; }
 .wb-preview-notice:empty { display:none; }
@@ -72,8 +71,6 @@
 .graph-controls,
 .graph-visual { min-width: 0; }
 .graph-controls .graph-toolbar { margin: 17px 0 12px; }
-.graph-controls [hidden],
-.rule-editor [hidden] { display: none !important; }
 .graph-controls .graph-search { margin-left: auto; }
 .graph-controls .graph-search > button {
   border: 0; background: transparent; color: var(--muted);
@@ -128,7 +125,6 @@
 .rule-editor .editor-reset { margin-top: 16px; }
 .editor-error { color: var(--danger); font-size: 11px; line-height: 1.8; margin-bottom: 10px; }
 .editor-error:empty { display: none; }
-.rule-editor [aria-invalid=true] { border-color: var(--danger) !important; }
 
 /* ui.modal uses the exact v8 overlay/modal/drawer skeleton. These aliases
    replace ID-only prototype rules and allow more than one modal purpose. */
