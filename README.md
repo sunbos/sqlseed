@@ -36,7 +36,7 @@ interface you want; you do not need to install every row below. `sqlseed` is the
 offline Core library. The other four packages provide optional interfaces and
 capabilities, and install Core as a dependency.
 
-This README describes version 0.2.6. Check [Releases](https://github.com/sunbos/sqlseed/releases)
+This README describes version 0.2.7. Check [Releases](https://github.com/sunbos/sqlseed/releases)
 for publication status; the [source installation guide](https://sunbos.github.io/sqlseed/guide/#source-installation)
 covers unpublished candidates.
 

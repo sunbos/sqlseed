@@ -4,11 +4,11 @@
 
 The Web workbench builds generation configurations from a real database schema. You can connect, edit, save, validate, generate data and inspect run records without installing the AI plugin.
 
-The main pages are **Workbench / Configs / Runs / Settings**. This guide covers version 0.2.6 and its source candidates; check [Releases](https://github.com/sunbos/sqlseed/releases) for publication status. See the [migration guide](migration.md) for installing released packages, source checkouts and build artifacts. Use its source installation instructions to try an unpublished candidate.
+The main pages are **Workbench / Configs / Runs / Settings**. This guide covers version 0.2.7 and its source candidates; check [Releases](https://github.com/sunbos/sqlseed/releases) for publication status. See the [migration guide](migration.md) for installing released packages, source checkouts and build artifacts. Use its source installation instructions to try an unpublished candidate.
 
 Select tables from an existing database, edit field rules, preview data and inspect relationships, then confirm the write. Configs stores reusable rules; Runs shows each table's outcome and the number of rows actually committed.
 
-The 0.2.6 workbench uses a translucent glass design with light and dark modes. Navigation, action areas, connection dialogs and rule drawers share surface layers, while tables keep a stable reading background. Both Chinese and English interfaces use the bundled ChillRound Gothic fonts at weights 400/500; code and field identifiers use a monospace font. No external font service or system installation is needed. Solid backgrounds are used when the browser does not support backdrop blur or the system requests reduced transparency. These surfaces are rendered inside the webpage and do not depend on operating-system window effects.
+The 0.2.7 workbench uses a translucent glass design with light and dark modes. Navigation, action areas, connection dialogs and rule drawers share surface layers, while tables keep a stable reading background. Both Chinese and English interfaces use the bundled ChillRound Gothic fonts at weights 400/500; code and field identifiers use a monospace font. No external font service or system installation is needed. Solid backgrounds are used when the browser does not support backdrop blur or the system requests reduced transparency. These surfaces are rendered inside the webpage and do not depend on operating-system window effects.
 
 ![sqlseed-web 0.2.5 English workbench in the light theme](assets/screenshots/web-workbench-en-light.png)
 
@@ -18,10 +18,10 @@ An actual screenshot of the released 0.2.5 interface. [Open the full-size PNG](a
 
 Long field identifiers wrap within their column on narrow screens, preserving the full name and the action for viewing field structure.
 
-Install and start 0.2.6 in a Python 3.10+ virtual environment:
+Install and start 0.2.7 in a Python 3.10+ virtual environment:
 
 ```bash
-python -m pip install "sqlseed==0.2.6" "sqlseed-web==0.2.6"
+python -m pip install "sqlseed==0.2.7" "sqlseed-web==0.2.7"
 sqlseed-web
 ```
 
@@ -33,13 +33,13 @@ The SQLite connection form opens existing files only. A nonexistent path or dire
 
 When switching between existing connections, the workbench restores each connection's configuration from the current webpage session, or creates a new configuration on its first visit. An ordinary connection switch does not carry the previous database's configuration ID or run-snapshot link into the new database. Unsaved work stays associated with its connection in the current page and is not automatically saved to another database. Opening a configuration link for a different database explains the target mismatch and offers a return to the current database or selection of the matching database. This does not mean the database cannot be read, and it does not bypass target-identity checks.
 
-PostgreSQL requires the Core `postgres` extra in the Python environment running the service (for 0.2.6, use `python -m pip install 'sqlseed[postgres]==0.2.6'`; for source, use `python -m pip install -e '.[postgres]'`). It provides psycopg 3, which is the default driver for plain `postgresql://` URLs; explicitly specified drivers are preserved. The database may be local or on a reachable server. Web currently supports schema inspection, preview, appending data and reading results. Clearing tables before generation is SQLite-only; composite and cross-schema foreign keys are not yet supported for PostgreSQL.
+PostgreSQL requires the Core `postgres` extra in the Python environment running the service (for 0.2.7, use `python -m pip install 'sqlseed[postgres]==0.2.7'`; for source, use `python -m pip install -e '.[postgres]'`). It provides psycopg 3, which is the default driver for plain `postgresql://` URLs; explicitly specified drivers are preserved. The database may be local or on a reachable server. Web currently supports schema inspection, preview, appending data and reading results. Clearing tables before generation is SQLite-only; composite and cross-schema foreign keys are not yet supported for PostgreSQL.
 
 <a id="_1"></a>
 
 ## Interface and data languages
 
-The 0.2.6 top bar offers **简体中文 / English**, with the main navigation labeled **Workbench / Configs / Runs / Settings** in English. Version 0.2.6 shortens **Configurations** to **Configs**, keeping the same page and actions. On first use, the first supported browser language is selected, falling back to English if none matches. An explicit choice is stored in the current browser and synchronized across tabs on the same origin. Switching still works for the current page if browser storage is blocked.
+The 0.2.7 top bar offers **简体中文 / English**, with the main navigation labeled **Workbench / Configs / Runs / Settings** in English. Version 0.2.6 shortens **Configurations** to **Configs**, keeping the same page and actions. On first use, the first supported browser language is selected, falling back to English if none matches. An explicit choice is stored in the current browser and synchronized across tabs on the same origin. Switching still works for the current page if browser storage is blocked.
 
 Switching updates visible messages, accessible names and display dates and numbers in place. It does not reload the page, save a configuration or send a database or AI request. Unapplied rules, input, focus, table selections and open dialogs remain intact.
 
@@ -51,7 +51,7 @@ Language resources ship with the package and do not require an external translat
 
 ## Running with a server's Python environment
 
-Core and ordinary Web features support Python 3.10 and later; they do not require the local repository's `.venv`. The 0.2.6 workbench requires Core `>=0.2.5.dev0,<0.3`; Core 0.2.4 and older lack the shared connection and diagnostic interfaces needed here. Install Core and Web from the same repository when testing source. A server virtualenv or system Python with the required dependencies can run the service, which uses the interpreter that launches it. When a browser accesses a server, that server performs database connections, file access and data generation. The webpage cannot select or manage an arbitrary Python environment on another machine.
+Core and ordinary Web features support Python 3.10 and later; they do not require the local repository's `.venv`. The 0.2.7 workbench requires Core `>=0.2.5.dev0,<0.3`; Core 0.2.4 and older lack the shared connection and diagnostic interfaces needed here. Install Core and Web from the same repository when testing source. A server virtualenv or system Python with the required dependencies can run the service, which uses the interpreter that launches it. When a browser accesses a server, that server performs database connections, file access and data generation. The webpage cannot select or manage an arbitrary Python environment on another machine.
 
 The default `sqlseed-web` launcher is intended for local access and listens on `127.0.0.1:8630`. An external ASGI deployment can use the `sqlseed_web.app:create_app` factory. Web currently has no multi-user authentication, so external deployments must provide authentication and access controls; it must not be exposed directly as a public multi-user service. In-page package installation and removal additionally require a supported isolated environment, the default managed launcher and local requests. With system Python, external ASGI hosting or remote access, the deployment administrator manages dependencies; ordinary features remain available.
 
