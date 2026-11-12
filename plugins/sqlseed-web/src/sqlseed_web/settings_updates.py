@@ -158,9 +158,11 @@ def _version_result(project: str, check: dict[str, Any] | _VersionCheck, deadlin
         return check
     finished = check.task.wait(max(0, min(deadline, check.deadline) - time.monotonic()))
     with _LOCK:
-        if not finished and time.monotonic() < check.deadline:
+        if not finished and deadline < check.deadline and time.monotonic() < check.deadline:
             # An older caller can join a newer shared check with less time left.
             # Its own budget cannot invalidate work still within the owner's budget.
+            # An owner's exhausted timed wait remains a timeout even if clock
+            # granularity leaves the next monotonic reading before its deadline.
             return _failed_version()
         check.discarded = check.discarded or not finished
         owns_slot = _PENDING.get(project) is check

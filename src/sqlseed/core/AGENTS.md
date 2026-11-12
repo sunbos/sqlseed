@@ -35,6 +35,7 @@
 - 写入沿用 `DataStream.generate()` 的 batch iterator，不预先收集全部待生成行；`batch_size` 必须为正整数，生成阶段不得扩大用户给定的批大小。未交付 batch 因取消/预算/生成异常而丢弃时，释放其中原始值的 UNIQUE 预留，保留已交付 batch 的登记。
 - `DataStream` 可选 `max_attempts` 按实例累计行尝试与列候选次数（跨 batch 和 `generate()` 调用）；默认 `None` 保留原重试上限。`cancel_check` 为合作式 guard，取消抛 `GenerationCancelledError` 并保留原始 reason，不能当普通生成失败重试；无法中断正在运行的 provider/expression/transform。
 - seed 由 `DataStream.__init__` 管理，仅 `seed is not None` 时调用 provider 的 `set_seed()`；不要在 orchestrator 重复播种。
+- DAG 构建时拒绝不在列图中的显式 `derive_from` 来源，抛出 `ConfigurationError`；已有 NULL/skip/default 来源和外键覆盖优先级不变，不将隐式条件 `row[...]` 引用升级为无条件校验。这不是清表前预检或多表原子性承诺。
 - 保留 DAG 顺序、UNIQUE 登记与失败回溯的配合；`composite_unique_constraints` 约束元组，不要求每一列独立唯一。
 - 用户 `constraints.min_value/max_value/regex` 在 UNIQUE 登记前验证，regex 使用完整字符串匹配。追加生成通过 adapter 的候选 key probe 检查已有键，不预加载整表；本次生成的预留和数据库已有值分开管理。有限重试耗尽或重放 seed 前缀都不能证明值域耗尽。
 - composite PRIMARY KEY 由 `SchemaInferrer.detect_composite_unique_constraints()` 作为组合 UNIQUE 上报；不要将所有 PK 列送入单列 UNIQUE 调整。
@@ -44,6 +45,7 @@
 - UNIQUE string 不得为采样余量扩大 CHAR/VARCHAR 声明或已解析长度 CHECK 的硬上限；需要时保留整个长度区间，容量按各长度的去重字符串数量求和。非空容量不足时提前拒绝，允许 NULL 的 UNIQUE 列可重复生成 NULL；无 schema 硬上限时保留原采样扩容行为。
 - 仅完整索引推导无条件 UNIQUE；`IndexInfo.is_partial=True` 的条件唯一性交给数据库写入约束，不运行通用 WHERE 求值器。mapper 使用 `ColumnInfo.is_rowid_alias` 区分真实隐式 ID 与普通 INTEGER PK。
 - 表达式通过 `ExpressionEngine` 的 simpleeval sandbox 和 `SAFE_FUNCTIONS` 执行。处理 `ExpressionTimeoutError`；线程 timeout 默认 5 秒，超时线程无法被杀死。
+- `lookup()` 缓存只接收精确 builtin scalar 类型，键包含类型，有限 float 使用 hex 表示以保留有符号零；其他键交 adapter 绑定且不缓存。不得用 Python 相等关系合并 SQL 中可能不同的键，也不得在表达式层重新实现类型绑定。
 - `PluginMediator` 只保留通用 batch transform 与 template pool；AI suggestion 通过 `sqlseed_apply_ai_suggestions` hook。返回值语义见 [../plugins/AGENTS.md](../plugins/AGENTS.md)。
 
 ## FK 与 shared pool
@@ -51,6 +53,7 @@
 - 表排序使用 `RelationResolver.topological_sort()`；循环 FK 以带 warning 的断环处理，优先选剩余依赖可空的表，不改成一遇环就报错。
 - 空父表且 FK 可空时保留 `foreign_key` 的 `null_ratio=1.0`，不要升级成随机整数；自引用两阶段处理见 orchestrator 指导。
 - composite FK 的父表来源优先于重叠的单列 FK，并清理妨碍 FK 的 `derive_from`。SQLite 两列 FK 从最多 100000 条父元组中整对抽样，第二节点通过内部依赖复用本行所选元组，不能用首列标量 lookup 压缩合法组合；每个可空成员仍保留 NULL 语义，SQLAlchemy 内部读取保留列类型；父元组 NULL 成员只在对应子列可空时保留，非空候选池过滤后为空时明确报配置错误。三列及以上 composite FK、PostgreSQL composite FK、反射到显式 schema 的 FK 在生成/清表前抛 `ConfigurationError`；不得恢复独立采样 fallback。SQLite 两列协调并不保证子表其他 CHECK 或重叠约束一定满足。
+- 显式 association 的 SQLite 表身份匹配与依赖排序使用 ASCII 大小写规则；非 ASCII 和 PostgreSQL 名称不折叠。不修改配置对象，不为身份比较读取 metadata 或增加缓存；列名规则不变。
 - FK metadata cache 随 orchestrator 生命周期；改缓存清理或 shared pool 更新前检查 `RelationResolver.clear_cache()` 与 `register_shared_pool()`。
 
 ## 验证

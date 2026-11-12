@@ -5,16 +5,18 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import shutil
 import sqlite3
 import subprocess
-import sys
 from contextlib import closing
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from sqlseed import preview
+from tests.cli_helpers import installed_sqlseed_launcher
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.mark.parametrize("command", ["preview", "inspect"])
@@ -52,12 +54,7 @@ def test_literal_console_output(tmp_path: Path, command: str, style: str) -> Non
     assert len(rows) == 2
     assert all(row[column] == value and row[foreign_key] == 7 for row in rows)
 
-    launcher = shutil.which("sqlseed")
-    if launcher is None:
-        local = Path(sys.executable).with_name("sqlseed.exe" if os.name == "nt" else "sqlseed")
-        if not local.is_file():
-            pytest.skip("An installed SQLSeed console entry point is required")
-        launcher = str(local)
+    launcher = installed_sqlseed_launcher()
     args = [launcher, command, str(database), "-t", table]
     if command == "preview":
         args += ["-n", "2", "-p", "base", "-s", "42"]

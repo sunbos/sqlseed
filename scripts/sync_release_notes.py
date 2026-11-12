@@ -450,8 +450,7 @@ def validate_versioned_links(path: Path, links: str, repo: str, *, expected_tag:
         parts = github_link_parts(target_url)
         if parts[:2] != repo.split("/") or len(parts) < 4 or parts[2] not in {"tree", "blob", "compare"}:
             continue
-        target = parts[3].rsplit("...", 1)[-1] if parts[2] == "compare" else parts[3]
-        if target != expected_tag:
+        if (target := parts[3].rsplit("...", 1)[-1] if parts[2] == "compare" else parts[3]) != expected_tag:
             raise SyncError(f"{path}: release link target {target!r} must match {expected_tag}")
         if parts[2] == "tree" and len(parts) == 4:
             source_found = True
@@ -464,10 +463,12 @@ def validate_versioned_links(path: Path, links: str, repo: str, *, expected_tag:
 def validate_collection(directory: Path, selected: list[str], repo: str) -> None:
     """Protect the default historical inventory and validate any supplied template."""
     default_directory = directory.resolve() == DEFAULT_NOTES_DIR.resolve()
-    if default_directory and repo == DEFAULT_REPO:
-        missing = [tag for tag in REQUIRED_HISTORICAL_TAGS if tag not in selected]
-        if missing:
-            raise SyncError(f"Missing required historical release notes in {directory}: {', '.join(missing)}")
+    if (
+        default_directory
+        and repo == DEFAULT_REPO
+        and (missing := [tag for tag in REQUIRED_HISTORICAL_TAGS if tag not in selected])
+    ):
+        raise SyncError(f"Missing required historical release notes in {directory}: {', '.join(missing)}")
     template = directory / "TEMPLATE.md"
     if default_directory or template.exists():
         validate_template(template, repo)
@@ -578,13 +579,8 @@ def preview(notes: dict[str, str], releases: dict[str, dict[str, Any]]) -> None:
             )
 
 
-def backup_releases(name: str, releases: dict[str, dict[str, Any]]) -> None:
-    """Save every full original JSON record before the first remote mutation."""
-    if not BACKUP_NAME_PATTERN.fullmatch(name):
-        raise SyncError("Backup name must contain only ASCII letters, digits, '-' and '_'")
-    for tag in releases:
-        if not TAG_PATTERN.fullmatch(tag):
-            raise SyncError(f"Invalid backup tag: {tag!r}; expected vX.Y.Z")
+def _create_backup_directory(name: str) -> Path:
+    """Create a fresh backup directory without traversing or escaping symlinks."""
     if BACKUP_ROOT.is_symlink():
         raise SyncError("The repository .release-backups directory must not be a symlink")
     BACKUP_ROOT.mkdir(mode=0o700, exist_ok=True)
@@ -598,6 +594,18 @@ def backup_releases(name: str, releases: dict[str, dict[str, Any]]) -> None:
     backup_root = directory.resolve(strict=True)
     if backup_root.parent != BACKUP_ROOT:
         raise SyncError("Backup directory must stay inside the repository backup root")
+    return backup_root
+
+
+def backup_releases(name: str, releases: dict[str, dict[str, Any]]) -> None:
+    """Save every full original JSON record before the first remote mutation."""
+    if not BACKUP_NAME_PATTERN.fullmatch(name):
+        raise SyncError("Backup name must contain only ASCII letters, digits, '-' and '_'")
+    for tag in releases:
+        if not TAG_PATTERN.fullmatch(tag):
+            raise SyncError(f"Invalid backup tag: {tag!r}; expected vX.Y.Z")
+    backup_root = _create_backup_directory(name)
+    directory = BACKUP_ROOT / name
     for tag, release in releases.items():
         output = (backup_root / f"{tag}.json").resolve()
         if output.parent != backup_root:
@@ -610,10 +618,8 @@ def backup_releases(name: str, releases: dict[str, dict[str, Any]]) -> None:
 
 def wait_before_mutation(previous_finished: float | None) -> None:
     """Leave at least one second after the previous PATCH before checking the next release."""
-    if previous_finished is not None:
-        delay = 1.0 - (time.monotonic() - previous_finished)
-        if delay > 0:
-            time.sleep(delay)
+    if previous_finished is not None and (delay := 1.0 - (time.monotonic() - previous_finished)) > 0:
+        time.sleep(delay)
 
 
 def apply_notes(repo: str, notes: dict[str, str], releases: dict[str, dict[str, Any]]) -> None:
@@ -621,8 +627,7 @@ def apply_notes(repo: str, notes: dict[str, str], releases: dict[str, dict[str, 
     last_patch_finished = None
     for tag, body in notes.items():
         original = releases[tag]
-        needs_update = original["name"] != tag or original["body"] != body
-        if needs_update:
+        if needs_update := original["name"] != tag or original["body"] != body:
             wait_before_mutation(last_patch_finished)
         endpoint = f"repos/{repo}/releases/{original['id']}"
         fresh = validate_release(github_api(endpoint))

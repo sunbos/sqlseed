@@ -755,7 +755,12 @@ class SQLAlchemyAdapter:
         # Return an empty list when the table does not exist
         inspector = self._get_inspector()
         if not inspector.has_table(table_name):
-            return []
+            # A previous lookup may have cached absence before the caller
+            # created an association source. Refresh only this negative path.
+            inspector.clear_cache()
+            table_name = self._resolve_table_name(table_name)
+            if not inspector.has_table(table_name):
+                return []
         table = self._get_table(table_name)
         sample_column: ColumnElement[Any] = literal_column(self._sample_column_sql(table, column_name))
         statement = select(sample_column).select_from(table).limit(limit)
@@ -1052,12 +1057,21 @@ class SQLAlchemyAdapter:
 
     def _key_exists(self, table_name: str, values: dict[str, Any]) -> bool:
         """Check a key with the same typed bindings used to insert its values."""
+        return self._collated_key_exists(table_name, values, ())
+
+    def _collated_key_exists(
+        self, table_name: str, values: dict[str, Any], collations: tuple[tuple[str, str], ...]
+    ) -> bool:
+        """Probe a complete index key with its own collation and typed binds."""
         table_name = self._resolve_table_name(table_name)
         table = self._get_table(table_name)
         dialect = self._get_engine().dialect
         statement = select(1).select_from(table).limit(1)
-        for name, bound_value in _normalize_row_values(table, dialect, [values])[0].items():
-            statement = statement.where(_bound_comparison(table.c[name], bound_value, dialect))
+        bound_values = _normalize_row_values(table, dialect, [values])[0]
+        terms = collations or tuple((name, "") for name in bound_values)
+        for name, collation in terms:
+            column = table.c[name].collate(collation) if collation else table.c[name]
+            statement = statement.where(_bound_comparison(column, bound_values[name], dialect))
         with self._connection() as connection:
             return connection.execute(statement).first() is not None
 

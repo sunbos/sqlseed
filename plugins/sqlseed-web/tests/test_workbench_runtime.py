@@ -685,3 +685,72 @@ def test_source_check_explains_existing_parent_without_exposing_its_values(conne
         "nullable": False,
     }
     assert "private-parent-value" not in str(result["sources"])
+
+
+@pytest.mark.parametrize("source_state", ["planned", "existing", "unselected", "missing", "unreadable"])
+def test_association_preflight_preserves_source_boundaries(
+    connection: Connection, monkeypatch: pytest.MonkeyPatch, source_state: str
+) -> None:
+    from sqlseed_web import workbench_runtime
+    from sqlseed_web.workbench_schema import inspect_connection
+
+    with sqlite_connection(connection.target) as db:
+        db.execute("CREATE TABLE associated (id INTEGER PRIMARY KEY, code_ref TEXT NOT NULL, marker INTEGER NOT NULL)")
+        if source_state == "existing":
+            db.execute("INSERT INTO parents(code) VALUES ('private-source-value')")
+    config: dict[str, Any] = {
+        "provider": "base",
+        "optimize_pragma": False,
+        "associations": [
+            {
+                "column_name": "code_ref",
+                "source_table": "parents",
+                "source_column": "missing" if source_state == "missing" else "code",
+                "target_tables": ["associated"],
+            }
+        ],
+        "tables": [
+            {
+                "name": "associated",
+                "count": 2,
+                "columns": [{"name": "marker", "generator": "integer", "params": {"min_value": 7, "max_value": 7}}],
+            }
+        ],
+    }
+    if source_state in {"planned", "unreadable"}:
+        config["tables"].append({"name": "parents", "count": 2, "columns": [{"name": "code", "generator": "uuid"}]})
+    if source_state == "unreadable":
+
+        def fail_read(*_args: Any, **_kwargs: Any) -> list[dict[str, Any]]:
+            raise RuntimeError("Source read failed")
+
+        monkeypatch.setattr(workbench_runtime, "_source_values", fail_read)
+    schema = inspect_connection(connection)
+    before = Path(connection.target).read_bytes()
+    checked = workbench_runtime.check_document(connection, config, schema["schema_hash"], preview=True)
+    assert checked["ok"] is (source_state in {"planned", "existing"}), checked
+    assert Path(connection.target).read_bytes() == before
+    assert "private-source-value" not in str(checked["sources"])
+    if source_state == "planned":
+        assert checked["order"] == ["parents", "associated"]
+        assert checked["preview_complete"] is False
+        assert checked["samples"]["parents"]
+        assert "associated" not in checked["samples"]
+        assert any(issue["code"] == "preview_requires_parent" for issue in checked["issues"])
+        # Deferring the relation must not skip validation of independent fields.
+        config["tables"][0]["columns"][0]["params"] = {"min_value": 10, "max_value": 1}
+        invalid = workbench_runtime.check_document(connection, config, schema["schema_hash"], preview=True)
+        assert not invalid["ok"]
+        assert any(issue["code"] == "generation_invalid" for issue in invalid["issues"])
+        assert Path(connection.target).read_bytes() == before
+    elif source_state == "existing":
+        assert checked["preview_complete"] is True
+        assert {row["code_ref"] for row in checked["samples"]["associated"]} == {"private-source-value"}
+        assert {row["marker"] for row in checked["samples"]["associated"]} == {7}
+    else:
+        code = {
+            "unselected": "missing_parent_source",
+            "missing": "invalid_parent_source",
+            "unreadable": "validation_failed",
+        }
+        assert any(issue["code"] == code[source_state] for issue in checked["issues"])

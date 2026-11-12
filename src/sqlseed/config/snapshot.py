@@ -49,8 +49,9 @@ class SnapshotManager:
     ) -> str:
         """Save a configuration snapshot to a YAML file.
 
-        File name format: {timestamp}_{safe_table_label}.yaml. The original
-        table name is preserved in the snapshot, independently of its filename.
+        File name format: {timestamp}_{safe_table_label}.yaml, with a numeric
+        suffix on collisions. The original table name is preserved in the
+        snapshot, independently of its filename.
 
         Args:
             config: Generator configuration
@@ -63,16 +64,15 @@ class SnapshotManager:
         """
         self._snapshot_dir.mkdir(parents=True, exist_ok=True)
 
-        # Include microseconds to avoid filename collisions when multiple snapshots
-        # are saved within the same second.
+        # Microseconds keep names readable; exclusive creation below also handles
+        # equal clock ticks and concurrent saves without replacing older snapshots.
         timestamp = datetime.now().strftime("%Y-%m-%d_%H%M%S_%f")
         # SQL identifiers can contain path separators and exceed filesystem
         # filename limits. Keep familiar names readable and bound all others.
         table_label = table_name
         if re.fullmatch(r"[A-Za-z0-9_.-]{1,80}", table_label) is None:
             table_label = f"table-{hashlib.sha256(table_name.encode('utf-8')).hexdigest()[:16]}"
-        filename = f"{timestamp}_{table_label}.yaml"
-        filepath = self._snapshot_dir / filename
+        stem = f"{timestamp}_{table_label}"
 
         snapshot_data = {
             "timestamp": timestamp,
@@ -82,8 +82,17 @@ class SnapshotManager:
             "config": config.model_dump(mode="json"),
         }
 
-        with open(filepath, "w", encoding="utf-8") as f:
-            yaml.dump(snapshot_data, f, default_flow_style=False, allow_unicode=True, sort_keys=False)
+        collision = 0
+        while True:
+            suffix = f"_{collision}" if collision else ""
+            filepath = self._snapshot_dir / f"{stem}{suffix}.yaml"
+            try:
+                with open(filepath, "x", encoding="utf-8") as file:
+                    yaml.dump(snapshot_data, file, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            except FileExistsError:
+                collision += 1
+                continue
+            break
 
         logger.info("Snapshot saved", filepath=str(filepath))
         return str(filepath)

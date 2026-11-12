@@ -24,6 +24,7 @@ from sqlseed.core.mapper import GeneratorSpec
 from sqlseed.core.schema_metadata import SchemaMetadataError, SchemaMetadataReader
 from sqlseed.core.stream import DataStream
 from sqlseed.core.transform import load_transform
+from sqlseed.database._unique_keys import get_unique_keys, sqlite_key_normalizer
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -404,8 +405,16 @@ class SpecResolverMixin:
         placeholder = "%s" if getattr(dialect, "name", "") == "postgresql" else "?"
         quoted_table = quote_identifier(table_name)
         queries: dict[tuple[str, ...], str] = {}
+        keys = get_unique_keys(self._db, table_name=table_name) if getattr(dialect, "name", "") == "sqlite" else []
+        collated_check = getattr(self._db, "_collated_key_exists", None)
 
         def exists(values: dict[str, Any]) -> bool:
+            matching = [key for key in keys if set(key.columns) == set(values)] if values else []
+            if matching and callable(collated_check):
+                return any(
+                    collated_check(table_name, values, tuple(zip(key.columns, key.collations, strict=True)))
+                    for key in matching
+                )
             if callable(typed_check):
                 return bool(typed_check(table_name, values))
             if (columns := tuple(values)) not in queries:
@@ -457,7 +466,12 @@ class SpecResolverMixin:
             # probe is bounded too: never COUNT or preload existing key tuples.
             if checker({}):
                 existing_value_check = checker
-        constraint_solver = ConstraintSolver(existing_value_check=existing_value_check)
+        key_normalizers: dict[tuple[str, ...], list[Callable[[tuple[Any, ...]], tuple[Any, ...]]]] = {}
+        if table_name is not None and getattr(getattr(self._db, "dialect", None), "name", "") == "sqlite":
+            for key in get_unique_keys(self._db, table_name=table_name):
+                if (normalize := sqlite_key_normalizer(key)) is not None:
+                    key_normalizers.setdefault(key.columns, []).append(normalize)
+        constraint_solver = ConstraintSolver(existing_value_check=existing_value_check, key_normalizers=key_normalizers)
 
         transform_fn = None
         if transform:

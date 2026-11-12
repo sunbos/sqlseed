@@ -664,9 +664,27 @@ class _SampleRules:
     composite: list[list[str]]
 
 
-def _resolve_sample_rules(config: GeneratorConfig, table: TableConfig, orch: DataOrchestrator) -> _SampleRules:
+def _resolve_sample_rules(
+    config: GeneratorConfig, table: TableConfig, orch: DataOrchestrator, deferred_sources: set[tuple[str, str, str]]
+) -> _SampleRules:
     columns = _runtime_columns(config, table, orch)
-    specs, user_configs, unique, composite = orch._resolve_specs(table.name, table.count, None, columns, table.enrich)
+    # Only omit associations already verified as empty, selected upstream sources.
+    # Their columns are excluded from partial sampling; execution retains every
+    # association and Core's strict live-source validation.
+    orch._relation.set_associations(
+        [
+            association
+            for association in config.associations
+            if (association.column_name, association.source_table, association.source_column or association.column_name)
+            not in deferred_sources
+        ]
+    )
+    try:
+        specs, user_configs, unique, composite = orch._resolve_specs(
+            table.name, table.count, None, columns, table.enrich
+        )
+    finally:
+        orch._relation.set_associations(config.associations)
     return _SampleRules(columns, specs, user_configs, unique, composite)
 
 
@@ -736,7 +754,16 @@ def _table_samples(
 ) -> None:
     issues = result["issues"]
     name = table.name
-    rules = _resolve_sample_rules(config, table, orch)
+    deferred_sources = {
+        (source["column"], source["source_table"], source["source_columns"][0])
+        for source in result["sources"]
+        if deferred
+        and source["table"] == name
+        and source["selected"]
+        and not source["has_values"]
+        and len(source["source_columns"]) == 1
+    }
+    rules = _resolve_sample_rules(config, table, orch, deferred_sources)
     options.guard()
     result["effective_rules"][name] = {
         key: {k: v for k, v in asdict(spec).items() if k != "params"}

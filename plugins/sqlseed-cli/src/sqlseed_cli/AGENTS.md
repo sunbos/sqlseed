@@ -27,6 +27,7 @@
 - 直接 `fill`、配置批量 `fill` 与 `replay` 的 `result.errors` 会展示并以非零 exit code 表示部分失败；配置批量路径保留每张表实际提交的 count，不把某张表失败误报为全部回滚。
 - 将数据库异常转为用户错误时复用 `_redact_credentials()`；避免在终端错误里泄漏 URL 凭据。
 - `replay` 使用 `SnapshotManager.load()`、`GeneratorConfig`、`DataOrchestrator.from_config()`；保留 snapshot 中的列配置、seed、batch_size、clear_before 与 transform。直接 `fill --transform --snapshot` 必须保存 transform 路径，重放时仍需该脚本可用。
+- `replay` 匹配表配置时使用 SQLite ASCII 大小写规则；非 ASCII 与 PostgreSQL 保持精确匹配。多个匹配配置在生成前拒绝；没有匹配配置的旧快照保留默认值。
 - `replay` 对含 `..` 且解析到 cache 目录之外的路径拒绝访问；不要误改为禁止所有外部绝对路径。
 
 ## 局部验证

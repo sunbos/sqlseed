@@ -9,6 +9,7 @@ import yaml
 from click.testing import CliRunner
 from sqlseed_cli.main import cli
 
+from tests.cli_helpers import retry_items_document
 from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
@@ -133,12 +134,7 @@ def test_replay_invalid_metadata_preserves_rows_and_allows_retry(
     with sqlite_connection(database) as connection:
         assert connection.execute("SELECT value FROM items").fetchall() == [(99,)]
 
-    snapshot.write_text(yaml.safe_dump(valid), encoding="utf-8")
-    recovered = runner.invoke(cli, args)
-
-    assert recovered.exit_code == 0, recovered.output
-    with sqlite_connection(database) as connection:
-        assert connection.execute("SELECT value FROM items").fetchall() == [(7,), (7,)]
+    retry_items_document(snapshot, valid, runner, args, database)
 
 
 @pytest.mark.parametrize("seed", ["omitted", None, 0, -7])

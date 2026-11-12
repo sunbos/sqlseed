@@ -364,6 +364,12 @@ Cycles remaining in parsed snapshot data, including metadata, are rejected as a
 format error with exit status 2 before database connection, clearing, or generation.
 Ordinary shared aliases and YAML merge keys remain supported.
 
+Replay matches saved table settings using SQLite's ASCII-only case-insensitive
+name rules; non-ASCII names and PostgreSQL names remain distinct. Multiple saved
+configurations matching the replay table are rejected before generation rather
+than choosing one silently. Snapshots without matching table settings retain the
+legacy defaults.
+
 Snapshots retain `--enrich`. Replay with enrichment uses the current table data,
 not a saved copy of its distribution; changed rows can change generated values.
 Older snapshots without an enrichment setting keep the default (`false`).
@@ -604,6 +610,27 @@ columns:
 sqlseed builds a column dependency DAG and topologically sorts columns before
 generation. If a derived column's unique constraint fails, sqlseed backtracks
 and regenerates the source column.
+Literal-string row references such as `row['later']`, `row ['later']`, and
+`(row)["later"]` add ordering dependencies without changing the scalar or list
+passed as `value`. Quoted column names are supported. Text inside string literals
+or comments is not a dependency. Dynamic keys such as `row[value]` are not
+inferred; declare the relevant columns in `derive_from` explicitly.
+
+Every explicit `derive_from` source must name a column in the generated table's
+column graph, using its exact spelling. An unknown source raises
+`ConfigurationError` when the data stream is built instead of silently supplying
+`None`. An existing source that is NULL or omitted for a database default keeps
+its previous behavior. Foreign-key overrides still take precedence over derived
+configuration. This validation does not make `clear_before` or multi-table fills
+atomic.
+
+
+The expression function `lookup(table, column, key, key_column='id')` uses the
+database adapter's key binding rules. Its per-run cache keeps builtin scalar
+types distinct: for example, `1` and `1.0` can match different TEXT keys, and
+`True` and `1` can match different JSON keys. Temporal, container, custom and
+nonfinite numeric keys are passed to the adapter without caching. This does not
+add support for key types that the selected database or adapter rejects.
 
 ### Generators
 
@@ -760,6 +787,23 @@ associations:
       - employees
     strategy: shared_pool          # shared_pool | random
 ```
+
+On SQLite, association source and target table names accept ASCII case aliases,
+including when ordering configured tables. Non-ASCII names remain distinct;
+PostgreSQL names retain exact matching. This does not change configured column
+name matching or mutate the supplied configuration.
+
+Explicit associations read up to 10,000 current values from the declared source
+table and column on each generation call. They do not reuse an unrelated table's
+same-name key pool. Coverage sampling parameters are preserved across repeated
+calls. Database foreign keys and explicit `foreign_key` generators retain priority.
+An empty or unreadable association source raises `ConfigurationError` rather than
+using unrelated shared values. Implicit same-name associations still use values
+registered in the current session. SQL NULL source values are excluded for NOT NULL
+target columns. If no non-NULL values remain within the sampled source pool,
+generation raises `ConfigurationError`; nullable targets keep their existing NULL
+behavior. The source is read again on the next call, so adding valid values allows
+the same session to recover.
 
 ### Transform Scripts
 

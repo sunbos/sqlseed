@@ -13,6 +13,15 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
+def assert_template_instruction_rejected(directory: Path, example: str) -> None:
+    """Reject copied instruction prose using the real note validator."""
+    path = directory / "v0.2.6.md"
+    body = BODY.replace("- Preserve release assets.", example)
+    path.write_text(body, encoding="utf-8", newline="\n")
+    with pytest.raises(sync.SyncError, match="template instructions"):
+        sync.validate_notes(path)
+
+
 @pytest.mark.parametrize("instruction", ["Describe a user-visible addition.", "描述用户可见的新增能力。"])
 @pytest.mark.parametrize(
     "presentation",
@@ -68,11 +77,7 @@ def test_formatted_instruction_examples_remain_valid(tmp_path: Path, example: st
 )
 def test_html_block_template_instruction_is_rejected(tmp_path: Path, example: str) -> None:
     """Raw HTML blocks must not bypass the same rendered-prose rule as inline wrappers."""
-    path = tmp_path / "v0.2.6.md"
-    body = BODY.replace("- Preserve release assets.", example)
-    path.write_text(body, encoding="utf-8", newline="\n")
-    with pytest.raises(sync.SyncError, match="template instructions"):
-        sync.validate_notes(path)
+    assert_template_instruction_rejected(tmp_path, example)
 
 
 @pytest.mark.parametrize(
@@ -85,11 +90,7 @@ def test_html_block_template_instruction_is_rejected(tmp_path: Path, example: st
 )
 def test_soft_wrapped_template_instruction_is_rejected(tmp_path: Path, example: str) -> None:
     """A source-only line wrap preserves the rendered instruction sentence."""
-    path = tmp_path / "v0.2.6.md"
-    body = BODY.replace("- Preserve release assets.", example)
-    path.write_text(body, encoding="utf-8", newline="\n")
-    with pytest.raises(sync.SyncError, match="template instructions"):
-        sync.validate_notes(path)
+    assert_template_instruction_rejected(tmp_path, example)
 
 
 @pytest.mark.parametrize(
@@ -127,11 +128,7 @@ def test_rendered_line_boundaries_and_wrapped_examples_remain_valid(tmp_path: Pa
 )
 def test_github_formatted_template_instruction_is_rejected(tmp_path: Path, example: str) -> None:
     """Strikethrough and real task-list checkboxes leave the instruction prose intact."""
-    path = tmp_path / "v0.2.6.md"
-    body = BODY.replace("- Preserve release assets.", example)
-    path.write_text(body, encoding="utf-8", newline="\n")
-    with pytest.raises(sync.SyncError, match="template instructions"):
-        sync.validate_notes(path)
+    assert_template_instruction_rejected(tmp_path, example)
 
 
 @pytest.mark.parametrize(

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Iterator
 
 
 @dataclass
@@ -42,13 +42,36 @@ class ConstraintSolver:
         *,
         probabilistic: bool = False,
         existing_value_check: Callable[[dict[str, Any]], bool] | None = None,
+        key_normalizers: dict[tuple[str, ...], list[Callable[[tuple[Any, ...]], tuple[Any, ...]]]] | None = None,
     ) -> None:
+        self._key_normalizers = key_normalizers or {}
+        self._normalized_seen: dict[tuple[tuple[str, ...], int], set[tuple[Any, ...]]] = {}
+        self._composite_columns: dict[str, tuple[str, ...]] = {}
         self._probabilistic = probabilistic
         self._existing_value_check = existing_value_check
         self._seen: dict[str, set[Any]] = {}
         self._composite_seen: dict[str, set[tuple[Any, ...]]] = {}
         if probabilistic:
             self._hash_seen: dict[str, set[int]] = {}
+
+    def _normalized_keys(
+        self, columns: tuple[str, ...], values: tuple[Any, ...]
+    ) -> Iterator[tuple[tuple[tuple[str, ...], int], tuple[Any, ...]]]:
+        for index, normalize in enumerate(self._key_normalizers.get(columns, [])):
+            yield (columns, index), normalize(values)
+
+    def _normalized_collision(self, columns: tuple[str, ...], values: tuple[Any, ...]) -> bool:
+        return any(
+            value in self._normalized_seen.get(key, set()) for key, value in self._normalized_keys(columns, values)
+        )
+
+    def _reserve_normalized(self, columns: tuple[str, ...], values: tuple[Any, ...]) -> None:
+        for key, value in self._normalized_keys(columns, values):
+            self._normalized_seen.setdefault(key, set()).add(value)
+
+    def _release_normalized(self, columns: tuple[str, ...], values: tuple[Any, ...]) -> None:
+        for key, value in self._normalized_keys(columns, values):
+            self._normalized_seen.get(key, set()).discard(value)
 
     def _deterministic_hash(self, value: Any) -> int:
         data = f"{value!r}".encode()
@@ -60,9 +83,14 @@ class ConstraintSolver:
             seen = column_name in self._hash_seen and h in self._hash_seen[column_name]
         else:
             seen = column_name in self._seen and value in self._seen[column_name]
-        return seen or bool(self._existing_value_check and self._existing_value_check({column_name: value}))
+        return (
+            seen
+            or self._normalized_collision((column_name,), (value,))
+            or bool(self._existing_value_check and self._existing_value_check({column_name: value}))
+        )
 
     def _register(self, column_name: str, value: Any) -> None:
+        self._reserve_normalized((column_name,), (value,))
         if self._probabilistic:
             h = self._deterministic_hash(value)
             if column_name not in self._hash_seen:
@@ -74,6 +102,13 @@ class ConstraintSolver:
             self._seen[column_name].add(value)
 
     def _unregister_value(self, column_name: str, value: Any) -> None:
+        registered = (
+            self._deterministic_hash(value) in self._hash_seen.get(column_name, set())
+            if self._probabilistic
+            else value in self._seen.get(column_name, set())
+        )
+        if registered:
+            self._release_normalized((column_name,), (value,))
         if self._probabilistic:
             if column_name in self._hash_seen:
                 self._hash_seen[column_name].discard(self._deterministic_hash(value))
@@ -210,7 +245,10 @@ class ConstraintSolver:
         if any(v is None for v in values):
             return True
 
-        if self._is_composite_seen(key_name, values):
+        if columns is not None:
+            self._composite_columns[key_name] = tuple(columns)
+        key_columns = self._composite_columns.get(key_name, ())
+        if self._normalized_collision(key_columns, values) or self._is_composite_seen(key_name, values):
             return False
         if (
             self._existing_value_check
@@ -218,6 +256,7 @@ class ConstraintSolver:
             and self._existing_value_check(dict(zip(columns, values, strict=True)))
         ):
             return False
+        self._reserve_normalized(key_columns, values)
         self._register_composite(key_name, values)
         return True
 
@@ -227,6 +266,8 @@ class ConstraintSolver:
         values: tuple[Any, ...],
     ) -> None:
         """Remove a previously registered composite unique-constraint value tuple."""
+        if values in self._composite_seen.get(key_name, set()):
+            self._release_normalized(self._composite_columns.get(key_name, ()), values)
         if key_name in self._composite_seen:
             self._composite_seen[key_name].discard(values)
 
@@ -236,6 +277,8 @@ class ConstraintSolver:
         Called before generating data for a new table, to avoid values registered
         for the previous table affecting the current table.
         """
+        self._normalized_seen.clear()
+        self._composite_columns.clear()
         self._seen.clear()
         self._composite_seen.clear()
         if self._probabilistic:
@@ -243,6 +286,9 @@ class ConstraintSolver:
 
     def reset_column(self, column_name: str) -> None:
         """Clear all registered unique values for a single column."""
+        for key in list(self._normalized_seen):
+            if key[0] == (column_name,):
+                del self._normalized_seen[key]
         self._seen.pop(column_name, None)
         if self._probabilistic:
             self._hash_seen.pop(column_name, None)

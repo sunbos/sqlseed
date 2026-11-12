@@ -10,6 +10,7 @@ separate thread with a timeout.
 from __future__ import annotations
 
 import ast
+import math
 import random
 import re
 from datetime import timedelta
@@ -37,7 +38,7 @@ class ExpressionEngine:
     Provides 26 safe functions (len, int, str, upper, concat, random_float,
     timedelta, etc.). When a ``db_adapter`` is supplied, also exposes a
     ``lookup(table, column, key, key_column='id')`` function for cross-table
-    value reference (results cached per tuple). Simple expressions (method
+    value reference (scalar results cached per typed key). Simple expressions (method
     chains like value.strip()) are evaluated directly in the calling thread;
     complex expressions are executed in a separate thread with a timeout,
     and the thread is abandoned on timeout (as a daemon thread).
@@ -97,7 +98,7 @@ class ExpressionEngine:
         """
         self._timeout = timeout_seconds
         self._db_adapter = db_adapter
-        self._lookup_cache: dict[tuple[str, str, Any, str], Any] = {}
+        self._lookup_cache: dict[tuple[str, str, type[Any], Any, str], Any] = {}
         self._rng = random.Random(seed) if seed is not None else None
 
     def _get_functions(self) -> dict[str, Any]:
@@ -136,9 +137,9 @@ class ExpressionEngine:
         """Look up a single value from another table by a key column.
 
         Executes ``SELECT {column} FROM {table} WHERE {key_column} = ?`` and
-        returns the scalar value. Results are cached per
-        ``(table, column, key, key_column)`` tuple to avoid repeated DB hits
-        within the same generation run.
+        returns the scalar value. Builtin scalar keys are cached with their
+        exact types to avoid repeated DB hits within the same generation run.
+        Other keys retain the adapter's binding semantics without caching.
 
         This is a generic mechanism — it does NOT encode any business logic.
         Business relationships (which table/column to look up) are expressed
@@ -158,7 +159,16 @@ class ExpressionEngine:
             The scalar value of ``column`` for the row whose
             ``key_column == key``, or ``None`` if no such row exists.
         """
-        if (cache_key := (table, column, key, key_column)) in self._lookup_cache:
+        # Python equality can merge keys whose database bindings differ, such
+        # as 1/1.0 for TEXT or True/1 for JSON. Custom and temporal values may
+        # also compare equal while binding differently, so let the adapter
+        # handle them without assuming a canonical representation here.
+        cache_key = None
+        if (key_type := type(key)) in (str, bytes, int, bool, type(None)):
+            cache_key = (table, column, key_type, key, key_column)
+        elif key_type is float and math.isfinite(key):
+            cache_key = (table, column, key_type, key.hex(), key_column)
+        if cache_key is not None and cache_key in self._lookup_cache:
             return self._lookup_cache[cache_key]
         if (adapter := self._db_adapter) is None:
             raise RuntimeError("Expression lookup requires a database adapter")
@@ -176,7 +186,8 @@ class ExpressionEngine:
                 result = row[0] if row else None
             finally:
                 cursor.close()
-        self._lookup_cache[cache_key] = result
+        if cache_key is not None:
+            self._lookup_cache[cache_key] = result
         return result
 
     def _is_simple_expression(self, expression: str) -> bool:

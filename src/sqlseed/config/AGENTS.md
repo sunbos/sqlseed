@@ -34,7 +34,7 @@
 
 ## 快照
 
-- `SnapshotManager` 使用 `get_cache_dir("snapshots")` 或显式目录，以含微秒的 timestamp 命名避免同秒冲突。
+- `SnapshotManager` 使用 `get_cache_dir("snapshots")` 或显式目录，以含微秒的 timestamp 命名。相同时间戳或并发保存时用独占创建及数字后缀避让，不覆盖已有快照。
 - 快照文件名不得直接使用任意 SQL 表名；特殊或过长名称使用安全摘要，原名保留在内容中。`load()` 对非 mapping 内容抛出 `ValueError`。
 - snapshot 外层保存 timestamp/table_name/count/seed，配置通过 `model_dump(mode="json")` 序列化；`load()` 返回外层字典，不是 `GeneratorConfig`。
 - CLI replay 使用 `load()` 加 `DataOrchestrator.from_config()`；不要重新添加 `SnapshotManager.replay()`。

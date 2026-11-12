@@ -26,7 +26,7 @@ def _require_unsupported_seed(seed: Any) -> str:
         random.Random(seed)
     except TypeError as error:
         return str(error)
-    pytest.skip("This Python version accepts the seed; it must not be rejected by preflight")
+    return pytest.skip("This Python version accepts the seed; it must not be rejected by preflight")
 
 
 def _prepare(path: Path) -> None:

@@ -33,8 +33,8 @@ HISTORICAL_TAGS = (
 )
 
 
-@pytest.fixture
-def checkout(tmp_path: Path) -> Path:
+@pytest.fixture(name="checkout")
+def fixture_checkout(tmp_path: Path) -> Path:
     """Copy the actual script and reviewed notes without mutating the working tree."""
     paths = [ROOT / "scripts" / "sync_release_notes.py", *(ROOT / ".github" / "release-notes").glob("*.md")]
     for source in paths:

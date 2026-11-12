@@ -682,3 +682,7 @@ flowchart LR
     Supervisor[Supervisor] --> HTTP
     Supervisor --> Maintenance[Package maintenance worker]
 ```
+
+### SQLite collated uniqueness
+
+With the production SQLAlchemy adapter, generation and preview reserve text keys using the built-in NOCASE (ASCII only) and RTRIM (trailing ASCII spaces only) collations of complete UNIQUE indexes, including composite keys and multiple indexes on the same columns. BINARY comparisons remain unchanged, and NULL keys do not reserve uniqueness. Appending probes existing keys with each index's collation and typed bindings. This does not implement arbitrary custom collations, partial/expression-index generation, or general SQLite affinity equivalence for in-stream values; those constraints remain database-enforced. The test-only RawSQLite adapter and third-party adapters without index-collation probes retain their previous behavior. Retry exhaustion does not prove the domain is exhausted.

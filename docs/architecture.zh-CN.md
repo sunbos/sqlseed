@@ -672,3 +672,7 @@ flowchart LR
     Supervisor[Supervisor] --> HTTP
     Supervisor --> Maintenance[Package maintenance worker]
 ```
+
+### SQLite 排序规则与唯一性
+
+使用生产 SQLAlchemy adapter 时，生成和预览会按完整 UNIQUE 索引内置的 NOCASE（仅 ASCII）和 RTRIM（仅移除尾部 ASCII 空格）规则预留文本键，包括复合键及同列上的多个索引。BINARY 比较不变，含 NULL 的键不占用唯一值。追加时按各索引的排序规则及类型绑定检查已有键。本功能不实现任意自定义排序规则、条件/表达式索引感知生成，也不实现生成中所有值的 SQLite 类型亲和性等价判断；这些约束仍由数据库执行。仅供测试的 RawSQLite adapter 及未提供索引排序规则探测的第三方 adapter 保持原行为。重试耗尽不代表值域已耗尽。

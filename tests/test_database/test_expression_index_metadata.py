@@ -13,6 +13,7 @@ from sqlseed.core.schema import SchemaInferrer
 from sqlseed.database._helpers import fetch_index_info
 from sqlseed.database.raw_sqlite_adapter import RawSQLiteAdapter
 from sqlseed.database.sqlalchemy_adapter import SQLAlchemyAdapter
+from tests.assertions import assert_empty
 from tests.sqlite_helpers import sqlite_connection
 
 if TYPE_CHECKING:
@@ -47,7 +48,7 @@ def test_expression_key_is_not_truncated(tmp_path: Path, adapter_type: type, key
         assert indexes[0].columns == ()
         schema = SchemaInferrer(adapter)
         assert schema.detect_unique_columns("items") == {"id"}
-        assert schema.detect_composite_unique_constraints("items") == []
+        assert_empty(schema.detect_composite_unique_constraints("items"), list)
         assert adapter.get_row_count("items") == 2
 
 
@@ -111,7 +112,7 @@ def test_preview_and_fill_preserve_explicit_constant_columns(tmp_path: Path, key
     )
     assert result.count == 4
     assert result.batch_count == 2
-    assert result.errors == []
+    assert_empty(result.errors, list)
     with sqlite_connection(path) as db:
         stored = db.execute("SELECT id, bucket, tag, code FROM items ORDER BY id").fetchall()
         assert stored[:2] == [(100, 7, 9, "Alpha"), (101, 7, 9, "Beta")]

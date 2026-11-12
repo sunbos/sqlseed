@@ -31,6 +31,7 @@ from sqlseed.config.loader import generate_template, save_config
 from sqlseed.config.models import GeneratorConfig, ProviderType, TableConfig
 from sqlseed.config.snapshot import SnapshotManager
 from sqlseed.core.orchestrator import DataOrchestrator
+from sqlseed.database._sqlite_schema import resolve_sqlite_table_name
 from sqlseed.generators import ConfigurationError
 
 CONFLICTING_DATABASE_OPTIONS = "Cannot specify both positional db_path and --url. Use one or the other."
@@ -604,6 +605,18 @@ def _load_replay_config(snapshot_path: str) -> tuple[_ReplayMetadata, GeneratorC
     return metadata, config
 
 
+def _replay_table_config(config: GeneratorConfig, table_name: str, dialect_name: str) -> TableConfig | None:
+    """Select saved table settings using the connected database's name rules."""
+    matches = []
+    for table in config.tables:
+        name = resolve_sqlite_table_name(table.name, [table_name]) if dialect_name == "sqlite" else table.name
+        if name == table_name:
+            matches.append(table)
+    if len(matches) > 1:
+        raise click.UsageError("Snapshot contains multiple configurations for the replay table")
+    return matches[0] if matches else None
+
+
 @cli.command()
 @click.argument("snapshot_path")
 def replay(snapshot_path: str) -> None:
@@ -620,14 +633,9 @@ def replay(snapshot_path: str) -> None:
     metadata, config = _load_replay_config(snapshot_path)
     table_name = metadata.table_name
 
-    table_config = None
-    for tc in config.tables:
-        if tc.name == table_name:
-            table_config = tc
-            break
-
     try:
         with DataOrchestrator.from_config(config) as orch:
+            table_config = _replay_table_config(config, table_name, orch._get_dialect_name())
             result = orch.fill_table(
                 table_name=table_name,
                 count=metadata.count,
