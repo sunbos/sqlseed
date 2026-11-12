@@ -34,7 +34,7 @@ sqlseed 向已有数据库表中填充测试数据。它会为姓名、邮箱等
 无需把下表中的包全部安装。`sqlseed` 是离线 Core 库，其余四个包提供可选入口与能力，
 会自动安装所需的 Core。
 
-本文对应 0.2.6 版本，发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准；
+本文对应 0.2.7 版本，发布状态以 [Releases](https://github.com/sunbos/sqlseed/releases) 为准；
 尚未发布的候选版本按[源码安装指南](https://sunbos.github.io/sqlseed/zh-CN/guide/#source-installation)体验。
 
 | 包与用途 | 安装命令 | 从这里开始 |

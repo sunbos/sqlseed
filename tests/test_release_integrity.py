@@ -58,9 +58,10 @@ def check(checkout: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
 
 def test_reviewed_collection_and_placeholder_template_pass(checkout: Path) -> None:
     """Real historical prose and intentionally unfilled template text remain valid."""
+    note_count = len(list((checkout / ".github" / "release-notes").glob("v*.md")))
     result = check(checkout)
     assert result.returncode == 0, result.stderr
-    assert "Validated 20 local release notes; no GitHub access" in result.stdout
+    assert f"Validated {note_count} local release notes; no GitHub access" in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -123,11 +124,14 @@ def test_default_check_preserves_every_historical_note(checkout: Path, tag: str,
 def test_default_check_accepts_new_release_notes(checkout: Path) -> None:
     """The required historical set is a minimum, so new approved versions can be added."""
     directory = checkout / ".github" / "release-notes"
-    body = (directory / "v0.2.6.md").read_text(encoding="utf-8").replace("v0.2.6", "v0.2.7")
-    (directory / "v0.2.7.md").write_text(body, encoding="utf-8", newline="\n")
+    note_count = len(list(directory.glob("v*.md")))
+    new_note = directory / "v999.0.0.md"
+    assert not new_note.exists()
+    body = (directory / "v0.2.6.md").read_text(encoding="utf-8").replace("v0.2.6", "v999.0.0")
+    new_note.write_text(body, encoding="utf-8", newline="\n")
     result = check(checkout)
     assert result.returncode == 0, result.stderr
-    assert "Validated 21 local release notes" in result.stdout
+    assert f"Validated {note_count + 1} local release notes" in result.stdout
 
 
 def test_explicit_tag_keeps_subset_contract(checkout: Path) -> None:

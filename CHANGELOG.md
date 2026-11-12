@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-11-13
+
+### Changed
+
+- Add a real Chrome workbench smoke check to CI and isolate Windows development dependencies from hosted runner tools.
+- Build release packages with Python 3.12, matching the tested CI and public-installation checks instead of automatically selecting the newest Python runtime.
+- Standardize bilingual GitHub release notes with offline validation and backup-first synchronization of existing release descriptions.
+
+### Fixed
+
+- Read CLI configuration files once and report unreadable or invalid configurations and snapshots with exit status 2. Report database fill exceptions with exit status 1 and redacted URL credentials; display preview and inspection values literally.
+- Preserve literal SQLite filenames when generating configuration templates, and reject configuration output that aliases an existing local source database through a path, symbolic link or hard link.
+- Save snapshots without overwriting files when timestamps collide. Replay validates metadata, matches SQLite table names using ASCII case rules, rejects ambiguous table settings and retains `--enrich`.
+- Reject cyclic YAML data in configuration files, snapshots and Core MCP requests before clearing or inserting rows, while retaining shared aliases and merge keys.
+- Require positive built-in integers for Python generation counts, rejecting booleans and other types before generation or clearing. Validate seeds against the running Python version before a fill can clear existing rows.
+- Recognize literal `row[...]` dependencies without mistaking comments or string contents for references, reject unknown explicit `derive_from` sources, and keep database lookup cache keys distinct by scalar type.
+- Refresh explicit association values from their declared source on each generation call, preserve sampling settings and caller configuration, respect SQLite table-name aliases, and reject empty or unreadable sources. Filter NULL source values for NOT NULL targets and refresh foreign-key metadata after closing and reopening a connection.
+- Honor SQLite NOCASE and RTRIM collations when reserving complete UNIQUE keys and checking existing rows. Do not infer uniqueness for only the ordinary columns of an expression index.
+- Preserve Web table and column names such as `__proto__` and `constructor` in drafts, rules and recovery. Keep partial checks usable when a selected upstream association source will be populated during generation.
+- Correct Web update-check timeout handling on Windows when clock granularity places the next reading before an exhausted deadline, while preserving another caller's shorter wait budget.
+- Preserve hidden states, reduced-motion behavior and native controls in forced-colors mode through explicit CSS precedence; mark the hidden SVG symbol collection as decorative.
+
+### Compatibility
+
+- Core, CLI, AI, Core MCP and Web use the matching 0.2.7 package set. Python remains 3.10+, plugin requirements remain Core `>=0.2.5.dev0,<0.3`, and existing public entry points and configuration fields remain available.
+- Invalid counts, cyclic YAML, malformed replay metadata and ambiguous replay table settings now fail explicitly. Enriched replay reads current database contents; it does not restore a saved distribution. Core seed validation preserves values supported by the running Python version.
+- Ordinary fills still commit batch by batch, so later failures can leave earlier commits. These checks do not make multi-table generation atomic. Collation-aware generation covers built-in NOCASE/RTRIM on complete SQLite UNIQUE indexes through the production SQLAlchemy adapter; custom collations and partial/expression-index constraints remain database-enforced.
+
 ## [0.2.6] - 2026-10-07
 
 ### Changed
