@@ -51,7 +51,8 @@ def test_explicit_fk_preserves_caller_config_and_snapshot(tmp_path: Path, operat
                 assert database.read_bytes() == before
             else:
                 result = orch.fill_table("child", count=6, batch_size=4, seed=0, column_configs=[column], skip_ai=True)
-                assert result.count == 6 and result.batch_count == 2
+                assert result.count == 6
+                assert result.batch_count == 2
                 assert_empty(result.errors, list)
             with sqlite_connection(database) as db:
                 rows = db.execute("SELECT id, parent_code FROM child ORDER BY id").fetchall()

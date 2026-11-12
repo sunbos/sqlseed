@@ -55,14 +55,16 @@ def _validate_acyclic_yaml(value: object) -> None:
                 active.remove(identity)
                 completed.add(identity)
             continue
-        if isinstance(child, (dict, list, tuple)):
-            child_id = id(child)
-            if child_id in active:
-                raise ValueError("Configuration contains a cyclic YAML alias reference")
-            if child_id not in completed:
-                active.add(child_id)
-                members = child.values() if isinstance(child, dict) else child
-                frames.append((child_id, iter(members)))
+        if not isinstance(child, (dict, list, tuple)):
+            continue
+        child_id = id(child)
+        if child_id in active:
+            raise ValueError("Configuration contains a cyclic YAML alias reference")
+        if child_id in completed:
+            continue
+        active.add(child_id)
+        members = child.values() if isinstance(child, dict) else child
+        frames.append((child_id, iter(members)))
 
 
 def _convert_spec_to_column_entry(col_name: str, spec: GeneratorSpec) -> dict[str, Any]:

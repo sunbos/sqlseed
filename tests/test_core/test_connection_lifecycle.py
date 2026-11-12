@@ -68,7 +68,8 @@ def test_reopen_refreshes_foreign_key_metadata(tmp_path: Path, composite: bool) 
             assert [tuple(row.values()) for row in preview] == [new_key, new_key]
             assert orchestrator.get_topological_table_order(["child", "new_parent"]) == ["new_parent", "child"]
             result = orchestrator.fill_table("child", count=2, batch_size=1, seed=7, skip_ai=True)
-            assert result.count == 2 and result.batch_count == 2
+            assert result.count == 2
+            assert result.batch_count == 2
             assert_empty(result.errors, list)
         with sqlite_connection(path) as db:
             assert db.execute("SELECT * FROM child").fetchall() == [new_key, new_key]

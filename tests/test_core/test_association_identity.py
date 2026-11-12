@@ -50,7 +50,8 @@ def test_ascii_association_aliases_preserve_values_and_config(
         assert live.get_topological_table_order(["CHILD", "PARENT"]) == ["PARENT", "CHILD"]
         assert live.preview_table("CHILD", count=2, seed=7, columns=columns) == [{"token": 701}] * 2
         result = live.fill_table("CHILD", count=2, seed=7, columns=columns, skip_ai=True)
-        assert not result.errors and result.count == 2
+        assert not result.errors
+        assert result.count == 2
     with sqlite_connection(db_path) as conn:
         assert conn.execute("SELECT token FROM Child").fetchall() == [(701,), (701,)]
     assert config.model_dump() == original
