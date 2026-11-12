@@ -286,9 +286,9 @@ class ConstraintSolver:
 
     def reset_column(self, column_name: str) -> None:
         """Clear all registered unique values for a single column."""
-        for key in list(self._normalized_seen):
-            if key[0] == (column_name,):
-                del self._normalized_seen[key]
+        matching_keys = [key for key in self._normalized_seen if key[0] == (column_name,)]
+        for key in matching_keys:
+            del self._normalized_seen[key]
         self._seen.pop(column_name, None)
         if self._probabilistic:
             self._hash_seen.pop(column_name, None)

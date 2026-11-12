@@ -66,7 +66,8 @@ def test_replay_alias_preserves_columns_transform_and_batch_size(
     monkeypatch.setattr(DataOrchestrator, "fill_table", record_fill)
     result = CliRunner().invoke(cli, ["replay", snapshot])
     assert result.exit_code == 0, result.output
-    assert len(results) == 1 and results[0].batch_count == 2
+    assert len(results) == 1
+    assert results[0].batch_count == 2
     with sqlite_connection(database) as db:
         assert db.execute("SELECT amount,label FROM Items ORDER BY id").fetchall() == [
             (99, "original"),

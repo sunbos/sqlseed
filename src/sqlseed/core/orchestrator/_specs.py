@@ -466,11 +466,7 @@ class SpecResolverMixin:
             # probe is bounded too: never COUNT or preload existing key tuples.
             if checker({}):
                 existing_value_check = checker
-        key_normalizers: dict[tuple[str, ...], list[Callable[[tuple[Any, ...]], tuple[Any, ...]]]] = {}
-        if table_name is not None and getattr(getattr(self._db, "dialect", None), "name", "") == "sqlite":
-            for key in get_unique_keys(self._db, table_name=table_name):
-                if (normalize := sqlite_key_normalizer(key)) is not None:
-                    key_normalizers.setdefault(key.columns, []).append(normalize)
+        key_normalizers = self._get_key_normalizers(table_name)
         constraint_solver = ConstraintSolver(existing_value_check=existing_value_check, key_normalizers=key_normalizers)
 
         transform_fn = None
@@ -501,6 +497,17 @@ class SpecResolverMixin:
             cancel_check=cancel_check,
             table_name=table_name,
         )
+
+    def _get_key_normalizers(
+        self, table_name: str | None
+    ) -> dict[tuple[str, ...], list[Callable[[tuple[Any, ...]], tuple[Any, ...]]]]:
+        """Collect SQLite UNIQUE comparison rules, including multiple rules for the same columns."""
+        key_normalizers: dict[tuple[str, ...], list[Callable[[tuple[Any, ...]], tuple[Any, ...]]]] = {}
+        if table_name is not None and getattr(getattr(self._db, "dialect", None), "name", "") == "sqlite":
+            for key in get_unique_keys(self._db, table_name=table_name):
+                if (normalize := sqlite_key_normalizer(key)) is not None:
+                    key_normalizers.setdefault(key.columns, []).append(normalize)
+        return key_normalizers
 
     def _get_inequality_constraints(self, table_name: str | None) -> list[tuple[str, str, str]]:
         """Read supported comparisons, retaining earlier matches if later extraction fails."""

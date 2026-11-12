@@ -81,6 +81,36 @@ def test_sqlite_equality_and_reservation_release(tmp_path, collation, left, righ
     assert solver.check_and_register("code", left, True)
 
 
+@pytest.mark.parametrize("probabilistic", [False, True])
+@pytest.mark.parametrize("replacement", ["abc", "ABC", "abc  "])
+def test_reset_column_preserves_other_columns_and_composite_keys(probabilistic, replacement):
+    from sqlseed.core.constraints import ConstraintSolver
+    from sqlseed.database._unique_keys import UniqueKey, sqlite_key_normalizer
+
+    normalizers = {}
+    for key in (
+        UniqueKey(("code",), ("NOCASE",)),
+        UniqueKey(("code",), ("RTRIM",)),
+        UniqueKey(("other",), ("NOCASE",)),
+        UniqueKey(("code", "other"), ("NOCASE", "RTRIM")),
+    ):
+        normalize = sqlite_key_normalizer(key)
+        assert normalize is not None
+        normalizers.setdefault(key.columns, []).append(normalize)
+    solver = ConstraintSolver(probabilistic=probabilistic, key_normalizers=normalizers)
+    assert solver.check_and_register("code", "abc", True)
+    assert solver.check_and_register("other", "hold", True)
+    assert solver.check_and_register_composite("pair", ("abc", "pair  "), columns=["code", "other"])
+    assert not solver.check_and_register("code", replacement, True)
+
+    solver.reset_column("code")
+    solver.reset_column("code")
+
+    assert solver.check_and_register("code", replacement, True)
+    assert not solver.check_and_register("other", "HOLD", True)
+    assert not solver.check_and_register_composite("pair", ("ABC", "pair"), columns=["code", "other"])
+
+
 @pytest.mark.parametrize("composite", [False, True])
 def test_multiple_index_collations_and_nulls(tmp_path, composite):
     path = tmp_path / "multiple.db"

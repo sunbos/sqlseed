@@ -85,7 +85,8 @@ def test_configured_preview_and_fill_reject_then_recover(tmp_path: Path, sources
         assert path.read_bytes() == before
         result = orchestrator.fill_table("samples", count=3, seed=42, column_configs=config, batch_size=2, skip_ai=True)
         assert_empty(result.errors, list)
-        assert result.count == 3 and result.batch_count == 2
+        assert result.count == 3
+        assert result.batch_count == 2
     with sqlite_connection(path) as db:
         assert db.execute("SELECT source, copied FROM samples ORDER BY rowid").fetchall() == [(99, 99)] + [(7, 7)] * 3
         assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]

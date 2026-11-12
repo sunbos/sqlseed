@@ -48,7 +48,8 @@ def test_association_nullability_and_live_recovery(tmp_path: Path, nullable: boo
                 assert _database_digest(path) == digest
                 assert {row["department_id"] for row in preview} == expected
                 result = live.fill_table("child", count=6, batch_size=2, seed=11, columns=columns, skip_ai=True)
-                assert result.count == 6 and not result.errors
+                assert result.count == 6
+                assert not result.errors
                 after = db.execute("SELECT * FROM child ORDER BY id").fetchall()
                 assert after[: len(before)] == before
                 assert [row[1] for row in after[len(before) :]] == [row["department_id"] for row in preview]

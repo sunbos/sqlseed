@@ -132,12 +132,16 @@ class ColumnDAG:
                 nullable=nullable_map.get(col_name, True),
             )
 
+        self._validate_derive_sources(nodes)
+        return self._topological_sort(nodes)
+
+    @staticmethod
+    def _validate_derive_sources(nodes: dict[str, ColumnNode]) -> None:
+        """Require explicit derive sources to exist in the completed column graph."""
         for node in nodes.values():
             for source in node.derive_from_sources:
                 if source not in nodes:
                     raise ConfigurationError(f"Column '{node.name}' derives from unknown source column '{source}'")
-
-        return self._topological_sort(nodes)
 
     def _build_node_from_spec(
         self,

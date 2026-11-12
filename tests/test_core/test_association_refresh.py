@@ -56,7 +56,8 @@ def _assert_priority_fill(
     """Require the explicit or declared FK to override the configured association."""
     with DataOrchestrator.from_config(config) as live:
         result = live.fill_table("child", count=8, seed=17, columns=columns, skip_ai=True)
-        assert result.count == 8 and not result.errors
+        assert result.count == 8
+        assert not result.errors
     assert {row[0] for row in conn.execute("SELECT department_id FROM child")} == {901, 902}
 
 
@@ -82,10 +83,12 @@ def test_explicit_source_stays_fresh_and_table_scoped(tmp_path: Path, generator:
         columns = {"department_id": {"generator": generator, "strategy": "coverage", "null_ratio": 0}}
         with DataOrchestrator.from_config(config) as live:
             result = live.fill_table("unrelated", count=1, seed=20, skip_ai=True)
-            assert result.count == 1 and not result.errors
+            assert result.count == 1
+            assert not result.errors
             for stage in range(3):
                 result = live.fill_table("parent", count=1, seed=21 + stage, skip_ai=True)
-                assert result.count == 1 and not result.errors
+                assert result.count == 1
+                assert not result.errors
                 expected = {row[0] for row in conn.execute("SELECT member_id FROM parent")}
                 before = conn.execute("SELECT * FROM child ORDER BY id").fetchall()
                 digest = _database_digest(db_path)
@@ -95,7 +98,8 @@ def test_explicit_source_stays_fresh_and_table_scoped(tmp_path: Path, generator:
                 result = live.fill_table(
                     "child", count=60, batch_size=7, seed=30 + stage, columns=columns, skip_ai=True
                 )
-                assert result.count == 60 and not result.errors
+                assert result.count == 60
+                assert not result.errors
                 after = conn.execute("SELECT * FROM child ORDER BY id").fetchall()
                 assert after[: len(before)] == before
                 values = [row[1] for row in after[len(before) :]]
@@ -157,7 +161,8 @@ def test_unavailable_source_cannot_use_unrelated_pool(tmp_path: Path, source: st
         config = _association_config(db_path, source_table=source)
         with DataOrchestrator.from_config(config) as live:
             result = live.fill_table("unrelated", count=1, skip_ai=True)
-            assert result.count == 1 and not result.errors
+            assert result.count == 1
+            assert not result.errors
             before = _database_digest(db_path)
             with pytest.raises(ConfigurationError, match="has no readable source values"):
                 live.preview_table("child", count=5)

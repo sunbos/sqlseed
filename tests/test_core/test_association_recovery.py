@@ -36,16 +36,16 @@ def test_unavailable_source_recovers_in_same_live_orchestrator(
         columns = {"department_id": {"generator": generator, "strategy": "coverage", "null_ratio": 0}}
         with DataOrchestrator.from_config(_association_config(db_path, source_table="source")) as live:
             result = live.fill_table("unrelated", count=1, seed=20, skip_ai=True)
-            assert result.count == 1 and not result.errors
+            assert result.count == 1
+            assert not result.errors
             assert live._shared_pool.get("department_id")
             before_dump = list(conn.iterdump())
             digest = _database_digest(db_path)
             for api in ("preview", "fill"):
+                generate = live.preview_table if api == "preview" else live.fill_table
+                options = {} if api == "preview" else {"skip_ai": True}
                 with pytest.raises(ConfigurationError, match="has no readable source values") as raised:
-                    if api == "preview":
-                        live.preview_table("child", count=12, seed=30, columns=columns)
-                    else:
-                        live.fill_table("child", count=12, seed=30, columns=columns, skip_ai=True)
+                    generate("child", count=12, seed=30, columns=columns, **options)
                 assert _database_digest(db_path) == digest
                 assert list(conn.iterdump()) == before_dump
                 audit["refusals"].append({"api": api, "error": str(raised.value), "sha256": digest})
@@ -73,7 +73,8 @@ def test_unavailable_source_recovers_in_same_live_orchestrator(
                 result = live.fill_table(
                     "child", count=12, batch_size=5, seed=30 + stage, columns=columns, skip_ai=True
                 )
-                assert result.count == 12 and not result.errors
+                assert result.count == 12
+                assert not result.errors
                 after = conn.execute("SELECT * FROM child ORDER BY id").fetchall()
                 assert after[: len(before)] == before
                 assert [row[1] for row in after[len(before) :]] == values
