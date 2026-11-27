@@ -111,7 +111,7 @@ def test_installer_exit_and_timeout_reap_grandchildren_holding_stdout(
     contender = EnvironmentLock(tmp_path, exclusive=True)
     owner.acquire()
     output: list[str] = []
-    phases: dict[str, float] = {}
+    phases_ns: dict[str, int] = {}
     original_wait = plugin_process._wait_installer
 
     def wait_after_startup(
@@ -135,12 +135,12 @@ def test_installer_exit_and_timeout_reap_grandchildren_holding_stdout(
         owner.release()
         with pytest.raises(RuntimeError):
             contender.acquire()
-        phases["ready"] = time.monotonic()
+        phases_ns["ready"] = time.monotonic_ns()
         (tmp_path / "continue").touch()
         try:
             return original_wait(process, reader, arguments, emit, timeout)
         finally:
-            phases["wait_finished"] = time.monotonic()
+            phases_ns["wait_finished"] = time.monotonic_ns()
 
     monkeypatch.setattr(plugin_process, "_wait_installer", wait_after_startup)
     try:
@@ -151,10 +151,12 @@ def test_installer_exit_and_timeout_reap_grandchildren_holding_stdout(
             lock_descriptor=owner.fileno(),
         )
         assert result == (-1 if parent_waits else 0), output
-        assert time.monotonic() - phases["ready"] < 10, "Inherited stdout must not hang process cleanup"
+        assert time.monotonic_ns() - phases_ns["ready"] < 10_000_000_000, (
+            "Inherited stdout must not hang process cleanup"
+        )
         if parent_waits:
             assert (tmp_path / "holding").exists(), "Timeout must exercise a running installer parent"
-            assert phases["wait_finished"] - phases["ready"] >= 3
+            assert phases_ns["wait_finished"] - phases_ns["ready"] >= 3_000_000_000
         owner.release()
         _acquire_after_cleanup(contender)
         _assert_writer_stopped(tmp_path / "writes")
