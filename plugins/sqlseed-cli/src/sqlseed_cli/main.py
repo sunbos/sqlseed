@@ -635,7 +635,22 @@ def replay(snapshot_path: str) -> None:
 
     try:
         with DataOrchestrator.from_config(config) as orch:
-            table_config = _replay_table_config(config, table_name, orch._get_dialect_name())
+            dialect_name = orch._get_dialect_name()
+            table_config = _replay_table_config(config, table_name, dialect_name)
+            if dialect_name == "sqlite" and table_config and table_config.columns:
+                # Inference otherwise silently drops stale explicit mappings, even
+                # before a saved clear-and-rebuild runs. Match the mapper's exact
+                # column spelling, while preserving SQLite table alias handling.
+                existing_tables = orch.get_table_names()
+                canonical = resolve_sqlite_table_name(table_name, existing_tables)
+                if canonical in existing_tables:
+                    present = {column.name for column in orch.get_column_info(canonical)}
+                    missing = sorted({column.name for column in table_config.columns} - present)
+                    if missing:
+                        raise ValueError(
+                            f"Snapshot columns not found in table {canonical!r}: {', '.join(repr(name) for name in missing)}. "
+                            "Review the saved mappings before replay."
+                        )
             result = orch.fill_table(
                 table_name=table_name,
                 count=metadata.count,
