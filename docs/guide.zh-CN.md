@@ -237,7 +237,7 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 
 | 选项 | 说明 |
 |--------|-------------|
-| `--table, -t` | 目标表名 |
+| `--table, -t` | 直接生成时的目标表（不能与 `--config` 同用） |
 | `--count, -n` | 生成行数（未使用 `--config` 时必填） |
 | `--provider, -p` | `mimesis` / `faker` / `base`（默认：`mimesis`） |
 | `--locale, -l` | 数据语言地区（默认：`en_US`） |
@@ -250,6 +250,8 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 | `--enrich` | 根据已有数据推断分布 |
 | `--no-ai` | 跳过 AI 建议 |
 | `--url` | 数据库 URL（替代位置参数 `db_path`） |
+
+使用 `--config` 时，在配置文件的 `tables` 列表中指定目标表。与 `--table` 或 `-t` 同用会在写入数据库前以状态码 2 退出。
 
 如果 `--config` 指定的文件无法读取、解析或通过配置校验，`fill` 会显示原因，并在生成或清表前以状态码 2 退出。请修正文件路径、UTF-8 YAML/JSON 语法或提示的字段，再重试同一命令。
 每次命令只读取一次配置；加载完成后的文件修改将在后续调用中生效。

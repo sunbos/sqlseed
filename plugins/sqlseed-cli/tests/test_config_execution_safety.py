@@ -285,3 +285,29 @@ def test_direct_fill_keeps_default_provider_and_locale(tmp_path: Path) -> None:
     assert result.exit_code == 0, result.output
     with sqlite_connection(db_path) as conn:
         assert conn.execute("SELECT name FROM people ORDER BY rowid").fetchall() == expected_rows
+
+
+@pytest.mark.parametrize("table", ["alpha", "missing"])
+def test_config_rejects_explicit_table_without_writing(tmp_path: Path, table: str) -> None:
+    database = tmp_path / "configured.db"
+    with sqlite_connection(database) as conn:
+        conn.executescript(
+            "CREATE TABLE alpha (value INTEGER); INSERT INTO alpha VALUES (7);"
+            "CREATE TABLE beta (value INTEGER); INSERT INTO beta VALUES (9);"
+        )
+    config = tmp_path / "generate.yaml"
+    config.write_text(
+        yaml.safe_dump(
+            {
+                "db_path": str(database),
+                "provider": "base",
+                "tables": [{"name": name, "count": 1} for name in ("alpha", "beta")],
+            }
+        ),
+        encoding="utf-8",
+    )
+    before = database.read_bytes()
+    result = CliRunner().invoke(cli, ["fill", "--config", str(config), "-t", table, "--no-ai"])
+    assert result.exit_code == 2, result.output
+    assert "Cannot combine --config with --table" in result.output
+    assert database.read_bytes() == before

@@ -175,7 +175,7 @@ class FillOptions:
 
 @cli.command()
 @click.argument("db_path", required=False)
-@click.option("--table", "-t", default=None, help="Target table name")
+@click.option("--table", "-t", default=None, help="Target table name for direct generation (not with --config)")
 @click.option(
     "--count",
     "-n",
@@ -290,6 +290,8 @@ def fill(**kwargs: Any) -> None:
 
 
 def _execute_config_fill(options: FillOptions, config_path: str) -> None:
+    if options.table is not None:
+        raise click.UsageError("Cannot combine --config with --table. Set the target tables in the config file.")
     logger.debug("Using config-driven generation", config_path=config_path)
     context = click.get_current_context()
     config_overrides = {

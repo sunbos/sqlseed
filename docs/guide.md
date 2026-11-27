@@ -269,7 +269,7 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 
 | Option | Description |
 |--------|-------------|
-| `--table, -t` | Target table name |
+| `--table, -t` | Target table for direct generation (not with `--config`) |
 | `--count, -n` | Number of rows (required without `--config`) |
 | `--provider, -p` | `mimesis` / `faker` / `base` (default: `mimesis`) |
 | `--locale, -l` | Locale (default: `en_US`) |
@@ -282,6 +282,9 @@ SQLSEED_LOG_LEVEL=DEBUG sqlseed fill app.db -t users -n 10
 | `--enrich` | Infer distributions from existing data |
 | `--no-ai` | Skip AI suggestions |
 | `--url` | Database URL (alternative to positional `db_path`) |
+
+With `--config`, select target tables in the file’s `tables` list. Combining
+`--config` with `--table` or `-t` exits with status 2 before any database write.
 
 If `--config` cannot be read, parsed, or validated, `fill` prints the reason and
 exits with status 2 before generation or clearing tables. Correct the file path,
