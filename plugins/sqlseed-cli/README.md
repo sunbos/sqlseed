@@ -71,7 +71,8 @@ if the template uses `provider: mimesis`:
 sqlseed fill --config generate.yaml --no-ai
 ```
 
-`--config` cannot be combined with a positional database path or `--url`. Omitted
+`--config` cannot be combined with a positional database path, `--url`, or
+`--table` (`-t`). Set the target tables in the file’s `tables` list. Omitted
 `--provider`, `--locale`, and `--batch-size` preserve the YAML values. Explicit options
 override those values, including options equal to the command defaults. Without
 `--config`, the defaults are `mimesis`, `en_US`, and `5000`.
