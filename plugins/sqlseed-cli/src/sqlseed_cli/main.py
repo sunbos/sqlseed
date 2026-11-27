@@ -269,8 +269,6 @@ def fill(**kwargs: Any) -> None:
         raise click.UsageError(
             "Cannot combine --config with positional db_path or --url. Set db_path or url in the config file."
         )
-    if config_path and table is not None:
-        raise click.UsageError("Cannot combine --config with --table. Set the target tables in the config file.")
     if not config_path and not db_path and not db_url:
         raise click.UsageError("db_path or --url is required when not using --config.")
 
@@ -292,6 +290,8 @@ def fill(**kwargs: Any) -> None:
 
 
 def _execute_config_fill(options: FillOptions, config_path: str) -> None:
+    if options.table is not None:
+        raise click.UsageError("Cannot combine --config with --table. Set the target tables in the config file.")
     logger.debug("Using config-driven generation", config_path=config_path)
     context = click.get_current_context()
     config_overrides = {
