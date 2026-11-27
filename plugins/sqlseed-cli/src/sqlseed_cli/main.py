@@ -647,8 +647,9 @@ def replay(snapshot_path: str) -> None:
                     present = {column.name for column in orch.get_column_info(canonical)}
                     missing = sorted({column.name for column in table_config.columns} - present)
                     if missing:
+                        missing_columns = ", ".join(repr(name) for name in missing)
                         raise ValueError(
-                            f"Snapshot columns not found in table {canonical!r}: {', '.join(repr(name) for name in missing)}. "
+                            f"Snapshot columns not found in table {canonical!r}: {missing_columns}. "
                             "Review the saved mappings before replay."
                         )
             result = orch.fill_table(

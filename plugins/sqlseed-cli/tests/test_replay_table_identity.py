@@ -162,8 +162,7 @@ def test_replay_refuses_stale_sqlite_column_before_writing(
     database = tmp_path / "renamed.db"
     with sqlite_connection(database) as db:
         db.executescript(
-            "CREATE TABLE Items (id INTEGER PRIMARY KEY, body TEXT NOT NULL);"
-            "INSERT INTO Items VALUES (90,'original');"
+            "CREATE TABLE Items (id INTEGER PRIMARY KEY, body TEXT NOT NULL);INSERT INTO Items VALUES (90,'original');"
         )
     config = GeneratorConfig.model_validate(
         {
