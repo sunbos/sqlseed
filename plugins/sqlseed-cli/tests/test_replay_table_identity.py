@@ -152,3 +152,42 @@ def test_replay_postgresql_name_matching_is_exact() -> None:
     config = GeneratorConfig(url="postgresql://localhost/example", tables=[TableConfig(name="Items")])
     assert _replay_table_config(config, "Items", "postgresql") is config.tables[0]
     assert _replay_table_config(config, "items", "postgresql") is None
+
+
+@pytest.mark.parametrize("clear_before", [False, True])
+def test_replay_refuses_stale_sqlite_column_before_writing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, clear_before: bool
+) -> None:
+    monkeypatch.setenv("SQLSEED_CACHE_DIR", str(tmp_path / "cache"))
+    database = tmp_path / "renamed.db"
+    with sqlite_connection(database) as db:
+        db.executescript(
+            "CREATE TABLE Items (id INTEGER PRIMARY KEY, body TEXT NOT NULL);"
+            "INSERT INTO Items VALUES (90,'original');"
+        )
+    config = GeneratorConfig.model_validate(
+        {
+            "db_path": str(database),
+            "provider": "base",
+            "tables": [
+                {
+                    "name": "items",
+                    "clear_before": clear_before,
+                    "columns": [{"name": "body", "generator": "choice", "params": {"choices": ["expected-policy"]}}],
+                }
+            ],
+        }
+    )
+    snapshot = SnapshotManager(str(tmp_path / "snapshots")).save(config, "iTeMs", 2, 42)
+    with sqlite_connection(database) as db:
+        db.execute("ALTER TABLE Items RENAME COLUMN body TO renamed_body")
+    before = database.read_bytes()
+
+    result = CliRunner().invoke(cli, ["replay", snapshot])
+
+    assert result.exit_code == 2, result.output
+    assert "Snapshot columns not found in table 'Items': 'body'" in result.output
+    assert database.read_bytes() == before
+    with sqlite_connection(database) as db:
+        assert db.execute("SELECT * FROM Items").fetchall() == [(90, "original")]
+        assert db.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
