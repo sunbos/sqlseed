@@ -644,12 +644,10 @@ def replay(snapshot_path: str) -> None:
                 # before a saved clear-and-rebuild runs. Match the mapper's exact
                 # column spelling, while preserving SQLite table alias handling.
                 existing_tables = orch.get_table_names()
-                canonical = resolve_sqlite_table_name(table_name, existing_tables)
-                if canonical in existing_tables:
+                if (canonical := resolve_sqlite_table_name(table_name, existing_tables)) in existing_tables:
                     present = {column.name for column in orch.get_column_info(canonical)}
-                    missing = sorted({column.name for column in table_config.columns} - present)
-                    if missing:
-                        missing_columns = ", ".join(repr(name) for name in missing)
+                    if missing := {column.name for column in table_config.columns} - present:
+                        missing_columns = ", ".join(repr(name) for name in sorted(missing))
                         raise ValueError(
                             f"Snapshot columns not found in table {canonical!r}: {missing_columns}. "
                             "Review the saved mappings before replay."
